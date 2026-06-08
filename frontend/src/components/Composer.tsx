@@ -1,5 +1,6 @@
 import { useRef, type KeyboardEvent } from "react";
 import { Link } from "react-router-dom";
+import type { SimilarityAxis } from "../api/client";
 
 const IMAGE_ACCEPT = "image/png,image/jpeg,image/webp,image/gif,image/bmp,image/tiff";
 
@@ -23,14 +24,23 @@ function DeckSuggestIcon() {
   );
 }
 
+const SIMILARITY_AXES: { id: SimilarityAxis; label: string }[] = [
+  { id: "balanced", label: "Balanced" },
+  { id: "subject", label: "Subject" },
+  { id: "style", label: "Style" },
+  { id: "layout", label: "Layout" },
+];
+
 interface ComposerProps {
   value: string;
   topK: number;
   minMatchPercent: number;
+  similarityAxis: SimilarityAxis;
   loading: boolean;
   onChange: (value: string) => void;
   onTopKChange: (value: number) => void;
   onMinMatchPercentChange: (value: number) => void;
+  onSimilarityAxisChange: (value: SimilarityAxis) => void;
   onSend: () => void;
   onSimilarImageSearch: (file: File) => void;
 }
@@ -63,10 +73,12 @@ export function Composer({
   value,
   topK,
   minMatchPercent,
+  similarityAxis,
   loading,
   onChange,
   onTopKChange,
   onMinMatchPercentChange,
+  onSimilarityAxisChange,
   onSend,
   onSimilarImageSearch,
 }: ComposerProps) {
@@ -134,6 +146,24 @@ export function Composer({
           e.target.value = "";
         }}
       />
+      <div className="mt-2 flex flex-wrap items-center gap-1">
+        <span className="mr-1 text-xs text-navy-600">Similarity axis</span>
+        {SIMILARITY_AXES.map(({ id, label }) => (
+          <button
+            key={id}
+            type="button"
+            disabled={loading}
+            onClick={() => onSimilarityAxisChange(id)}
+            className={`rounded-lg px-2.5 py-1 text-xs font-medium transition disabled:opacity-50 ${
+              similarityAxis === id
+                ? "bg-brand-500 text-white shadow-sm"
+                : "border border-navy-200 bg-white text-navy-700 hover:border-brand-400 hover:bg-brand-50"
+            }`}
+          >
+            {label}
+          </button>
+        ))}
+      </div>
       <div className="mt-2 flex flex-wrap items-center justify-between gap-2">
         <label className="flex items-center gap-2 text-xs text-navy-600">
           <span>Max results</span>

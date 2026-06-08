@@ -58,7 +58,7 @@ def _apply_metadata_filter(spec: QuerySpec, restrict_to: Optional[Sequence[str]]
     return ids
 
 
-def _rrf_merge(
+def rrf_merge(
     dense: List[tuple[str, float]],
     sparse: List[tuple[str, float]],
     k: int,
@@ -125,7 +125,7 @@ def search(
         logger.warning("Sparse search failed (%s): %s", type(exc).__name__, exc)
         sparse_hits = []
 
-    merged = _rrf_merge(dense_hits, sparse_hits, rrf)
+    merged = rrf_merge(dense_hits, sparse_hits, rrf)
 
     # must_avoid_keywords post-filter: drop any candidate whose text contains
     # an avoided keyword. We look it up from SQLite to keep memory bounded.

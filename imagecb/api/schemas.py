@@ -85,6 +85,7 @@ class SimilarRequest(BaseModel):
     session_id: Optional[str] = None
     top_k: int = Field(default=10, ge=1, le=50)
     min_match_percent: int = Field(default=0, ge=0, le=100)
+    similarity_axis: str = Field(default="balanced")
 
 
 class SimilarResponse(BaseModel):

@@ -51,6 +51,9 @@ export default function App() {
   const [input, setInput] = useState("");
   const [topK, setTopK] = useState(10);
   const [minMatchPercent, setMinMatchPercent] = useState(0);
+  const [similarityAxis, setSimilarityAxis] = useState<
+    import("./api/client").SimilarityAxis
+  >("balanced");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(true);
@@ -503,14 +506,26 @@ export default function App() {
   const handleSimilarImageSearch = (file: File) => {
     if (loading) return;
     void applySimilarResponse(`[Image search] ${file.name}`, (sessionId) =>
-      searchSimilarByImage(file, sessionId, topK, minMatchPercent),
+      searchSimilarByImage(
+        file,
+        sessionId,
+        topK,
+        minMatchPercent,
+        similarityAxis,
+      ),
     );
   };
 
   const handleSimilarFromResult = (imageId: string, imageName: string) => {
     if (loading) return;
     void applySimilarResponse(`[Find similar] ${imageName}`, (sessionId) =>
-      searchSimilarByImageId(imageId, sessionId, topK, minMatchPercent),
+      searchSimilarByImageId(
+        imageId,
+        sessionId,
+        topK,
+        minMatchPercent,
+        similarityAxis,
+      ),
     );
   };
 
@@ -621,10 +636,12 @@ export default function App() {
                 value={input}
                 topK={topK}
                 minMatchPercent={minMatchPercent}
+                similarityAxis={similarityAxis}
                 loading={loading}
                 onChange={setInput}
                 onTopKChange={setTopK}
                 onMinMatchPercentChange={setMinMatchPercent}
+                onSimilarityAxisChange={setSimilarityAxis}
                 onSend={handleSend}
                 onSimilarImageSearch={handleSimilarImageSearch}
               />
@@ -652,6 +669,7 @@ export default function App() {
             sessionId={activeConversation?.sessionId ?? null}
             topK={topK}
             minMatchPercent={minMatchPercent}
+            similarityAxis={similarityAxis}
             onSimilarResults={(similarResults, newSearchEventId) => {
               setResults(similarResults);
               setSearchEventId(newSearchEventId ?? null);

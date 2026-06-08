@@ -1,3 +1,4 @@
+import type { SimilarityAxis } from "../api/client";
 import type { ResultCard as ResultCardType } from "../types";
 import { ResultCard } from "./ResultCard";
 
@@ -9,6 +10,7 @@ interface ResultsGridProps {
   sessionId?: string | null;
   topK?: number;
   minMatchPercent?: number;
+  similarityAxis?: SimilarityAxis;
   onSimilarResults?: (results: ResultCardType[], searchEventId?: string | null) => void;
 }
 
@@ -20,6 +22,7 @@ export function ResultsGrid({
   sessionId,
   topK,
   minMatchPercent,
+  similarityAxis,
   onSimilarResults,
 }: ResultsGridProps) {
   if (results.length === 0) {
@@ -55,6 +58,7 @@ export function ResultsGrid({
           sessionId={sessionId}
           topK={topK}
           minMatchPercent={minMatchPercent}
+          similarityAxis={similarityAxis}
           onSimilarResults={onSimilarResults}
         />
       ))}

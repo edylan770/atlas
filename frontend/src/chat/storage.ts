@@ -1,9 +1,7 @@
-import type { Conversation, ConversationTurn, SearchHistoryEntry } from "../types";
+import type { Conversation, ConversationTurn } from "../types";
 
 const STORAGE_KEY = "imagecb.conversations.v1";
 const ACTIVE_KEY = "imagecb.activeConversationId.v1";
-const SEARCH_HISTORY_KEY = "imagecb.searchHistory.v1";
-const MAX_SEARCH_HISTORY = 30;
 
 export interface StoredState {
   conversations: Conversation[];
@@ -105,35 +103,4 @@ export function recentChatTitles(
     if (out.length >= limit) break;
   }
   return out;
-}
-
-export function loadSearchHistory(): SearchHistoryEntry[] {
-  try {
-    const raw = localStorage.getItem(SEARCH_HISTORY_KEY);
-    if (!raw) return [];
-    const parsed = JSON.parse(raw) as SearchHistoryEntry[];
-    return Array.isArray(parsed) ? parsed : [];
-  } catch {
-    return [];
-  }
-}
-
-export function saveSearchHistory(entries: SearchHistoryEntry[]): void {
-  try {
-    localStorage.setItem(SEARCH_HISTORY_KEY, JSON.stringify(entries));
-  } catch {
-    /* quota or private mode */
-  }
-}
-
-export function appendSearchHistory(
-  entries: SearchHistoryEntry[],
-  entry: SearchHistoryEntry,
-): SearchHistoryEntry[] {
-  const query = entry.query.trim();
-  if (!query) return entries;
-  const key = query.toLowerCase();
-  const filtered = entries.filter((e) => e.query.trim().toLowerCase() !== key);
-  const next = [{ ...entry, query }, ...filtered];
-  return next.slice(0, MAX_SEARCH_HISTORY);
 }

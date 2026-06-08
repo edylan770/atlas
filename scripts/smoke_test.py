@@ -127,9 +127,9 @@ def test_vector_store_upsert_query() -> None:
 
 
 def test_rrf_merge() -> None:
-    from imagecb.retrieval.hybrid import _rrf_merge
+    from imagecb.retrieval.hybrid import rrf_merge
 
-    merged = _rrf_merge(
+    merged = rrf_merge(
         [("a", 0.9), ("b", 0.8)],
         [("b", 1.0), ("c", 0.7)],
         k=60,

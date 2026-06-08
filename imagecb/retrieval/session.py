@@ -177,16 +177,26 @@ class ChatSession:
             summary = summary[:497].rstrip() + "..."
         self.history.append((user_text, summary))
 
-    def apply_similar_results(self, results: List[RankedResult], *, top_k: int) -> None:
+    def apply_similar_results(
+        self,
+        results: List[RankedResult],
+        *,
+        spec: QuerySpec,
+    ) -> None:
         """Update candidate pool after a similar-image search."""
         self.last_results = list(results)
         self.last_candidate_ids = [r.image_id for r in results]
-        self.last_spec = QuerySpec(
-            semantic_query="visually similar images",
-            raw_text="[similar image search]",
-            top_k=top_k,
+        merged = QuerySpec(
+            semantic_query=spec.semantic_query,
+            raw_text=spec.raw_text,
+            must_have_keywords=list(spec.must_have_keywords),
+            must_avoid_keywords=list(spec.must_avoid_keywords),
+            source_filters=spec.source_filters,
+            time_filter=spec.time_filter,
+            top_k=spec.top_k,
             is_refinement=True,
         )
+        self.last_spec = merged
 
 
 def _summarize_results(results: List[RankedResult]) -> str:

@@ -306,16 +306,20 @@ export async function fetchCorpusCatalog(
   );
 }
 
+export type SimilarityAxis = "balanced" | "subject" | "style" | "layout";
+
 export async function searchSimilarByImage(
   imageFile: File,
   sessionId: string | null,
   topK: number,
   minMatchPercent: number,
+  similarityAxis: SimilarityAxis = "balanced",
 ): Promise<SimilarResponse> {
   const form = new FormData();
   form.append("file", imageFile);
   form.append("top_k", String(topK));
   form.append("min_match_percent", String(minMatchPercent));
+  form.append("similarity_axis", similarityAxis);
   if (sessionId) form.append("session_id", sessionId);
   return request<SimilarResponse>("/api/similar", {
     method: "POST",
@@ -328,6 +332,7 @@ export async function searchSimilarByImageId(
   sessionId: string | null,
   topK: number,
   minMatchPercent: number,
+  similarityAxis: SimilarityAxis = "balanced",
 ): Promise<SimilarResponse> {
   return request<SimilarResponse>("/api/similar", {
     method: "POST",
@@ -337,6 +342,7 @@ export async function searchSimilarByImageId(
       session_id: sessionId,
       top_k: topK,
       min_match_percent: minMatchPercent,
+      similarity_axis: similarityAxis,
     }),
   });
 }
@@ -346,6 +352,13 @@ export async function sendSimilar(
   sessionId: string | null,
   topK: number,
   minMatchPercent: number,
+  similarityAxis: SimilarityAxis = "balanced",
 ): Promise<SimilarResponse> {
-  return searchSimilarByImageId(imageId, sessionId, topK, minMatchPercent);
+  return searchSimilarByImageId(
+    imageId,
+    sessionId,
+    topK,
+    minMatchPercent,
+    similarityAxis,
+  );
 }

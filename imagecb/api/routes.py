@@ -41,7 +41,6 @@ from imagecb.api.sessions import get_or_create_session, get_session, reset_sessi
 from imagecb.config import SETTINGS
 from imagecb.formatting.assistant_reply import (
     _display_caption,
-    build_assistant_reply,
     build_result_cards,
     catalog_fields_from_record,
     provenance_from_record,
@@ -54,7 +53,9 @@ from imagecb.formatting.conversational_reply import (
 from imagecb.deck.pipeline import DeckSuggestResult, SlideSuggestion, force_slide_image, process_deck_upload
 from imagecb.ingest import ingest_paths
 from imagecb.paths import resolve_image_file, resolve_source_file
+from imagecb.retrieval.image_query import SimilarityAxis, axis_label
 from imagecb.retrieval.query_parser import QuerySpec
+from imagecb.retrieval.session import AskResult
 from imagecb.retrieval.similar import search_similar
 from imagecb.storage import metadata_db, vector_store
 from imagecb.suggestions import generate_suggestions
@@ -378,6 +379,7 @@ async def similar(
     session_id: Optional[str] = Form(None),
     top_k: int = Form(10),
     min_match_percent: int = Form(0),
+    similarity_axis: str = Form("balanced"),
     user_id: str = Depends(resolve_user_id),
 ) -> SimilarResponse:
     """Find visually similar images (JSON body or multipart with optional file)."""
@@ -386,16 +388,23 @@ async def similar(
     sid: Optional[str] = None
     k = top_k
     min_pct = min_match_percent
+    axis = similarity_axis
 
     if body is not None:
         ref_id = body.image_id
         sid = body.session_id
         k = body.top_k
         min_pct = body.min_match_percent
+        axis = body.similarity_axis
     if image_id:
         ref_id = image_id
     if session_id:
         sid = session_id
+
+    try:
+        SimilarityAxis.parse(axis)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
 
     if file is not None and file.filename:
         raw = await file.read()
@@ -410,29 +419,67 @@ async def similar(
     if not ref_id and upload_image is None:
         raise HTTPException(status_code=400, detail="image_id or image file is required")
 
+    restrict_to: Optional[List[str]] = None
+    if sid:
+        session = get_session(sid)
+        if session is not None and session.last_candidate_ids and session.last_spec is not None:
+            if session.last_spec.is_refinement:
+                restrict_to = list(session.last_candidate_ids)
+
     try:
-        results = search_similar(
+        outcome = search_similar(
             image_id=ref_id,
             image=upload_image,
             top_k=k,
             exclude_image_id=ref_id,
             min_match_percent=min_pct,
+            similarity_axis=axis,
+            restrict_to=restrict_to,
         )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
     except Exception as exc:  # noqa: BLE001
         logger.exception("Similar search failed")
         raise HTTPException(status_code=500, detail=str(exc)) from exc
 
-    spec = QuerySpec(
-        semantic_query="visually similar images",
-        raw_text="[similar image search]",
-        top_k=k,
-    )
+    results = outcome.results
+    spec = outcome.spec
+    facets = outcome.facets
+    parsed_axis = SimilarityAxis.parse(axis)
+
+    if upload_image is not None and file is not None and file.filename:
+        user_label = f"[Image search] {file.filename}"
+    elif ref_id:
+        rec = metadata_db.get_record(ref_id)
+        name = (rec.image_name if rec else None) or ref_id
+        user_label = f"[Find similar] {name}"
+    else:
+        user_label = "[similar image search]"
+
     notes = [
-        "Visual similarity search (no query parsing).",
-        f"Showing matches at or above {min_pct}%." if min_pct > 0 else "",
+        f"Blended visual similarity with text search ({axis_label(parsed_axis)}).",
+        f"Generated query: {facets.search_query}" if facets.search_query else "",
+        f"Showing visual matches at or above {min_pct}%." if min_pct > 0 else "",
     ]
     notes = [n for n in notes if n]
-    reply = build_assistant_reply(results, spec)
+
+    try:
+        indexed_count = vector_store.count()
+    except Exception:  # noqa: BLE001
+        indexed_count = 0
+
+    ask_result = AskResult(
+        spec=spec,
+        results=results,
+        min_match_percent=min_pct,
+        indexed_count=indexed_count,
+    )
+    reply = build_conversational_reply(
+        user_label,
+        ask_result,
+        notes,
+        indexed_count=indexed_count,
+    )
     msg = reply.message
     if not results:
         msg = "I couldn't find similar images in the index."
@@ -441,15 +488,14 @@ async def similar(
     if sid:
         session = get_session(sid)
         if session is not None:
-            session.apply_similar_results(results, top_k=k)
+            session.apply_similar_results(results, spec=spec)
         else:
             out_session_id, session = get_or_create_session(None)
-            session.apply_similar_results(results, top_k=k)
+            session.apply_similar_results(results, spec=spec)
             out_session_id = out_session_id
 
-    query_label = "[similar image search]"
     search_event_id = record_search_from_results(
-        query_text=query_label,
+        query_text=user_label,
         user_id=user_id,
         session_id=out_session_id,
         search_kind="similar",

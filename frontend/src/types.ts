@@ -129,13 +129,6 @@ export interface IngestResponse {
   stats: Record<string, number>;
 }
 
-export interface SearchHistoryEntry {
-  query: string;
-  timestamp: number;
-  topK?: number;
-  minMatchPercent?: number;
-}
-
 export interface SlideSuggestion {
   slide_index: number;
   title?: string | null;

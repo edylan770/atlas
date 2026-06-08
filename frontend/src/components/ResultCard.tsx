@@ -1,5 +1,5 @@
 import { recordInteraction } from "../api/telemetry";
-import { sendSimilar } from "../api/client";
+import { sendSimilar, type SimilarityAxis } from "../api/client";
 import type { ResultCard as ResultCardType } from "../types";
 
 interface ResultCardProps {
@@ -10,6 +10,7 @@ interface ResultCardProps {
   sessionId?: string | null;
   topK?: number;
   minMatchPercent?: number;
+  similarityAxis?: SimilarityAxis;
   onSimilarResults?: (results: ResultCardType[], searchEventId?: string | null) => void;
 }
 
@@ -21,6 +22,7 @@ export function ResultCard({
   sessionId,
   topK = 10,
   minMatchPercent = 0,
+  similarityAxis = "balanced",
   onSimilarResults,
 }: ResultCardProps) {
   const displayName =
@@ -45,7 +47,13 @@ export function ResultCard({
   const handleSimilar = async () => {
     track("similar");
     try {
-      const res = await sendSimilar(card.image_id, sessionId ?? null, topK, minMatchPercent);
+      const res = await sendSimilar(
+        card.image_id,
+        sessionId ?? null,
+        topK,
+        minMatchPercent,
+        similarityAxis,
+      );
       onSimilarResults?.(res.results, res.search_event_id ?? null);
     } catch {
       /* parent may show error */

@@ -1,0 +1,15 @@
+# pack-refs with: peeled fully-peeled sorted 
+1fd16bb74f3d8f89777c14f1f1e7dd879c7c30e3 refs/heads/Dylan-branch2
+b6674e7ed89a9a8e74faaf76c289a9e7d8c0b78a refs/heads/dylan-branch
+ad71a384e2dfb95d48bd4db7175386fa242d66ba refs/heads/mai-branch
+08220b95ee9788ef2a492ca156d35578d15e561d refs/heads/main
+8f503bd9a179241613220bc02f90b45efc89d946 refs/pull/1/head
+b6674e7ed89a9a8e74faaf76c289a9e7d8c0b78a refs/pull/10/head
+1fd16bb74f3d8f89777c14f1f1e7dd879c7c30e3 refs/pull/2/head
+62114e816a6c1f0831c192491470e4ca06a9fd11 refs/pull/3/head
+40e759c153041121b312d6a65460faafef39b1bf refs/pull/4/head
+f6f847164990759d0c5ef76904314db440221fd5 refs/pull/5/head
+12f4d874ece49bfc5122b6b015ce03597abcf8be refs/pull/6/head
+e120ddaa8ed741c433f53c8aec654316a62c87f9 refs/pull/7/head
+ad71a384e2dfb95d48bd4db7175386fa242d66ba refs/pull/8/head
+9555aeca164e8209a1a9f462b3861ee6e602beda refs/pull/9/head

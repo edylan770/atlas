@@ -327,6 +327,7 @@ async function runSimilar({ imageId, file }) {
       form.append("file", file);
       form.append("top_k", String(topK));
       form.append("min_match_percent", String(minMatch));
+      form.append("similarity_axis", "balanced");
       if (state.sessionId) form.append("session_id", state.sessionId);
       res = await api("/api/similar", { method: "POST", body: form });
     } else {
@@ -338,6 +339,7 @@ async function runSimilar({ imageId, file }) {
           session_id: state.sessionId,
           top_k: topK,
           min_match_percent: minMatch,
+          similarity_axis: "balanced",
         }),
       });
     }
