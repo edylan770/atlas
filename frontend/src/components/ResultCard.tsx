@@ -28,6 +28,14 @@ export function ResultCard({
   const displayName =
     card.image_name || card.provenance.source_name || "this image";
 
+  const downloadFileName = () => {
+    const base = (card.image_name || card.provenance.source_name || card.image_id)
+      .replace(/[^\w.-]+/g, "_")
+      .slice(0, 80);
+    if (/\.(png|jpe?g|webp|gif|bmp|tiff?)$/i.test(base)) return base;
+    return `${base}.png`;
+  };
+
   const track = (type: "view" | "download" | "similar") => {
     if (searchEventId) {
       void recordInteraction(searchEventId, card.image_id, type, card.rank);
@@ -36,9 +44,39 @@ export function ResultCard({
 
   const handleView = () => track("view");
 
-  const handleDownload = (e: React.MouseEvent) => {
+  const handleDownloadImage = async (e: React.MouseEvent) => {
     e.preventDefault();
+    e.stopPropagation();
+    if (!card.has_image_file) return;
     track("download");
+    try {
+      const res = await fetch(card.image_url);
+      if (!res.ok) throw new Error("Download failed");
+      const blob = await res.blob();
+      const ext =
+        blob.type === "image/jpeg"
+          ? ".jpg"
+          : blob.type === "image/webp"
+            ? ".webp"
+            : ".png";
+      let name = downloadFileName();
+      if (!/\.(png|jpe?g|webp|gif|bmp|tiff?)$/i.test(name)) name += ext;
+      const url = URL.createObjectURL(blob);
+      const anchor = document.createElement("a");
+      anchor.href = url;
+      anchor.download = name;
+      document.body.appendChild(anchor);
+      anchor.click();
+      anchor.remove();
+      URL.revokeObjectURL(url);
+    } catch {
+      window.open(card.image_url, "_blank", "noopener");
+    }
+  };
+
+  const handleOpenSource = (e: React.MouseEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
     if (card.source_url) {
       window.open(card.source_url, "_blank", "noopener");
     }
@@ -91,7 +129,55 @@ export function ResultCard({
         >
           {card.match_percent}%
         </span>
+        {card.has_image_file && (
+          <button
+            type="button"
+            onClick={(e) => void handleDownloadImage(e)}
+            title="Download image"
+            aria-label="Download image"
+            className="absolute bottom-1.5 right-1.5 flex items-center gap-1 rounded-md bg-white/95 px-2 py-1 text-[10px] font-semibold text-navy-800 shadow ring-1 ring-navy-200 transition hover:bg-brand-50 hover:text-brand-700 hover:ring-brand-300"
+          >
+            <svg
+              className="h-3.5 w-3.5"
+              fill="none"
+              viewBox="0 0 24 24"
+              stroke="currentColor"
+              strokeWidth={2}
+              aria-hidden
+            >
+              <path
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                d="M4 16v2a2 2 0 002 2h12a2 2 0 002-2v-2M7 10l5 5m0 0l5-5m-5 5V4"
+              />
+            </svg>
+            Download
+          </button>
+        )}
       </div>
+      {card.has_image_file && (
+        <button
+          type="button"
+          onClick={(e) => void handleDownloadImage(e)}
+          className="flex w-full items-center justify-center gap-1.5 border-b border-navy-100 bg-brand-50 px-2 py-1.5 text-[11px] font-semibold text-brand-800 transition hover:bg-brand-100"
+        >
+          <svg
+            className="h-3.5 w-3.5"
+            fill="none"
+            viewBox="0 0 24 24"
+            stroke="currentColor"
+            strokeWidth={2}
+            aria-hidden
+          >
+            <path
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              d="M4 16v2a2 2 0 002 2h12a2 2 0 002-2v-2M7 10l5 5m0 0l5-5m-5 5V4"
+            />
+          </svg>
+          Download image
+        </button>
+      )}
       <div className="flex flex-1 flex-col gap-1 p-2">
         {card.image_name && (
           <p className="line-clamp-1 text-xs font-semibold leading-tight text-navy-900">
@@ -159,10 +245,10 @@ export function ResultCard({
             {card.source_url && (
               <button
                 type="button"
-                onClick={handleDownload}
+                onClick={handleOpenSource}
                 className="text-[9px] font-medium text-brand-600 hover:underline"
               >
-                Open source
+                Open source file
               </button>
             )}
             {showInlineSimilar && (
