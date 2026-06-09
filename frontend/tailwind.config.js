@@ -47,6 +47,32 @@ export default {
           "sans-serif",
         ],
       },
+      keyframes: {
+        "atlas-fade-in": {
+          from: { opacity: "0", transform: "translateY(4px)" },
+          to: { opacity: "1", transform: "translateY(0)" },
+        },
+        "atlas-thumbnail-drift": {
+          "0%": {
+            transform: "translate(-50%, -50%) scale(0.55)",
+            opacity: "0",
+          },
+          "18%": { opacity: "1" },
+          "100%": {
+            transform: "translate(var(--drift-x), var(--drift-y)) scale(1)",
+            opacity: "0.88",
+          },
+        },
+        "atlas-soft-pulse": {
+          "0%, 100%": { opacity: "0.18" },
+          "50%": { opacity: "0.28" },
+        },
+      },
+      animation: {
+        "atlas-fade-in": "atlas-fade-in 0.45s ease-out forwards",
+        "atlas-thumbnail-drift": "atlas-thumbnail-drift 5s ease-out infinite",
+        "atlas-soft-pulse": "atlas-soft-pulse 4s ease-in-out infinite",
+      },
     },
   },
   plugins: [],
