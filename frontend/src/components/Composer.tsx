@@ -108,16 +108,16 @@ export function Composer({
             type="button"
             onClick={() => imageInputRef.current?.click()}
             disabled={loading}
-            title="Search by image"
-            aria-label="Search by image"
+            title="Image to Image Search"
+            aria-label="Image to Image Search"
             className="rounded-xl border border-navy-200 bg-white p-2.5 text-navy-700 shadow-sm transition hover:border-brand-400 hover:bg-brand-50 hover:text-brand-700 disabled:opacity-50"
           >
             <CameraIcon />
           </button>
           <Link
             to="/deck"
-            title="Deck suggest"
-            aria-label="Open deck suggest"
+            title="Add Slide Deck"
+            aria-label="Add Slide Deck"
             className="rounded-xl border border-navy-200 p-2.5 text-navy-600 transition hover:border-brand-400 hover:bg-brand-50 hover:text-brand-600"
           >
             <DeckSuggestIcon />
