@@ -24,6 +24,7 @@ import { Composer } from "./components/Composer";
 import { CorpusDrawer } from "./components/CorpusDrawer";
 import { EmptyState } from "./components/EmptyState";
 import { AdminNavLink } from "./components/AdminNavLink";
+import { AtlasLoadingScreen, useMinDurationLoading } from "./components/AtlasLoadingScreen";
 import { Header } from "./components/Header";
 import { ResultsGrid } from "./components/ResultsGrid";
 import type {
@@ -55,6 +56,7 @@ export default function App() {
     import("./api/client").SimilarityAxis
   >("balanced");
   const [loading, setLoading] = useState(false);
+  const [appReady, setAppReady] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(true);
 
@@ -146,7 +148,22 @@ export default function App() {
   }, []);
 
   useEffect(() => {
-    refreshStatus();
+    let cancelled = false;
+    const bootstrapMs = 3200;
+    const started = Date.now();
+
+    void (async () => {
+      await refreshStatus();
+      const wait = bootstrapMs - (Date.now() - started);
+      if (wait > 0) {
+        await new Promise((resolve) => window.setTimeout(resolve, wait));
+      }
+      if (!cancelled) setAppReady(true);
+    })();
+
+    return () => {
+      cancelled = true;
+    };
   }, [refreshStatus]);
 
   const refreshCatalog = useCallback(async () => {
@@ -571,8 +588,11 @@ export default function App() {
     }
   };
 
+  const showLoadingScreen = useMinDurationLoading(!appReady || loading, 3000);
+
   return (
     <div className="flex h-dvh min-h-screen flex-col overflow-hidden">
+      <AtlasLoadingScreen visible={showLoadingScreen} />
       <div className="shrink-0">
         <Header
           indexedCount={indexedCount}
