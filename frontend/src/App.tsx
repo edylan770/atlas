@@ -588,7 +588,7 @@ export default function App() {
     }
   };
 
-  const showLoadingScreen = useMinDurationLoading(!appReady || loading, 3000);
+  const showLoadingScreen = useMinDurationLoading(!appReady, 3000);
 
   return (
     <div className="flex h-dvh min-h-screen flex-col overflow-hidden">
