@@ -123,17 +123,13 @@ def _all_interacted_image_ids() -> set[str]:
 
 
 def corpus_health_summary() -> dict:
-    """Caption health counts for admin dashboard and corpus toolbar."""
+    """Index health summary for admin dashboard and corpus toolbar."""
     from imagecb.repair import assess_index_health
 
     report = assess_index_health(include_weak=True)
-    return {
-        "total_images": report.total_records,
-        "failed_caption_count": report.failed_caption_count,
-        "weak_caption_count": report.weak_caption_count,
-        "needs_regeneration_count": report.needs_regeneration_count,
-        "is_healthy": report.is_healthy,
-    }
+    payload = report.to_dict()
+    payload["total_images"] = report.total_records
+    return payload
 
 
 def list_corpus_images(

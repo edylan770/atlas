@@ -135,7 +135,7 @@ def run_text_similar_leg(
         query_for_rerank,
         candidates,
         top_k=min(k, SETTINGS.rerank_top_n),
-        min_score=0.0,
+        min_match_percent=0,
     )
 
 

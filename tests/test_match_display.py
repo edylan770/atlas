@@ -2,7 +2,11 @@
 
 from __future__ import annotations
 
-from imagecb.formatting.match_display import ScoreKind, display_match_percent
+from imagecb.formatting.match_display import (
+    ScoreKind,
+    display_match_percent,
+    meets_min_match_percent,
+)
 
 
 def test_rerank_anchor_points():
@@ -45,3 +49,15 @@ def test_fusion_linear_display():
     assert display_match_percent(0.5, ScoreKind.FUSION) == 50
     assert display_match_percent(1.0, ScoreKind.FUSION) == 100
     assert display_match_percent(0.0, ScoreKind.FUSION) == 0
+
+
+def test_meets_min_match_percent_rerank():
+    assert meets_min_match_percent(0.70, ScoreKind.RERANK, 80) is True
+    assert meets_min_match_percent(0.69, ScoreKind.RERANK, 80) is False
+    assert meets_min_match_percent(0.80, ScoreKind.RERANK, 80) is True
+    assert meets_min_match_percent(0.72, ScoreKind.RERANK, 0) is True
+
+
+def test_meets_min_match_percent_fusion():
+    assert meets_min_match_percent(0.5, ScoreKind.FUSION, 50) is True
+    assert meets_min_match_percent(0.49, ScoreKind.FUSION, 50) is False

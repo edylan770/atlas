@@ -99,7 +99,7 @@ type StreamEvent =
       parsed_query?: ParsedQuery | null;
     }
   | { type: "token"; text: string }
-  | { type: "done"; assistant_message: string }
+  | { type: "done"; assistant_message: string; follow_up_suggestions?: string[] }
   | { type: "error"; detail: string };
 
 function parseSseBuffer(
@@ -181,7 +181,10 @@ export async function sendChatStream(
         callbacks.onToken(event.text);
         break;
       case "done":
-        callbacks.onDone(event.assistant_message);
+        callbacks.onDone(
+          event.assistant_message,
+          event.follow_up_suggestions ?? [],
+        );
         break;
       case "error":
         streamError = event.detail;

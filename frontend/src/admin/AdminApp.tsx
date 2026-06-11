@@ -4,6 +4,8 @@ import {
   fetchAnalyticsSummary,
   fetchAudit,
   fetchCorpusHealth,
+  reconcileIndex,
+  repairIndex,
   fetchCorpusImages,
   fetchDeleted,
   fetchDuplicateClusters,
@@ -210,6 +212,11 @@ function CorpusPage() {
   );
   const [bulkRepairResult, setBulkRepairResult] = useState<string | null>(null);
   const [bulkRepairError, setBulkRepairError] = useState<string | null>(null);
+  const [indexAction, setIndexAction] = useState<"reconcile" | "repair" | null>(
+    null,
+  );
+  const [indexActionResult, setIndexActionResult] = useState<string | null>(null);
+  const [indexActionError, setIndexActionError] = useState<string | null>(null);
 
   const loadHealth = useCallback(() => {
     fetchCorpusHealth()
@@ -266,6 +273,53 @@ function CorpusPage() {
   }, [loadCorpus, loadSecondary, loadHealth]);
 
   const hasPendingActions = Object.keys(pendingAction).length > 0;
+
+  const handleReconcile = async () => {
+    setIndexActionError(null);
+    setIndexActionResult(null);
+    setIndexAction("reconcile");
+    try {
+      const result = await reconcileIndex();
+      setIndexActionResult(
+        `Reconciled: purged ${result.orphan_chroma_purged} Chroma + ` +
+          `${result.orphan_text_purged} text vector(s)` +
+          (result.bm25_rebuilt ? "; BM25 rebuilt" : ""),
+      );
+      reloadAll();
+    } catch (e) {
+      setIndexActionError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setIndexAction(null);
+    }
+  };
+
+  const handleFullRepair = async () => {
+    if (
+      !window.confirm(
+        "Run full index repair? This may re-caption, re-embed, and rebuild indexes using Bedrock APIs.",
+      )
+    ) {
+      return;
+    }
+    setIndexActionError(null);
+    setIndexActionResult(null);
+    setIndexAction("repair");
+    try {
+      const result = await repairIndex(false);
+      if (result.skipped) {
+        setIndexActionResult("Index already healthy; no repair needed.");
+      } else {
+        setIndexActionResult(
+          `Repair complete in ${result.elapsed_sec ?? "?"}s. Healthy: ${result.is_healthy ?? false}`,
+        );
+      }
+      reloadAll();
+    } catch (e) {
+      setIndexActionError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setIndexAction(null);
+    }
+  };
 
   const handleBulkRepair = async (scope: "failed" | "weak") => {
     const count =
@@ -365,6 +419,58 @@ function CorpusPage() {
   return (
     <div className="space-y-8">
       <h2 className="text-lg font-semibold text-navy-900">Corpus curation</h2>
+
+      <section className="mb-6 rounded-lg border border-navy-200 bg-navy-50/50 p-4">
+        <h3 className="text-xs font-semibold uppercase tracking-wide text-navy-500">
+          Index consistency
+        </h3>
+        {corpusHealth ? (
+          <div className="mt-2 flex flex-wrap items-center gap-3 text-xs text-navy-700">
+            <span
+              className={
+                corpusHealth.stores_in_sync
+                  ? "rounded bg-emerald-100 px-2 py-0.5 font-medium text-emerald-800"
+                  : "rounded bg-amber-100 px-2 py-0.5 font-medium text-amber-900"
+              }
+            >
+              {corpusHealth.stores_in_sync ? "Stores in sync" : "Stores out of sync"}
+            </span>
+            <span>SQLite: {corpusHealth.total_records ?? corpusHealth.total_images}</span>
+            <span>Chroma: {corpusHealth.chroma_vectors ?? "—"}</span>
+            <span>Text: {corpusHealth.text_vector_count ?? "—"}</span>
+            <span>BM25: {corpusHealth.bm25_doc_count ?? "—"}</span>
+            {(corpusHealth.orphan_chroma_count ?? 0) > 0 && (
+              <span>Orphans: {corpusHealth.orphan_chroma_count}</span>
+            )}
+          </div>
+        ) : (
+          <p className="mt-2 text-xs text-navy-500">Loading health…</p>
+        )}
+        <div className="mt-3 flex flex-wrap items-center gap-2">
+          <button
+            type="button"
+            className="rounded-md border border-navy-300 bg-white px-3 py-1.5 text-xs font-medium text-navy-800 hover:bg-navy-50 disabled:opacity-50"
+            disabled={indexAction !== null || bulkRepairScope !== null}
+            onClick={() => void handleReconcile()}
+          >
+            {indexAction === "reconcile" ? "Reconciling…" : "Reconcile (safe)"}
+          </button>
+          <button
+            type="button"
+            className="rounded-md border border-brand-300 bg-brand-50 px-3 py-1.5 text-xs font-medium text-brand-900 hover:bg-brand-100 disabled:opacity-50"
+            disabled={indexAction !== null || bulkRepairScope !== null}
+            onClick={() => void handleFullRepair()}
+          >
+            {indexAction === "repair" ? "Repairing…" : "Full repair"}
+          </button>
+          {indexActionResult && (
+            <p className="text-xs text-navy-600">{indexActionResult}</p>
+          )}
+          {indexActionError && (
+            <p className="text-xs text-red-600">{indexActionError}</p>
+          )}
+        </div>
+      </section>
 
       <section>
         <div className="mb-2 flex flex-wrap items-center justify-between gap-2">

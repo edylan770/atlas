@@ -137,12 +137,20 @@ def status(
 
     typer.echo(
         f"SQLite records: {report.total_records} | Chroma vectors: {report.chroma_vectors} | "
+        f"Caption-text vectors: {report.text_vector_count} | BM25 docs: {report.bm25_doc_count} | "
+        f"stores_in_sync: {report.stores_in_sync} | healthy: {report.is_healthy}"
+    )
+    typer.echo(
         f"Chroma dir: {SETTINGS.chroma_dir} | SQLite: {SETTINGS.sqlite_path}"
     )
     typer.echo(
         f"Missing cached PNGs: {report.missing_cache_count} | Captions failed: {report.failed_caption_count} | "
         f"Captions weak: {report.weak_caption_count} | Needs regeneration: {report.needs_regeneration_count} | "
         f"Missing Chroma vectors: {report.missing_chroma_count}"
+    )
+    typer.echo(
+        f"Orphan Chroma: {report.orphan_chroma_count} | Orphan text vectors: {report.orphan_text_vector_count} | "
+        f"Stale soft-deleted in index: {report.stale_deleted_in_chroma_count} | BM25 stale: {report.bm25_stale}"
     )
     typer.echo(
         f"Asset types missing: {report.missing_asset_type_count} / {report.total_records}"
@@ -153,10 +161,8 @@ def status(
         )
 
     has_issues = (
-        report.missing_cache_count
-        or report.failed_caption_count
+        not report.is_healthy
         or report.weak_caption_count
-        or report.missing_chroma_count
         or report.missing_asset_type_count
     )
     if not has_issues:
@@ -209,10 +215,49 @@ def status(
             )
             typer.echo(f"\nMissing Chroma sample image_ids: {', '.join(ids)}{suffix}")
 
+        if report.orphan_chroma_ids:
+            ids = report.orphan_chroma_ids[:10]
+            typer.echo(f"\nOrphan Chroma sample image_ids: {', '.join(ids)}")
+        if report.bm25_orphan_ids:
+            ids = report.bm25_orphan_ids[:10]
+            typer.echo(f"\nOrphan BM25 sample image_ids: {', '.join(ids)}")
+
         typer.echo(
-            "\nRun targeted repair:\n"
+            "\nRun safe reconcile (no Bedrock calls):\n"
+            "  python -m imagecb.cli reconcile-index\n"
+            "Run targeted repair:\n"
             "  python -m imagecb.cli repair-index\n"
             "Or re-ingest only the affected source files listed above with --force."
+        )
+
+
+@app.command(name="reconcile-index")
+def reconcile_index_cmd(
+    dry_run: bool = typer.Option(
+        False,
+        "--dry-run",
+        help="Report what would be fixed without mutating indexes.",
+    ),
+    verbose: bool = typer.Option(False, "--verbose", "-v"),
+) -> None:
+    """Safe cross-store reconcile: purge orphan vectors and rebuild BM25 when drifted."""
+    _configure_logging(verbose)
+    from imagecb.repair import assess_index_health, reconcile_index_safe
+
+    before = assess_index_health(include_weak=True)
+    typer.echo(
+        f"Before: stores_in_sync={before.stores_in_sync} healthy={before.is_healthy} "
+        f"orphan_chroma={before.orphan_chroma_count} bm25_stale={before.bm25_stale}"
+    )
+    stats = reconcile_index_safe(dry_run=dry_run)
+    typer.echo(
+        f"{'Would purge' if dry_run else 'Purged'} chroma={stats['orphan_chroma_purged']} "
+        f"text={stats['orphan_text_purged']} bm25_rebuilt={stats['bm25_rebuilt']}"
+    )
+    if not dry_run:
+        typer.echo(
+            f"After: stores_in_sync={stats['stores_in_sync_after']} "
+            f"healthy={stats['is_healthy_after']} ({stats['elapsed_sec']}s)"
         )
 
 
@@ -294,11 +339,13 @@ def repair_index_cmd(
         report = assess_index_health(include_weak=include_weak)
         typer.echo(
             f"SQLite records: {report.total_records} | Chroma vectors: {report.chroma_vectors} | "
+            f"BM25 docs: {report.bm25_doc_count} | stores_in_sync: {report.stores_in_sync} | "
             f"healthy: {report.is_healthy}"
         )
         typer.echo(
             f"Missing cache: {report.missing_cache_count} | Failed captions: {report.failed_caption_count} | "
             f"Weak captions: {report.weak_caption_count} | Missing Chroma: {report.missing_chroma_count} | "
+            f"Orphan Chroma: {report.orphan_chroma_count} | BM25 stale: {report.bm25_stale} | "
             f"Unrecoverable: {report.unrecoverable_source_missing_count}"
         )
         if report.recoverable_source_files:

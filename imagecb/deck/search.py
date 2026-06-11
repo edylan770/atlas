@@ -25,26 +25,26 @@ def search_for_description(
         raw_text=description,
         top_k=max(1, min(int(top_k), 50)),
     )
-    min_score = max(0.0, min(float(min_match_percent) / 100.0, 1.0))
     outcome = search(spec)
     candidates = outcome.candidates
     query_for_rerank = rerank_query_text(spec, description)
 
+    rerank_top_n = resolve_rerank_top_n(spec, spec.top_k)
     results = rerank(
         query_for_rerank,
         candidates,
         top_k=spec.top_k,
-        top_n=resolve_rerank_top_n(spec),
-        min_score=min_score,
+        top_n=rerank_top_n,
+        min_match_percent=min_match_percent,
         spec=spec,
     )
-    if not results and candidates and min_score > 0:
+    if not results and candidates and min_match_percent > 0:
         results = rerank(
             query_for_rerank,
             candidates,
             top_k=spec.top_k,
-            top_n=resolve_rerank_top_n(spec),
-            min_score=0.0,
+            top_n=rerank_top_n,
+            min_match_percent=0,
             spec=spec,
         )
 

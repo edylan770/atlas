@@ -90,10 +90,38 @@ export interface CorpusImage {
 
 export interface CorpusHealth {
   total_images: number;
+  total_records?: number;
+  chroma_vectors?: number;
+  text_vector_count?: number;
+  bm25_doc_count?: number;
   failed_caption_count: number;
   weak_caption_count: number;
   needs_regeneration_count: number;
   is_healthy: boolean;
+  stores_in_sync?: boolean;
+  orphan_chroma_count?: number;
+  orphan_text_vector_count?: number;
+  bm25_stale?: boolean;
+}
+
+export interface IndexReconcileResult {
+  ok: boolean;
+  dry_run: boolean;
+  orphan_chroma_purged: number;
+  orphan_text_purged: number;
+  bm25_rebuilt: boolean;
+  stores_in_sync_before: boolean;
+  stores_in_sync_after: boolean;
+  is_healthy_before: boolean;
+  is_healthy_after: boolean;
+  elapsed_sec?: number;
+}
+
+export interface IndexRepairResult {
+  ok: boolean;
+  skipped?: boolean;
+  is_healthy?: boolean;
+  elapsed_sec?: number;
 }
 
 export interface RepairCaptionsResult {
@@ -157,6 +185,17 @@ export function fetchCorpusImages(
 
 export function fetchCorpusHealth(): Promise<CorpusHealth> {
   return adminRequest("/api/admin/corpus/health");
+}
+
+export function reconcileIndex(): Promise<IndexReconcileResult> {
+  return adminRequest("/api/admin/index/reconcile", { method: "POST" });
+}
+
+export function repairIndex(includeWeak = false): Promise<IndexRepairResult> {
+  return adminRequest(
+    `/api/admin/index/repair?include_weak=${includeWeak ? "true" : "false"}`,
+    { method: "POST" },
+  );
 }
 
 export function repairCaptions(

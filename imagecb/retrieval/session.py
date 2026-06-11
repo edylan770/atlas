@@ -10,7 +10,6 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import List, Optional, Tuple
 
-from imagecb.config import SETTINGS
 from imagecb.retrieval.hybrid import search
 from imagecb.retrieval.query_build import rerank_query_text, resolve_rerank_top_n
 from imagecb.retrieval.query_parser import (
@@ -19,6 +18,7 @@ from imagecb.retrieval.query_parser import (
     parse_query,
     summarize_history,
 )
+from imagecb.formatting.match_display import meets_min_match_percent
 from imagecb.retrieval.rerank import RankedResult, rerank
 
 
@@ -62,32 +62,32 @@ class ChatSession:
         if top_k is not None:
             spec.top_k = max(1, min(int(top_k), 50))
 
-        # Without a floor, results are padded to top_k with low-scoring
-        # candidates that are unrelated to the query. When the user has not
-        # set an explicit minimum, drop the irrelevant tail instead.
-        user_min = max(0.0, min(float(min_match_percent) / 100.0, 1.0))
-        min_score = user_min if user_min > 0 else SETTINGS.weak_result_score_threshold
-
         outcome = search(spec)
         candidates = outcome.candidates
         query_for_rerank = rerank_query_text(spec, text)
+        rerank_top_n = resolve_rerank_top_n(spec, spec.top_k)
 
         results = rerank(
             query_for_rerank,
             candidates,
             top_k=spec.top_k,
-            top_n=resolve_rerank_top_n(spec),
-            min_score=min_score,
+            top_n=rerank_top_n,
+            min_match_percent=min_match_percent,
             spec=spec,
         )
         relaxed_min_score = False
-        if not results and candidates:
+        if min_match_percent > 0 and results:
+            relaxed_min_score = any(
+                not meets_min_match_percent(r.score, r.score_kind, min_match_percent)
+                for r in results
+            )
+        elif min_match_percent > 0 and not results and candidates:
             results = rerank(
                 query_for_rerank,
                 candidates,
                 top_k=spec.top_k,
-                top_n=resolve_rerank_top_n(spec),
-                min_score=0.0,
+                top_n=rerank_top_n,
+                min_match_percent=0,
                 spec=spec,
             )
             relaxed_min_score = bool(results)

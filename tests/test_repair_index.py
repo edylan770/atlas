@@ -13,6 +13,7 @@ from imagecb.repair import (
     IndexHealthReport,
     assess_index_health,
     format_post_repair_summary,
+    reconcile_index_safe,
     repair_failed_captions,
     repair_index_issues,
     repair_missing_cache,
@@ -59,9 +60,14 @@ def test_assess_index_health_healthy():
         "imagecb.repair._cache_missing", side_effect=[False, False]
     ), patch("imagecb.repair.vector_store.count", return_value=2), patch(
         "imagecb.repair.vector_store.list_ids", return_value={"a", "b"}
+    ), patch("imagecb.repair.vector_store.list_text_ids", return_value={"a", "b"}), patch(
+        "imagecb.repair.metadata_db.get_deleted_records", return_value=[]
+    ), patch("imagecb.repair.bm25_index.count", return_value=2), patch(
+        "imagecb.repair.bm25_index.list_ids", return_value={"a", "b"}
     ):
         report = assess_index_health()
     assert report.is_healthy is True
+    assert report.stores_in_sync is True
     assert report.missing_cache_count == 0
     assert report.failed_caption_count == 0
     assert report.missing_chroma_count == 0
@@ -85,6 +91,10 @@ def test_assess_index_health_detects_issues(tmp_path):
         side_effect=lambda r: Path(r.source_file) if r.image_id == "missing" else None,
     ), patch("imagecb.repair.vector_store.count", return_value=2), patch(
         "imagecb.repair.vector_store.list_ids", return_value={"failed", "no-vec"}
+    ), patch("imagecb.repair.vector_store.list_text_ids", return_value=set()), patch(
+        "imagecb.repair.metadata_db.get_deleted_records", return_value=[]
+    ), patch("imagecb.repair.bm25_index.count", return_value=0), patch(
+        "imagecb.repair.bm25_index.list_ids", return_value=set()
     ):
         report = assess_index_health(include_weak=True)
 
@@ -103,7 +113,11 @@ def test_assess_index_health_unrecoverable_when_source_missing():
         "imagecb.repair._cache_missing", return_value=True
     ), patch("imagecb.repair.resolve_source_file", return_value=None), patch(
         "imagecb.repair.vector_store.count", return_value=1
-    ), patch("imagecb.repair.vector_store.list_ids", return_value={"x"}):
+    ), patch("imagecb.repair.vector_store.list_ids", return_value={"x"}), patch(
+        "imagecb.repair.vector_store.list_text_ids", return_value=set()
+    ), patch("imagecb.repair.metadata_db.get_deleted_records", return_value=[]), patch(
+        "imagecb.repair.bm25_index.count", return_value=1
+    ), patch("imagecb.repair.bm25_index.list_ids", return_value={"x"}):
         report = assess_index_health()
     assert report.unrecoverable_source_missing_count == 1
     assert report.recoverable_source_files == []
@@ -150,11 +164,14 @@ def test_repair_index_issues_noop_when_healthy():
         total_records=1,
         chroma_vectors=1,
         missing_cache_count=0,
+        stores_in_sync=True,
         is_healthy=True,
     )
-    with patch("imagecb.repair.assess_index_health", return_value=healthy), patch(
-        "imagecb.repair.repair_missing_cache"
-    ) as cache_mock, patch("imagecb.repair.repair_failed_captions") as cap_mock:
+    with patch("imagecb.repair.reconcile_index_safe", return_value={}), patch(
+        "imagecb.repair.assess_index_health", return_value=healthy
+    ), patch("imagecb.repair.repair_missing_cache") as cache_mock, patch(
+        "imagecb.repair.repair_failed_captions"
+    ) as cap_mock:
         stats = repair_index_issues()
     assert stats["skipped"] is True
     cache_mock.assert_not_called()
@@ -183,9 +200,9 @@ def test_repair_index_issues_skips_caption_phases():
         "b": _record("b", image_path="/cache/b.png"),
     }
 
-    with patch("imagecb.repair.assess_index_health", side_effect=[unhealthy, unhealthy, unhealthy, final]), patch(
-        "imagecb.repair.repair_failed_captions"
-    ) as cap_mock, patch(
+    with patch("imagecb.repair.reconcile_index_safe", return_value={}), patch(
+        "imagecb.repair.assess_index_health", side_effect=[unhealthy, unhealthy, unhealthy, final, final]
+    ), patch("imagecb.repair.repair_failed_captions") as cap_mock, patch(
         "imagecb.repair.reindex_embeddings", return_value={"reindexed": 1}
     ) as vec_mock, patch("imagecb.repair.get_all_records", return_value=list(records_by_id.values())), patch(
         "imagecb.repair._cache_missing", return_value=False
@@ -312,3 +329,71 @@ def test_ingest_paths_skip_caption_passes_skip_caption_phases(tmp_path):
         ingest_paths([path], skip_caption=True, auto_repair=True)
 
     assert repair_calls[0]["skip_caption_phases"] is True
+
+
+def test_assess_index_health_detects_orphan_chroma():
+    records = [_record("a")]
+    with patch("imagecb.repair.get_all_records", return_value=records), patch(
+        "imagecb.repair._cache_missing", return_value=False
+    ), patch("imagecb.repair.vector_store.count", return_value=2), patch(
+        "imagecb.repair.vector_store.list_ids", return_value={"a", "orphan-1"}
+    ), patch("imagecb.repair.vector_store.list_text_ids", return_value=set()), patch(
+        "imagecb.repair.metadata_db.get_deleted_records", return_value=[]
+    ), patch("imagecb.repair.bm25_index.count", return_value=1), patch(
+        "imagecb.repair.bm25_index.list_ids", return_value={"a"}
+    ):
+        report = assess_index_health()
+    assert report.orphan_chroma_count == 1
+    assert report.orphan_chroma_ids == ["orphan-1"]
+    assert report.stores_in_sync is False
+
+
+def test_assess_index_health_unhealthy_when_text_vectors_missing():
+    records = [_record("a", caption_short="dashboard screenshot")]
+    with patch("imagecb.repair.get_all_records", return_value=records), patch(
+        "imagecb.repair._cache_missing", return_value=False
+    ), patch("imagecb.repair.caption_document_text", return_value="dashboard screenshot"), patch(
+        "imagecb.repair.vector_store.count", return_value=1
+    ), patch("imagecb.repair.vector_store.list_ids", return_value={"a"}), patch(
+        "imagecb.repair.vector_store.list_text_ids", return_value=set()
+    ), patch("imagecb.repair.metadata_db.get_deleted_records", return_value=[]), patch(
+        "imagecb.repair.bm25_index.count", return_value=1
+    ), patch("imagecb.repair.bm25_index.list_ids", return_value={"a"}):
+        report = assess_index_health()
+    assert report.missing_text_vector_count == 1
+    assert report.is_healthy is False
+
+
+def test_reconcile_index_safe_purges_orphans():
+    before = IndexHealthReport(
+        total_records=1,
+        chroma_vectors=2,
+        missing_cache_count=0,
+        orphan_chroma_count=1,
+        orphan_chroma_ids=["orphan-1"],
+        orphan_text_vector_count=1,
+        orphan_text_vector_ids=["orphan-txt"],
+        stale_deleted_in_chroma_ids=[],
+        bm25_stale=True,
+        stores_in_sync=False,
+        is_healthy=False,
+    )
+    after = IndexHealthReport(
+        total_records=1,
+        chroma_vectors=1,
+        missing_cache_count=0,
+        stores_in_sync=True,
+        is_healthy=True,
+    )
+    with patch("imagecb.repair.assess_index_health", side_effect=[before, after]), patch(
+        "imagecb.repair.vector_store.delete"
+    ) as chroma_del, patch("imagecb.repair.vector_store.delete_text") as text_del, patch(
+        "imagecb.repair.bm25_index.is_loaded", return_value=False
+    ), patch("imagecb.repair.bm25_index.rebuild_from_records") as bm25_rebuild, patch(
+        "imagecb.repair.get_all_records", return_value=[]
+    ):
+        stats = reconcile_index_safe()
+    chroma_del.assert_called_once_with(["orphan-1"])
+    text_del.assert_called_once_with(["orphan-txt"])
+    bm25_rebuild.assert_called_once()
+    assert stats["stores_in_sync_after"] is True

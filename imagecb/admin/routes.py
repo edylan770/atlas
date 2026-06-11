@@ -65,6 +65,56 @@ def admin_corpus_health(
     return curation.corpus_health_summary()
 
 
+@router.get("/index/health")
+def admin_index_health(
+    id_limit: int = Query(20, ge=1, le=100),
+    _: str = Depends(require_admin),
+):
+    from imagecb.repair import assess_index_health
+
+    report = assess_index_health(include_weak=True)
+    return report.to_dict(id_sample_limit=id_limit)
+
+
+@router.post("/index/reconcile")
+def admin_index_reconcile(
+    actor: str = Depends(require_admin),
+):
+    from imagecb.repair import reconcile_index_safe
+
+    stats = reconcile_index_safe()
+    audit.append_audit(
+        actor=actor,
+        action="index_reconcile",
+        target_type="index",
+        target_id="corpus",
+        details=stats,
+    )
+    return {"ok": True, **stats}
+
+
+@router.post("/index/repair")
+def admin_index_repair(
+    include_weak: bool = Query(False),
+    actor: str = Depends(require_admin),
+):
+    from imagecb.repair import repair_index_issues
+
+    stats = repair_index_issues(include_weak_captions=include_weak)
+    audit.append_audit(
+        actor=actor,
+        action="index_repair",
+        target_type="index",
+        target_id="corpus",
+        details={
+            "skipped": stats.get("skipped", False),
+            "is_healthy": stats.get("is_healthy"),
+            "elapsed_sec": stats.get("elapsed_sec"),
+        },
+    )
+    return {"ok": True, **stats}
+
+
 @router.get("/corpus/images")
 def admin_corpus_images(
     sort: Optional[str] = Query(None),

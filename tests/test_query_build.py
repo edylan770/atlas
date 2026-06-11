@@ -47,6 +47,14 @@ def test_short_query_uses_wider_retrieval_pool():
     assert resolve_rerank_top_n(spec) == 100
 
 
+def test_rerank_top_n_scales_with_top_k():
+    spec = QuerySpec(
+        semantic_query="office worker giving a presentation",
+        raw_text="office worker giving a presentation",
+    )
+    assert resolve_rerank_top_n(spec, top_k=50) >= 150
+
+
 def test_long_query_uses_default_retrieval_pool():
     spec = QuerySpec(
         semantic_query="office worker giving a presentation",

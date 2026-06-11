@@ -18,14 +18,11 @@ def build_interpretation_notes(
     notes: List[str] = []
     if min_match_percent > 0:
         notes.append(f"Showing matches at or above {min_match_percent}%.")
-    if relaxed_min_score:
-        if min_match_percent > 0:
-            notes.append(
-                f"No matches met the {min_match_percent}% threshold; "
-                "showing the closest available."
-            )
-        else:
-            notes.append("Only weak matches were found; showing the closest available.")
+    if relaxed_min_score and min_match_percent > 0:
+        notes.append(
+            f"Fewer than {min_match_percent}% matches were available; "
+            "including the closest matches to fill results."
+        )
     if dense_failed and sparse_failed:
         notes.append("Dense and sparse retrieval both failed (check Bedrock / index).")
     elif dense_failed:

@@ -42,8 +42,9 @@ query:   text + history -> LLM QuerySpec
 **Match % on result cards** is a calibrated display value derived from
 each hit's score. Chat search uses Cohere rerank relevance; similar-image
 search uses normalized RRF fusion across the visual and text lanes (rank,
-filter, and display all use the same fused score). **100%** appears for
-near-excellent rerank scores (≥ 0.93), dense cosine (≥ 0.92), or fusion
+filter, and display all use the same fused score). The min-match % slider
+uses this same calibrated scale (not raw rerank scores). **100%** appears
+for near-excellent rerank scores (≥ 0.93), dense cosine (≥ 0.92), or fusion
 scores at 1.0.
 
 ## Setup

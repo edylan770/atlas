@@ -76,6 +76,19 @@ class BM25Index:
             self._bm25 = None
             return False
 
+    def is_loaded(self) -> bool:
+        return self._state is not None and bool(self._state.image_ids)
+
+    def count(self) -> int:
+        if self._state is None:
+            return 0
+        return len(self._state.image_ids)
+
+    def list_ids(self) -> set[str]:
+        if self._state is None:
+            return set()
+        return set(self._state.image_ids)
+
     def query(
         self,
         text: str,
@@ -110,6 +123,18 @@ def get_index() -> BM25Index:
         _index = BM25Index()
         _index.load()
     return _index
+
+
+def is_loaded() -> bool:
+    return get_index().is_loaded()
+
+
+def count() -> int:
+    return get_index().count()
+
+
+def list_ids() -> set[str]:
+    return get_index().list_ids()
 
 
 def rebuild_from_records(records) -> None:

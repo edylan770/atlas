@@ -1,8 +1,17 @@
-import { useRef, type KeyboardEvent } from "react";
+import { useRef, useState, type KeyboardEvent, type SyntheticEvent } from "react";
 import { Link } from "react-router-dom";
 import type { SimilarityAxis } from "../api/client";
 
 const IMAGE_ACCEPT = "image/png,image/jpeg,image/webp,image/gif,image/bmp,image/tiff";
+const ADVANCED_SEARCH_OPEN_KEY = "atlas-advanced-search-open";
+
+function readAdvancedSearchOpen(): boolean {
+  try {
+    return localStorage.getItem(ADVANCED_SEARCH_OPEN_KEY) === "true";
+  } catch {
+    return false;
+  }
+}
 
 function DeckSuggestIcon() {
   return (
@@ -83,11 +92,23 @@ export function Composer({
   onSimilarImageSearch,
 }: ComposerProps) {
   const imageInputRef = useRef<HTMLInputElement>(null);
+  const [advancedOpen, setAdvancedOpen] = useState(readAdvancedSearchOpen);
+  const hasCustomAdvanced = similarityAxis !== "balanced" || minMatchPercent > 0;
 
   const handleKeyDown = (e: KeyboardEvent<HTMLTextAreaElement>) => {
     if (e.key === "Enter" && !e.shiftKey) {
       e.preventDefault();
       onSend();
+    }
+  };
+
+  const handleAdvancedToggle = (e: SyntheticEvent<HTMLDetailsElement>) => {
+    const open = e.currentTarget.open;
+    setAdvancedOpen(open);
+    try {
+      localStorage.setItem(ADVANCED_SEARCH_OPEN_KEY, String(open));
+    } catch {
+      // ignore storage errors
     }
   };
 
@@ -146,25 +167,7 @@ export function Composer({
           e.target.value = "";
         }}
       />
-      <div className="mt-2 flex flex-wrap items-center gap-1">
-        <span className="mr-1 text-xs text-navy-600">Similarity axis</span>
-        {SIMILARITY_AXES.map(({ id, label }) => (
-          <button
-            key={id}
-            type="button"
-            disabled={loading}
-            onClick={() => onSimilarityAxisChange(id)}
-            className={`rounded-lg px-2.5 py-1 text-xs font-medium transition disabled:opacity-50 ${
-              similarityAxis === id
-                ? "bg-brand-500 text-white shadow-sm"
-                : "border border-navy-200 bg-white text-navy-700 hover:border-brand-400 hover:bg-brand-50"
-            }`}
-          >
-            {label}
-          </button>
-        ))}
-      </div>
-      <div className="mt-2 flex flex-wrap items-center justify-between gap-2">
+      <div className="mt-2">
         <label className="flex items-center gap-2 text-xs text-navy-600">
           <span>Max results</span>
           <input
@@ -177,19 +180,71 @@ export function Composer({
           />
           <span className="w-7 font-medium text-navy-800">{topK}</span>
         </label>
-        <label className="flex items-center gap-2 text-xs text-navy-600">
-          <span>Min match %</span>
-          <input
-            type="range"
-            min={0}
-            max={100}
-            value={minMatchPercent}
-            onChange={(e) => onMinMatchPercentChange(Number(e.target.value))}
-            className="accent-brand-600"
-          />
-          <span className="w-8 font-medium text-navy-800">{minMatchPercent}</span>
-        </label>
       </div>
+      <details
+        open={advancedOpen}
+        onToggle={handleAdvancedToggle}
+        className="mt-2 group"
+      >
+        <summary className="flex cursor-pointer list-none items-center gap-1.5 text-xs font-medium text-navy-600 marker:content-none [&::-webkit-details-marker]:hidden">
+          <span
+            className="inline-block text-[10px] text-navy-400 transition group-open:rotate-90"
+            aria-hidden
+          >
+            ▸
+          </span>
+          <span>Advanced</span>
+          {hasCustomAdvanced && (
+            <span
+              className="h-1.5 w-1.5 rounded-full bg-brand-500"
+              title="Custom advanced settings active"
+              aria-label="Custom advanced settings active"
+            />
+          )}
+        </summary>
+        <div className="mt-2 space-y-3 border-l-2 border-navy-100 pl-3">
+          <div>
+            <div className="flex flex-wrap items-center gap-1">
+              <span className="mr-1 text-xs text-navy-600">Similarity axis</span>
+              {SIMILARITY_AXES.map(({ id, label }) => (
+                <button
+                  key={id}
+                  type="button"
+                  disabled={loading}
+                  onClick={() => onSimilarityAxisChange(id)}
+                  className={`rounded-lg px-2.5 py-1 text-xs font-medium transition disabled:opacity-50 ${
+                    similarityAxis === id
+                      ? "bg-brand-500 text-white shadow-sm"
+                      : "border border-navy-200 bg-white text-navy-700 hover:border-brand-400 hover:bg-brand-50"
+                  }`}
+                >
+                  {label}
+                </button>
+              ))}
+            </div>
+            <p className="mt-1 text-[11px] text-navy-500">
+              Applies to image search and Find similar
+            </p>
+          </div>
+          <div>
+            <label className="flex items-center gap-2 text-xs text-navy-600">
+              <span>Min match %</span>
+              <input
+                type="range"
+                min={0}
+                max={100}
+                value={minMatchPercent}
+                onChange={(e) => onMinMatchPercentChange(Number(e.target.value))}
+                className="accent-brand-600"
+              />
+              <span className="w-8 font-medium text-navy-800">{minMatchPercent}</span>
+            </label>
+            <p className="mt-1 text-[11px] text-navy-500">
+              Hide weaker matches (0 = show all)
+            </p>
+          </div>
+        </div>
+      </details>
     </div>
   );
 }

@@ -12,7 +12,7 @@ from imagecb.models.vlm import ImageQueryJSON
 from imagecb.retrieval.hybrid import normalize_rrf_score, rrf_merge
 from imagecb.retrieval.image_query import SimilarityAxis
 from imagecb.retrieval.rerank import RankedResult
-from imagecb.retrieval.similar import _filter_by_min_score, _fuse_and_rank, search_similar
+from imagecb.retrieval.similar import _filter_by_min_match_percent, _fuse_and_rank, search_similar
 from imagecb.formatting.match_display import display_match_percent
 from imagecb.storage.metadata_db import ImageRecord
 
@@ -51,7 +51,7 @@ def test_rrf_merge_blends_two_ranked_lists():
     assert "d" in ids
 
 
-def test_filter_by_min_score_uses_dense_score():
+def test_filter_by_min_match_percent_uses_display_scale():
     results = [
         RankedResult(
             image_id="a",
@@ -68,7 +68,7 @@ def test_filter_by_min_score_uses_dense_score():
             score_kind="dense",
         ),
     ]
-    filtered = _filter_by_min_score(results, 0.4)
+    filtered = _filter_by_min_match_percent(results, 40)
     assert [r.image_id for r in filtered] == ["a"]
 
 
@@ -116,7 +116,7 @@ def test_fuse_and_rank_uses_normalized_fusion_score(mock_get_records):
         ),
     ]
 
-    results = _fuse_and_rank(visual_hits, text_ranked, top_k=3, min_score=0.0)
+    results = _fuse_and_rank(visual_hits, text_ranked, top_k=3, min_match_percent=0)
     assert all(r.score_kind == "fusion" for r in results)
     assert results[0].image_id == "c"
     for i in range(len(results) - 1):
@@ -142,11 +142,11 @@ def test_fuse_and_rank_text_lane_survives_min_score(mock_get_records):
         ),
     ]
 
-    results = _fuse_and_rank(visual_hits, text_ranked, top_k=2, min_score=0.5)
+    results = _fuse_and_rank(visual_hits, text_ranked, top_k=2, min_match_percent=50)
     ids = [r.image_id for r in results]
     assert "b" in ids
     by_id = {r.image_id: r for r in results}
-    assert by_id["b"].score >= 0.5
+    assert display_match_percent(by_id["b"].score, "fusion") >= 50
 
 
 @patch("imagecb.retrieval.similar.metadata_db.get_records")
@@ -168,7 +168,7 @@ def test_fuse_and_rank_text_only_leg_normalizes_to_one(mock_get_records):
         [],
         text_ranked,
         top_k=1,
-        min_score=0.0,
+        min_match_percent=0,
         axis=SimilarityAxis.SUBJECT,
     )
     assert len(results) == 1
@@ -196,14 +196,14 @@ def test_fuse_and_rank_subject_prefers_text_lane(mock_get_records):
         visual_hits,
         text_ranked,
         top_k=2,
-        min_score=0.0,
+        min_match_percent=0,
         axis=SimilarityAxis.SUBJECT,
     )
     layout = _fuse_and_rank(
         visual_hits,
         text_ranked,
         top_k=2,
-        min_score=0.0,
+        min_match_percent=0,
         axis=SimilarityAxis.LAYOUT,
     )
     assert subject[0].image_id == "t_only"
@@ -230,7 +230,7 @@ def test_fuse_and_rank_layout_prefers_visual_lane(mock_get_records):
         visual_hits,
         text_ranked,
         top_k=2,
-        min_score=0.0,
+        min_match_percent=0,
         axis=SimilarityAxis.STYLE,
     )
     assert results[0].image_id == "v_only"

@@ -11,13 +11,11 @@ ingested slides, PDFs, and standalone images. After each search, write a short r
 Markdown (1–3 short paragraphs):
 
 1. Summarize in plain language what was found, or say plainly that nothing matched well.
-2. Offer 2–3 quoted follow-up search phrases the user could type next (refinements or \
-filters like file type, source file, author, or date).
 
 Rules:
 - Never invent filenames, authors, or images not present in the context.
 - If the interpretation notes say matches are weak, be honest about it.
-- Keep tone friendly and concise. No JSON. No code blocks unless quoting a phrase."""
+- Keep tone friendly and concise. No JSON. No code blocks."""
 
 
 class ConversationLLM:

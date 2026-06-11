@@ -86,7 +86,7 @@ def test_rerank_applies_asset_type_boost_for_diagram(mock_rate, mock_get_records
         Candidate(image_id="photo-img", fused_score=0.8),
     ]
 
-    results = rerank("diagram", candidates, top_k=2, min_score=0.0, spec=spec)
+    results = rerank("diagram", candidates, top_k=2, min_match_percent=0, spec=spec)
 
     assert results[0].image_id == "diagram-img"
 
@@ -107,6 +107,6 @@ def test_rerank_skips_asset_type_boost_for_presentation(mock_rate, mock_get_reco
         Candidate(image_id="b", fused_score=0.8),
     ]
 
-    results = rerank("presentation", candidates, top_k=2, min_score=0.0, spec=spec)
+    results = rerank("presentation", candidates, top_k=2, min_match_percent=0, spec=spec)
 
     assert results[0].image_id == "b"

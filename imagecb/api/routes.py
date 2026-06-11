@@ -5,6 +5,7 @@ from __future__ import annotations
 import io
 import json
 import logging
+from concurrent.futures import ThreadPoolExecutor
 from typing import Iterator, List, Optional
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Request, UploadFile
@@ -23,6 +24,7 @@ from imagecb.api.schemas import (
     DeckForceResponse,
     DeckSuggestResponse,
     HealthResponse,
+    ReadyResponse,
     IngestResponse,
     InteractionRequest,
     InteractionResponse,
@@ -52,7 +54,7 @@ from imagecb.formatting.conversational_reply import (
     iter_conversational_reply_text,
 )
 from imagecb.deck.pipeline import DeckSuggestResult, SlideSuggestion, force_slide_image, process_deck_upload
-from imagecb.ingest import ingest_paths
+from imagecb.ingest import IngestInProgressError, ingest_paths
 from imagecb.paths import resolve_image_file, resolve_source_file
 from imagecb.retrieval.image_query import SimilarityAxis, axis_label
 from imagecb.retrieval.query_parser import QuerySpec
@@ -60,10 +62,13 @@ from imagecb.retrieval.session import AskResult
 from imagecb.retrieval.similar import search_similar
 from imagecb.retrieval.sort import InvalidSortError, ResultSort, resolve_sort
 from imagecb.storage import metadata_db, vector_store
-from imagecb.suggestions import generate_suggestions
+from imagecb.suggestions import generate_follow_up_suggestions, generate_suggestions
+from imagecb.suggestions.corpus_summary import build_corpus_context
 from imagecb.uploads import save_uploads_from_files
 
 logger = logging.getLogger(__name__)
+
+_follow_up_executor = ThreadPoolExecutor(max_workers=2, thread_name_prefix="follow-up")
 
 router = APIRouter(prefix="/api")
 
@@ -197,13 +202,82 @@ def health() -> HealthResponse:
     return HealthResponse()
 
 
+def _index_status_payload() -> StatusResponse:
+    from imagecb.repair import assess_index_health
+
+    try:
+        report = assess_index_health(include_weak=True)
+    except Exception:  # noqa: BLE001
+        logger.exception("Index health assessment failed")
+        try:
+            n = vector_store.count()
+        except Exception:  # noqa: BLE001
+            n = 0
+        return StatusResponse(indexed_count=n)
+
+    return StatusResponse(
+        indexed_count=report.chroma_vectors,
+        total_records=report.total_records,
+        chroma_vectors=report.chroma_vectors,
+        text_vector_count=report.text_vector_count,
+        bm25_doc_count=report.bm25_doc_count,
+        is_healthy=report.is_healthy,
+        stores_in_sync=report.stores_in_sync,
+    )
+
+
 @router.get("/status", response_model=StatusResponse)
 def status() -> StatusResponse:
+    return _index_status_payload()
+
+
+@router.get("/ready", response_model=ReadyResponse)
+def ready() -> ReadyResponse:
+    from imagecb.repair import assess_index_health
+
     try:
-        n = vector_store.count()
-    except Exception:  # noqa: BLE001
-        n = 0
-    return StatusResponse(indexed_count=n)
+        report = assess_index_health(include_weak=True)
+    except Exception as exc:  # noqa: BLE001
+        logger.exception("Readiness check failed")
+        raise HTTPException(
+            status_code=503,
+            detail={"ready": False, "error": str(exc)},
+        ) from exc
+
+    issues: List[str] = []
+    if not report.stores_in_sync:
+        if report.missing_chroma_count:
+            issues.append(f"{report.missing_chroma_count} active row(s) missing Chroma vectors")
+        if report.missing_text_vector_count:
+            issues.append(f"{report.missing_text_vector_count} missing caption-text vectors")
+        if report.orphan_chroma_count:
+            issues.append(f"{report.orphan_chroma_count} orphan Chroma vector(s)")
+        if report.orphan_text_vector_count:
+            issues.append(f"{report.orphan_text_vector_count} orphan caption-text vector(s)")
+        if report.stale_deleted_in_chroma_count:
+            issues.append(
+                f"{report.stale_deleted_in_chroma_count} soft-deleted row(s) still indexed"
+            )
+        if report.bm25_stale:
+            issues.append("BM25 index out of sync with SQLite")
+    if report.missing_cache_count:
+        issues.append(f"{report.missing_cache_count} missing cached PNG(s)")
+    if report.failed_caption_count:
+        issues.append(f"{report.failed_caption_count} failed caption(s)")
+
+    body = ReadyResponse(
+        ready=report.is_healthy,
+        is_healthy=report.is_healthy,
+        stores_in_sync=report.stores_in_sync,
+        total_records=report.total_records,
+        chroma_vectors=report.chroma_vectors,
+        text_vector_count=report.text_vector_count,
+        bm25_doc_count=report.bm25_doc_count,
+        issues=issues,
+    )
+    if not report.is_healthy:
+        raise HTTPException(status_code=503, detail=body.model_dump())
+    return body
 
 
 @router.post("/suggestions", response_model=SuggestionsResponse)
@@ -270,12 +344,25 @@ def chat(
     except Exception:  # noqa: BLE001
         indexed_count = ask_result.indexed_count
 
+    corpus = build_corpus_context()
+    follow_up_future = _follow_up_executor.submit(
+        generate_follow_up_suggestions,
+        message,
+        ask_result,
+        notes,
+        corpus=corpus,
+    )
     reply = build_conversational_reply(
         message,
         ask_result,
         notes,
         indexed_count=indexed_count,
     )
+    try:
+        follow_ups = follow_up_future.result(timeout=15)
+    except Exception:  # noqa: BLE001
+        logger.exception("Follow-up suggestions failed")
+        follow_ups = []
     session.record_turn(message, reply.message)
     search_event_id = record_search_from_results(
         query_text=message,
@@ -291,6 +378,7 @@ def chat(
         results=[_result_card_out(c) for c in reply.results],
         parsed_query=_parsed_with_notes(spec, notes),
         search_event_id=search_event_id,
+        follow_up_suggestions=follow_ups,
     )
 
 
@@ -341,6 +429,15 @@ def chat_stream(
         spec=spec,
     )
 
+    corpus = build_corpus_context()
+    follow_up_future = _follow_up_executor.submit(
+        generate_follow_up_suggestions,
+        message,
+        ask_result,
+        notes,
+        corpus=corpus,
+    )
+
     def event_stream() -> Iterator[str]:
         yield _sse_event(
             {
@@ -369,9 +466,18 @@ def chat_stream(
             return
 
         assistant_message = "".join(full_message)
+        try:
+            follow_ups = follow_up_future.result(timeout=15)
+        except Exception:  # noqa: BLE001
+            logger.exception("Follow-up suggestions failed")
+            follow_ups = []
         session.record_turn(message, assistant_message)
         yield _sse_event(
-            {"type": "done", "assistant_message": assistant_message}
+            {
+                "type": "done",
+                "assistant_message": assistant_message,
+                "follow_up_suggestions": follow_ups,
+            }
         )
 
     return StreamingResponse(
@@ -648,6 +754,8 @@ async def ingest(
             force=force,
             workers=ingest_workers,
         )
+    except IngestInProgressError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
     except Exception as exc:  # noqa: BLE001
         logger.exception("Ingest failed")
         raise HTTPException(status_code=500, detail=f"Ingest failed: {exc}") from exc

@@ -125,6 +125,13 @@ class Settings:
     suggestions_limit: int = field(
         default_factory=lambda: int(_env("SUGGESTIONS_LIMIT", "4") or "4")
     )
+    follow_up_suggestions_limit: int = field(
+        default_factory=lambda: int(_env("FOLLOW_UP_SUGGESTIONS_LIMIT", "3") or "3")
+    )
+    enable_follow_up_suggestions: bool = field(
+        default_factory=lambda: (_env("ENABLE_FOLLOW_UP_SUGGESTIONS", "true") or "true").lower()
+        in ("1", "true", "yes", "on")
+    )
     # Ingest performance
     ingest_workers: int = field(
         default_factory=lambda: int(_env("INGEST_WORKERS", "4") or "4")
@@ -153,6 +160,16 @@ class Settings:
     )
     post_ingest_repair_reindex_vectors: bool = field(
         default_factory=lambda: (_env("POST_INGEST_REPAIR_REINDEX_VECTORS", "true") or "true").lower()
+        in ("1", "true", "yes", "on")
+    )
+
+    # Index consistency (safe cross-store reconcile)
+    index_reconcile_on_startup: bool = field(
+        default_factory=lambda: (_env("INDEX_RECONCILE_ON_STARTUP", "true") or "true").lower()
+        in ("1", "true", "yes", "on")
+    )
+    index_reconcile_after_ingest: bool = field(
+        default_factory=lambda: (_env("INDEX_RECONCILE_AFTER_INGEST", "true") or "true").lower()
         in ("1", "true", "yes", "on")
     )
 

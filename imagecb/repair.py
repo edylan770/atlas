@@ -9,7 +9,7 @@ import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import List, Literal, Optional, Sequence, Set, Tuple
+from typing import Any, Dict, List, Literal, Optional, Sequence, Set, Tuple
 
 import numpy as np
 from PIL import Image
@@ -59,8 +59,58 @@ class IndexHealthReport:
     missing_asset_type_ids: List[str] = field(default_factory=list)
     missing_text_vector_count: int = 0
     missing_text_vector_ids: List[str] = field(default_factory=list)
+    orphan_chroma_count: int = 0
+    orphan_chroma_ids: List[str] = field(default_factory=list)
+    orphan_text_vector_count: int = 0
+    orphan_text_vector_ids: List[str] = field(default_factory=list)
+    stale_deleted_in_chroma_count: int = 0
+    stale_deleted_in_chroma_ids: List[str] = field(default_factory=list)
+    bm25_doc_count: int = 0
+    bm25_missing_ids: List[str] = field(default_factory=list)
+    bm25_orphan_ids: List[str] = field(default_factory=list)
+    bm25_stale: bool = False
+    text_vector_count: int = 0
+    stores_in_sync: bool = True
     is_healthy: bool = True
     elapsed_sec: float = 0.0
+
+    def to_dict(self, *, id_sample_limit: int = 20) -> Dict[str, Any]:
+        """JSON-serializable summary for API responses."""
+
+        def _sample(ids: List[str]) -> List[str]:
+            return ids[:id_sample_limit]
+
+        return {
+            "total_records": self.total_records,
+            "chroma_vectors": self.chroma_vectors,
+            "text_vector_count": self.text_vector_count,
+            "bm25_doc_count": self.bm25_doc_count,
+            "missing_cache_count": self.missing_cache_count,
+            "failed_caption_count": self.failed_caption_count,
+            "weak_caption_count": self.weak_caption_count,
+            "needs_regeneration_count": self.needs_regeneration_count,
+            "missing_chroma_count": self.missing_chroma_count,
+            "missing_text_vector_count": self.missing_text_vector_count,
+            "orphan_chroma_count": self.orphan_chroma_count,
+            "orphan_text_vector_count": self.orphan_text_vector_count,
+            "stale_deleted_in_chroma_count": self.stale_deleted_in_chroma_count,
+            "bm25_stale": self.bm25_stale,
+            "bm25_missing_count": len(self.bm25_missing_ids),
+            "bm25_orphan_count": len(self.bm25_orphan_ids),
+            "missing_asset_type_count": self.missing_asset_type_count,
+            "unrecoverable_source_missing_count": self.unrecoverable_source_missing_count,
+            "stores_in_sync": self.stores_in_sync,
+            "is_healthy": self.is_healthy,
+            "elapsed_sec": self.elapsed_sec,
+            "missing_chroma_ids": _sample(self.missing_chroma_ids),
+            "missing_text_vector_ids": _sample(self.missing_text_vector_ids),
+            "orphan_chroma_ids": _sample(self.orphan_chroma_ids),
+            "orphan_text_vector_ids": _sample(self.orphan_text_vector_ids),
+            "stale_deleted_in_chroma_ids": _sample(self.stale_deleted_in_chroma_ids),
+            "bm25_missing_ids": _sample(self.bm25_missing_ids),
+            "bm25_orphan_ids": _sample(self.bm25_orphan_ids),
+            "recoverable_source_files": self.recoverable_source_files[:id_sample_limit],
+        }
 
 
 def _cache_missing(record: ImageRecord) -> bool:
@@ -132,43 +182,85 @@ def assess_index_health(*, include_weak: bool = False) -> IndexHealthReport:
         chroma_ids = set()
 
     missing_chroma_ids = sorted(sqlite_ids - chroma_ids)
+    orphan_chroma_ids = sorted(chroma_ids - sqlite_ids)
 
+    text_ids: Set[str] = set()
+    text_vector_count = 0
     missing_text_vector_ids: List[str] = []
+    orphan_text_vector_ids: List[str] = []
     if SETTINGS.caption_text_lane_enabled:
         try:
             text_ids = vector_store.list_text_ids()
+            text_vector_count = len(text_ids)
         except Exception as exc:  # noqa: BLE001
             logger.warning("Could not read caption-text collection: %s", exc)
             text_ids = set()
-        # Only records with a non-empty caption document can have a text vector.
         embeddable = {r.image_id for r in records if caption_document_text(r).strip()}
         missing_text_vector_ids = sorted(embeddable - text_ids)
+        orphan_text_vector_ids = sorted(text_ids - sqlite_ids)
+
+    deleted_records = metadata_db.get_deleted_records()
+    deleted_ids = {r.image_id for r in deleted_records}
+    stale_deleted_in_chroma_ids = sorted(
+        (chroma_ids | text_ids) & deleted_ids
+    )
+
+    bm25_ids: Set[str] = set()
+    bm25_doc_count = 0
+    bm25_stale = False
+    bm25_missing_ids: List[str] = []
+    bm25_orphan_ids: List[str] = []
+    try:
+        bm25_doc_count = bm25_index.count()
+        bm25_ids = bm25_index.list_ids()
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("Could not read BM25 index: %s", exc)
+        bm25_stale = len(sqlite_ids) > 0
+
+    if sqlite_ids or bm25_ids:
+        bm25_missing_ids = sorted(sqlite_ids - bm25_ids)
+        bm25_orphan_ids = sorted(bm25_ids - sqlite_ids)
+        bm25_stale = bm25_stale or bool(bm25_missing_ids or bm25_orphan_ids)
 
     missing_cache_count = len(missing_cache_records)
     failed_caption_count = len(failed_caption_records)
     weak_caption_count = len(weak_caption_records)
     needs_regeneration_count = failed_caption_count + weak_caption_count
     missing_chroma_count = len(missing_chroma_ids)
+    missing_text_vector_count = len(missing_text_vector_ids)
+    orphan_chroma_count = len(orphan_chroma_ids)
+    orphan_text_vector_count = len(orphan_text_vector_ids)
+    stale_deleted_in_chroma_count = len(stale_deleted_in_chroma_ids)
     missing_asset_type_records = records_missing_asset_type()
     missing_asset_type_count = len(missing_asset_type_records)
     missing_asset_type_ids = [r.image_id for r in missing_asset_type_records[:50]]
+
+    stores_in_sync = (
+        missing_chroma_count == 0
+        and missing_text_vector_count == 0
+        and orphan_chroma_count == 0
+        and orphan_text_vector_count == 0
+        and stale_deleted_in_chroma_count == 0
+        and not bm25_stale
+    )
     is_healthy = (
-        missing_cache_count == 0
+        stores_in_sync
+        and missing_cache_count == 0
         and failed_caption_count == 0
-        and missing_chroma_count == 0
     )
 
     elapsed = round(time.perf_counter() - t0, 2)
     logger.info(
-        "Index health assess: records=%s healthy=%s missing_cache=%s failed_captions=%s "
-        "missing_chroma=%s missing_asset_types=%s unrecoverable=%s (%.2fs)",
+        "Index health assess: records=%s healthy=%s in_sync=%s missing_cache=%s "
+        "failed_captions=%s missing_chroma=%s orphans=%s bm25_stale=%s (%.2fs)",
         len(records),
         is_healthy,
+        stores_in_sync,
         missing_cache_count,
         failed_caption_count,
         missing_chroma_count,
-        missing_asset_type_count,
-        len(unrecoverable_records),
+        orphan_chroma_count + orphan_text_vector_count,
+        bm25_stale,
         elapsed,
     )
 
@@ -189,11 +281,77 @@ def assess_index_health(*, include_weak: bool = False) -> IndexHealthReport:
         recoverable_source_files=sorted(recoverable_source_files),
         missing_asset_type_count=missing_asset_type_count,
         missing_asset_type_ids=missing_asset_type_ids,
-        missing_text_vector_count=len(missing_text_vector_ids),
+        missing_text_vector_count=missing_text_vector_count,
         missing_text_vector_ids=missing_text_vector_ids,
+        orphan_chroma_count=orphan_chroma_count,
+        orphan_chroma_ids=orphan_chroma_ids,
+        orphan_text_vector_count=orphan_text_vector_count,
+        orphan_text_vector_ids=orphan_text_vector_ids,
+        stale_deleted_in_chroma_count=stale_deleted_in_chroma_count,
+        stale_deleted_in_chroma_ids=stale_deleted_in_chroma_ids,
+        bm25_doc_count=bm25_doc_count,
+        bm25_missing_ids=bm25_missing_ids,
+        bm25_orphan_ids=bm25_orphan_ids,
+        bm25_stale=bm25_stale,
+        text_vector_count=text_vector_count,
+        stores_in_sync=stores_in_sync,
         is_healthy=is_healthy,
         elapsed_sec=elapsed,
     )
+
+
+def reconcile_index_safe(*, dry_run: bool = False) -> dict:
+    """Cheap cross-store fixes: purge orphan/stale vectors and rebuild BM25 when drifted."""
+    t0 = time.perf_counter()
+    report = assess_index_health(include_weak=True)
+
+    purge_chroma = list(
+        dict.fromkeys(report.orphan_chroma_ids + report.stale_deleted_in_chroma_ids)
+    )
+    purge_text = list(
+        dict.fromkeys(report.orphan_text_vector_ids + report.stale_deleted_in_chroma_ids)
+    )
+
+    stats: Dict[str, Any] = {
+        "dry_run": dry_run,
+        "orphan_chroma_purged": 0,
+        "orphan_text_purged": 0,
+        "bm25_rebuilt": False,
+        "stores_in_sync_before": report.stores_in_sync,
+        "is_healthy_before": report.is_healthy,
+    }
+
+    if not dry_run:
+        if purge_chroma:
+            vector_store.delete(purge_chroma)
+            stats["orphan_chroma_purged"] = len(purge_chroma)
+        if purge_text:
+            vector_store.delete_text(purge_text)
+            stats["orphan_text_purged"] = len(purge_text)
+        if report.bm25_stale or not bm25_index.is_loaded():
+            bm25_index.rebuild_from_records(get_all_records(include_deleted=False))
+            stats["bm25_rebuilt"] = True
+    else:
+        stats["orphan_chroma_purged"] = len(purge_chroma)
+        stats["orphan_text_purged"] = len(purge_text)
+        stats["bm25_rebuilt"] = report.bm25_stale or not bm25_index.is_loaded()
+
+    final = assess_index_health(include_weak=True) if not dry_run else report
+    stats["stores_in_sync_after"] = final.stores_in_sync
+    stats["is_healthy_after"] = final.is_healthy
+    stats["elapsed_sec"] = round(time.perf_counter() - t0, 2)
+    logger.info(
+        "Index reconcile (dry_run=%s): chroma_purged=%s text_purged=%s bm25_rebuilt=%s "
+        "in_sync %s -> %s (%.2fs)",
+        dry_run,
+        stats["orphan_chroma_purged"],
+        stats["orphan_text_purged"],
+        stats["bm25_rebuilt"],
+        report.stores_in_sync,
+        final.stores_in_sync,
+        stats["elapsed_sec"],
+    )
+    return stats
 
 
 def _load_cached_image(record: ImageRecord) -> Optional[Image.Image]:
@@ -742,13 +900,10 @@ def repair_index_issues(
         repair_missing_vectors = SETTINGS.post_ingest_repair_reindex_vectors
 
     t0 = time.perf_counter()
+    reconcile_stats = reconcile_index_safe()
     rescan_stats = rescan_caption_quality()
     report = assess_index_health(include_weak=include_weak_captions)
-    if (
-        report.is_healthy
-        and report.missing_asset_type_count == 0
-        and report.missing_text_vector_count == 0
-    ):
+    if report.is_healthy and report.missing_asset_type_count == 0:
         logger.info("Post-ingest repair skipped: index is healthy")
         return {
             "skipped": True,
@@ -756,6 +911,7 @@ def repair_index_issues(
             "elapsed_sec": round(time.perf_counter() - t0, 1),
             "assess": {"elapsed_sec": report.elapsed_sec},
             "rescan": rescan_stats,
+            "reconcile": reconcile_stats,
         }
 
     logger.info(
@@ -827,6 +983,7 @@ def repair_index_issues(
     if any_phase_ran:
         bm25_index.rebuild_from_records(get_all_records())
 
+    final_reconcile = reconcile_index_safe()
     final = assess_index_health(include_weak=include_weak_captions)
     elapsed = round(time.perf_counter() - t0, 1)
 
@@ -834,6 +991,8 @@ def repair_index_issues(
         "skipped": False,
         "is_healthy": final.is_healthy,
         "phases": phases,
+        "reconcile": reconcile_stats,
+        "final_reconcile": final_reconcile,
         "elapsed_sec": elapsed,
         "cache_recached": phases.get("cache", {}).get("images_updated", 0),
         "captions_repaired": phases.get("captions", {}).get("repaired", 0)

@@ -218,21 +218,22 @@ class SuggestionLLM:
         self.provider = (provider or SETTINGS.llm_provider).lower()
         self.model = model or SETTINGS.llm_model
 
-    def generate(self, user_payload: str) -> str:
+    def generate(self, user_payload: str, *, system_prompt: Optional[str] = None) -> str:
+        system = system_prompt or SUGGESTIONS_SYSTEM_PROMPT
         if self.provider == "bedrock":
-            return self._bedrock(user_payload)
+            return self._bedrock(user_payload, system)
         if self.provider == "openai":
-            return self._openai(user_payload)
+            return self._openai(user_payload, system)
         if self.provider == "anthropic":
-            return self._anthropic(user_payload)
+            return self._anthropic(user_payload, system)
         raise ValueError(f"Unknown LLM provider: {self.provider}")
 
-    def _bedrock(self, user_payload: str) -> str:
+    def _bedrock(self, user_payload: str, system: str) -> str:
         from imagecb.models.bedrock_client import get_bedrock_runtime
 
         response = get_bedrock_runtime().converse(
             modelId=self.model,
-            system=[{"text": SUGGESTIONS_SYSTEM_PROMPT}],
+            system=[{"text": system}],
             messages=[{"role": "user", "content": [{"text": user_payload}]}],
             inferenceConfig={"temperature": 0.3, "maxTokens": 400},
         )
@@ -243,7 +244,7 @@ class SuggestionLLM:
         ]
         return "".join(parts) or "{}"
 
-    def _openai(self, user_payload: str) -> str:
+    def _openai(self, user_payload: str, system: str) -> str:
         from openai import OpenAI
 
         client = OpenAI(api_key=SETTINGS.openai_api_key)
@@ -251,21 +252,21 @@ class SuggestionLLM:
             model=self.model,
             response_format={"type": "json_object"},
             messages=[
-                {"role": "system", "content": SUGGESTIONS_SYSTEM_PROMPT},
+                {"role": "system", "content": system},
                 {"role": "user", "content": user_payload},
             ],
             temperature=0.3,
         )
         return resp.choices[0].message.content or "{}"
 
-    def _anthropic(self, user_payload: str) -> str:
+    def _anthropic(self, user_payload: str, system: str) -> str:
         import anthropic
 
         client = anthropic.Anthropic(api_key=SETTINGS.anthropic_api_key)
         msg = client.messages.create(
             model=self.model,
             max_tokens=400,
-            system=SUGGESTIONS_SYSTEM_PROMPT,
+            system=system,
             messages=[{"role": "user", "content": user_payload}],
         )
         parts = [b.text for b in msg.content if getattr(b, "type", None) == "text"]

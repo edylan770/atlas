@@ -1,3 +1,5 @@
+import { SuggestionChips, SuggestionChipsSkeleton } from "./SuggestionChips";
+
 interface EmptyStateProps {
   suggestions: string[];
   loading: boolean;
@@ -9,7 +11,6 @@ export function EmptyState({
   loading,
   onPickExample,
 }: EmptyStateProps) {
-  const showSkeleton = loading;
   const hasSuggestions = !loading && suggestions.length > 0;
 
   return (
@@ -36,31 +37,20 @@ export function EmptyState({
         Describe what you are looking for in plain language. Refine across turns
         — results appear on the right.
       </p>
-      <div className="mt-6 flex flex-wrap justify-center gap-2">
-        {showSkeleton
-          ? Array.from({ length: 4 }, (_, i) => (
-              <span
-                key={i}
-                className="h-8 w-36 animate-pulse rounded-full bg-navy-100"
-                aria-hidden
-              />
-            ))
-          : hasSuggestions
-            ? suggestions.map((ex) => (
-                <button
-                  key={ex}
-                  type="button"
-                  onClick={() => onPickExample(ex)}
-                  className="rounded-full border border-navy-200 bg-white px-3 py-1.5 text-xs text-navy-700 shadow-sm transition hover:border-brand-400 hover:bg-brand-50 hover:text-brand-700"
-                >
-                  {ex}
-                </button>
-              ))
-            : (
-                <p className="text-xs text-navy-500">
-                  Suggestions will appear once your corpus is indexed.
-                </p>
-              )}
+      <div className="mt-6 flex justify-center">
+        {loading ? (
+          <SuggestionChipsSkeleton />
+        ) : hasSuggestions ? (
+          <SuggestionChips
+            suggestions={suggestions}
+            onPick={onPickExample}
+            className="justify-center"
+          />
+        ) : (
+          <p className="text-xs text-navy-500">
+            Suggestions will appear once your corpus is indexed.
+          </p>
+        )}
       </div>
     </div>
   );

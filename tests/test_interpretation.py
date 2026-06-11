@@ -30,13 +30,13 @@ def test_notes_relaxed_min_score():
         min_match_percent=80,
         relaxed_min_score=True,
     )
-    assert any("80%" in n and "closest available" in n for n in notes)
+    assert any("80%" in n and "fill results" in n for n in notes)
 
 
-def test_notes_relaxed_default_floor():
+def test_notes_relaxed_ignored_when_min_match_zero():
     spec = QuerySpec(semantic_query="charts")
     notes = build_interpretation_notes(spec, relaxed_min_score=True)
-    assert any("weak matches" in n for n in notes)
+    assert notes == []
 
 
 def test_notes_retrieval_failures():

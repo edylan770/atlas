@@ -141,7 +141,7 @@ def test_rerank_calls_dedupe_results(mock_get_records, mock_get_reranker, mock_d
         Candidate(image_id="a", fused_score=0.9),
         Candidate(image_id="b", fused_score=0.8),
     ]
-    out = rerank("query", candidates, top_k=1, min_score=0.0)
+    out = rerank("query", candidates, top_k=1, min_match_percent=0)
 
     mock_dedupe.assert_called_once()
     assert mock_dedupe.call_args.kwargs["top_k"] == 1

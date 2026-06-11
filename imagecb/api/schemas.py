@@ -118,6 +118,7 @@ class ChatResponse(BaseModel):
     results: List[ResultCardOut]
     parsed_query: Optional[ParsedQueryOut] = None
     search_event_id: Optional[str] = None
+    follow_up_suggestions: List[str] = Field(default_factory=list)
 
 
 class InteractionRequest(BaseModel):
@@ -151,10 +152,27 @@ class SuggestionsResponse(BaseModel):
 
 class StatusResponse(BaseModel):
     indexed_count: int
+    total_records: int = 0
+    chroma_vectors: int = 0
+    text_vector_count: int = 0
+    bm25_doc_count: int = 0
+    is_healthy: bool = True
+    stores_in_sync: bool = True
 
 
 class HealthResponse(BaseModel):
     status: str = "ok"
+
+
+class ReadyResponse(BaseModel):
+    ready: bool
+    is_healthy: bool = True
+    stores_in_sync: bool = True
+    total_records: int = 0
+    chroma_vectors: int = 0
+    text_vector_count: int = 0
+    bm25_doc_count: int = 0
+    issues: List[str] = Field(default_factory=list)
 
 
 class IngestResponse(BaseModel):

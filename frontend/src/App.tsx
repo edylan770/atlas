@@ -15,7 +15,6 @@ import {
   newTurnId,
   saveStoredState,
   titleFromMessage,
-  turnsToMessages,
 } from "./chat/storage";
 import { ChatMessageList } from "./components/ChatMessageList";
 import { ChatSidebar } from "./components/ChatSidebar";
@@ -87,8 +86,8 @@ export default function App() {
     [conversations, activeConversationId],
   );
 
-  const messages = useMemo(
-    () => (activeConversation ? turnsToMessages(activeConversation.turns) : []),
+  const turns = useMemo(
+    () => activeConversation?.turns ?? [],
     [activeConversation],
   );
 
@@ -177,7 +176,7 @@ export default function App() {
   }, [corpusOpen, refreshCatalog, indexedCount]);
 
   useEffect(() => {
-    if (messages.length > 0) {
+    if (turns.length > 0) {
       setSuggestions([]);
       setSuggestionsLoading(false);
       return;
@@ -202,7 +201,7 @@ export default function App() {
       });
 
     return () => controller.abort();
-  }, [messages.length, indexedCount]);
+  }, [turns.length, indexedCount]);
 
   const selectConversation = useCallback(
     (id: string, turnId?: string | null) => {
@@ -371,7 +370,7 @@ export default function App() {
             }),
           );
         },
-        onDone: (assistantMessage) => {
+        onDone: (assistantMessage, followUpSuggestions) => {
           updateConversations((prev) =>
             prev.map((c) => {
               if (c.id !== convId) return c;
@@ -380,7 +379,11 @@ export default function App() {
                 updatedAt: Date.now(),
                 turns: c.turns.map((t) =>
                   t.id === turnId
-                    ? { ...t, assistantContent: assistantMessage }
+                    ? {
+                        ...t,
+                        assistantContent: assistantMessage,
+                        followUpSuggestions,
+                      }
                     : t,
                 ),
               };
@@ -552,6 +555,11 @@ export default function App() {
     await runSearch(text, topK, minMatchPercent);
   };
 
+  const handleFollowUp = (text: string) => {
+    if (loading) return;
+    void runSearch(text, topK, minMatchPercent);
+  };
+
   const handleIngest = async (files: File[]) => {
     if (!files.length) return;
     setIngesting(true);
@@ -635,17 +643,19 @@ export default function App() {
                 )}
               </div>
               <div className="min-h-0 flex-1 overflow-y-auto">
-                {messages.length === 0 ? (
+                {turns.length === 0 ? (
                   <EmptyState
                     suggestions={suggestions}
                     loading={suggestionsLoading}
-                    onPickExample={setInput}
+                    onPickExample={handleFollowUp}
                   />
                 ) : (
                   <ChatMessageList
-                    messages={messages}
+                    turns={turns}
+                    loading={loading}
                     selectedTurnId={selectedTurnId}
                     onSelectTurn={handleSelectTurn}
+                    onFollowUpClick={handleFollowUp}
                   />
                 )}
               </div>

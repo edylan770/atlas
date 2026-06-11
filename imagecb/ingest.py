@@ -54,6 +54,16 @@ from imagecb.storage.metadata_db import (
 
 logger = logging.getLogger(__name__)
 
+_ingest_lock = threading.Lock()
+
+
+class IngestInProgressError(Exception):
+    """Raised when a second ingest starts while one is already running."""
+
+
+def ingest_in_progress() -> bool:
+    return _ingest_lock.locked()
+
 _STAT_KEYS = (
     "files",
     "images_seen",
@@ -375,12 +385,14 @@ def _apply_outcome(
 def _finalize_ingest(*, rebuild_bm25: bool, refresh_vocab: bool) -> None:
     if refresh_vocab:
         refresh_vocab_cache()
-    from imagecb.repair import rescan_caption_quality
+    from imagecb.repair import reconcile_index_safe, rescan_caption_quality
 
     rescan_caption_quality()
     if rebuild_bm25:
         records = get_all_records()
         bm25_index.rebuild_from_records(records)
+    if SETTINGS.index_reconcile_after_ingest:
+        reconcile_index_safe()
 
 
 def _drain_future(
@@ -516,9 +528,48 @@ def ingest_paths(
     refresh_vocab: bool = True,
     image_timeout_sec: Optional[int] = None,
     auto_repair: bool = True,
+    _hold_ingest_lock: bool = True,
 ) -> dict:
     """Ingest a list of source files. Returns a stats dict."""
     SETTINGS.ensure_dirs()
+    acquired = False
+    if _hold_ingest_lock:
+        if not _ingest_lock.acquire(blocking=False):
+            raise IngestInProgressError("Another ingest is already in progress")
+        acquired = True
+    try:
+        return _ingest_paths_locked(
+            paths,
+            skip_caption=skip_caption,
+            skip_ocr=skip_ocr,
+            force=force,
+            workers=workers,
+            max_image_side=max_image_side,
+            batch_upsert=batch_upsert,
+            rebuild_bm25=rebuild_bm25,
+            refresh_vocab=refresh_vocab,
+            image_timeout_sec=image_timeout_sec,
+            auto_repair=auto_repair,
+        )
+    finally:
+        if acquired:
+            _ingest_lock.release()
+
+
+def _ingest_paths_locked(
+    paths: Iterable[Path],
+    *,
+    skip_caption: bool = False,
+    skip_ocr: bool = False,
+    force: bool = False,
+    workers: Optional[int] = None,
+    max_image_side: Optional[int] = None,
+    batch_upsert: Optional[int] = None,
+    rebuild_bm25: bool = True,
+    refresh_vocab: bool = True,
+    image_timeout_sec: Optional[int] = None,
+    auto_repair: bool = True,
+) -> dict:
     paths = list(paths)
     workers = workers if workers is not None else SETTINGS.ingest_workers
     workers = max(1, workers)
@@ -612,60 +663,66 @@ def ingest_paths_batched(
     auto_repair: bool = True,
 ) -> dict:
     """Ingest source files in file batches; rebuild BM25 once at the end."""
-    paths = list(paths)
-    batch_size = max(1, batch_size)
-    workers = workers if workers is not None else SETTINGS.ingest_workers
-    workers = max(1, workers)
+    if not _ingest_lock.acquire(blocking=False):
+        raise IngestInProgressError("Another ingest is already in progress")
+    try:
+        paths = list(paths)
+        batch_size = max(1, batch_size)
+        workers = workers if workers is not None else SETTINGS.ingest_workers
+        workers = max(1, workers)
 
-    total = _empty_stats(workers=workers)
-    total["files"] = len(paths)
-    if not paths:
+        total = _empty_stats(workers=workers)
+        total["files"] = len(paths)
+        if not paths:
+            return total
+
+        batches = [paths[i : i + batch_size] for i in range(0, len(paths), batch_size)]
+        total["batches"] = len(batches)
+        t0 = time.perf_counter()
+
+        for idx, chunk in enumerate(batches, start=1):
+            logger.info("Ingest batch %s/%s (%s files)", idx, len(batches), len(chunk))
+            batch_stats = ingest_paths(
+                chunk,
+                skip_caption=skip_caption,
+                skip_ocr=skip_ocr,
+                force=force,
+                workers=workers,
+                max_image_side=max_image_side,
+                batch_upsert=batch_upsert,
+                rebuild_bm25=not defer_bm25,
+                refresh_vocab=False,
+                image_timeout_sec=image_timeout_sec,
+                auto_repair=False,
+                _hold_ingest_lock=False,
+            )
+            _merge_stats(total, batch_stats)
+            logger.info(
+                "Batch %s/%s done: added=%s updated=%s duplicates=%s errors=%s",
+                idx,
+                len(batches),
+                batch_stats.get("images_added", 0),
+                batch_stats.get("images_updated", 0),
+                batch_stats.get("skipped_duplicates", 0),
+                batch_stats.get("errors", 0),
+            )
+
+        if defer_bm25:
+            _finalize_ingest(rebuild_bm25=True, refresh_vocab=True)
+
+        if auto_repair and SETTINGS.post_ingest_repair_enabled:
+            from imagecb.repair import repair_index_issues
+
+            repair_stats = repair_index_issues(
+                workers=workers,
+                skip_caption_phases=skip_caption,
+            )
+            total["post_repair"] = repair_stats
+
+        total["elapsed_sec"] = round(time.perf_counter() - t0, 1)
         return total
-
-    batches = [paths[i : i + batch_size] for i in range(0, len(paths), batch_size)]
-    total["batches"] = len(batches)
-    t0 = time.perf_counter()
-
-    for idx, chunk in enumerate(batches, start=1):
-        logger.info("Ingest batch %s/%s (%s files)", idx, len(batches), len(chunk))
-        batch_stats = ingest_paths(
-            chunk,
-            skip_caption=skip_caption,
-            skip_ocr=skip_ocr,
-            force=force,
-            workers=workers,
-            max_image_side=max_image_side,
-            batch_upsert=batch_upsert,
-            rebuild_bm25=not defer_bm25,
-            refresh_vocab=False,
-            image_timeout_sec=image_timeout_sec,
-            auto_repair=False,
-        )
-        _merge_stats(total, batch_stats)
-        logger.info(
-            "Batch %s/%s done: added=%s updated=%s duplicates=%s errors=%s",
-            idx,
-            len(batches),
-            batch_stats.get("images_added", 0),
-            batch_stats.get("images_updated", 0),
-            batch_stats.get("skipped_duplicates", 0),
-            batch_stats.get("errors", 0),
-        )
-
-    if defer_bm25:
-        _finalize_ingest(rebuild_bm25=True, refresh_vocab=True)
-
-    if auto_repair and SETTINGS.post_ingest_repair_enabled:
-        from imagecb.repair import repair_index_issues
-
-        repair_stats = repair_index_issues(
-            workers=workers,
-            skip_caption_phases=skip_caption,
-        )
-        total["post_repair"] = repair_stats
-
-    total["elapsed_sec"] = round(time.perf_counter() - t0, 1)
-    return total
+    finally:
+        _ingest_lock.release()
 
 
 def ingest_root(

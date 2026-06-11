@@ -2,6 +2,9 @@
 
 from __future__ import annotations
 
+import logging
+from contextlib import asynccontextmanager
+
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
@@ -9,12 +12,32 @@ from fastapi.staticfiles import StaticFiles
 from imagecb.api.routes import router
 from imagecb.api.static_ui import resolve_static_dir
 from imagecb.admin.routes import router as admin_router
+from imagecb.config import SETTINGS
 from imagecb.telemetry.schema import ensure_telemetry_schema
+
+logger = logging.getLogger(__name__)
+
+
+@asynccontextmanager
+async def _lifespan(_app: FastAPI):
+    from imagecb.repair import assess_index_health, reconcile_index_safe
+
+    report = assess_index_health(include_weak=True)
+    logger.info(
+        "Startup index health: healthy=%s stores_in_sync=%s records=%s",
+        report.is_healthy,
+        report.stores_in_sync,
+        report.total_records,
+    )
+    if SETTINGS.index_reconcile_on_startup:
+        stats = reconcile_index_safe()
+        logger.info("Startup index reconcile: %s", stats)
+    yield
 
 
 def create_app() -> FastAPI:
     ensure_telemetry_schema()
-    app = FastAPI(title="Imagecb", version="1.0.0")
+    app = FastAPI(title="Imagecb", version="1.0.0", lifespan=_lifespan)
 
     app.add_middleware(
         CORSMiddleware,

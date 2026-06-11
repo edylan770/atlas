@@ -1,8 +1,8 @@
 """Map raw retrieval scores to intuitive 0–100% display values.
 
-Chat search ranking and min-match filtering use Cohere rerank raw scores.
+Chat search ranking uses Cohere rerank raw scores; min-match filtering and
+result cards share the calibrated display scale defined here.
 Similar-image search uses normalized RRF fusion scores in [0, 1].
-This module calibrates UI labels only (result cards, LLM context blocks).
 
 Rerank anchors target Cohere Rerank 3.5 relevance (conservative absolute scale).
 Dense anchors target Chroma cosine similarity (typically lower in practice).
@@ -82,3 +82,14 @@ def display_match_percent(raw: float, kind: ScoreKind | str = ScoreKind.RERANK) 
     raw_clamped = max(0.0, min(float(raw), 1.0))
     anchors = _ANCHORS[kind]
     return max(0, min(100, _interpolate(raw_clamped, anchors)))
+
+
+def meets_min_match_percent(
+    raw: float,
+    kind: ScoreKind | str,
+    min_match_percent: int,
+) -> bool:
+    """Return True when the calibrated display % meets the user threshold."""
+    if min_match_percent <= 0:
+        return True
+    return display_match_percent(raw, kind) >= min_match_percent

@@ -9,6 +9,7 @@ from typing import List, Optional, Sequence, Tuple
 from PIL import Image
 
 from imagecb.config import SETTINGS
+from imagecb.formatting.match_display import meets_min_match_percent
 from imagecb.models.embedder import get_embedder
 from imagecb.models.vlm import ImageQueryJSON, get_captioner
 from imagecb.paths import resolve_image_file
@@ -48,10 +49,17 @@ def _load_image_for_record(record: ImageRecord) -> Optional[Image.Image]:
         return None
 
 
-def _filter_by_min_score(results: List[RankedResult], min_score: float) -> List[RankedResult]:
-    if min_score <= 0:
+def _filter_by_min_match_percent(
+    results: List[RankedResult],
+    min_match_percent: int,
+) -> List[RankedResult]:
+    if min_match_percent <= 0:
         return results
-    return [r for r in results if r.score >= min_score]
+    return [
+        r
+        for r in results
+        if meets_min_match_percent(r.score, r.score_kind, min_match_percent)
+    ]
 
 
 def _resolve_reference_image(
@@ -100,7 +108,7 @@ def _fuse_and_rank(
     text_ranked: List[RankedResult],
     *,
     top_k: int,
-    min_score: float,
+    min_match_percent: int,
     axis: SimilarityAxis = SimilarityAxis.BALANCED,
     exclude_image_id: Optional[str] = None,
 ) -> List[RankedResult]:
@@ -143,7 +151,7 @@ def _fuse_and_rank(
     from imagecb.retrieval.dedupe import dedupe_results
 
     results = dedupe_results(built, top_k=top_k)
-    return _filter_by_min_score(results, min_score)
+    return _filter_by_min_match_percent(results, min_match_percent)
 
 
 def search_similar(
@@ -159,7 +167,6 @@ def search_similar(
 ) -> SimilarSearchOutcome:
     """Find images similar to a reference via visual embedding + VLM text query fusion."""
     top_k = max(1, min(int(top_k), 50))
-    min_score = max(0.0, min(float(min_match_percent) / 100.0, 1.0))
     axis = SimilarityAxis.parse(similarity_axis)
 
     pil, record, resolved_exclude = _resolve_reference_image(image_id=image_id, image=image)
@@ -202,7 +209,7 @@ def search_similar(
         visual_hits,
         text_ranked,
         top_k=top_k,
-        min_score=min_score,
+        min_match_percent=min_match_percent,
         axis=axis,
         exclude_image_id=exclude_image_id,
     )

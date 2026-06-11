@@ -4,7 +4,6 @@ from __future__ import annotations
 
 from unittest.mock import MagicMock, patch
 
-from imagecb.config import SETTINGS
 from imagecb.retrieval.hybrid import Candidate, SearchOutcome
 from imagecb.retrieval.query_parser import QuerySpec, SourceFilters
 from imagecb.retrieval.session import ChatSession
@@ -86,13 +85,13 @@ def test_ask_passes_min_match_percent_to_rerank(mock_parse, mock_search, mock_re
 
     assert mock_rerank.call_count == 1
     _, kwargs = mock_rerank.call_args
-    assert kwargs.get("min_score") == 0.8
+    assert kwargs.get("min_match_percent") == 80
 
 
 @patch("imagecb.retrieval.session.rerank")
 @patch("imagecb.retrieval.session.search")
 @patch("imagecb.retrieval.session.parse_query")
-def test_ask_applies_default_relevance_floor(mock_parse, mock_search, mock_rerank):
+def test_ask_uses_no_score_floor_when_min_match_zero(mock_parse, mock_search, mock_rerank):
     from imagecb.retrieval.rerank import RankedResult
 
     session = ChatSession()
@@ -113,7 +112,33 @@ def test_ask_applies_default_relevance_floor(mock_parse, mock_search, mock_reran
 
     assert mock_rerank.call_count == 1
     _, kwargs = mock_rerank.call_args
-    assert kwargs.get("min_score") == SETTINGS.weak_result_score_threshold
+    assert kwargs.get("min_match_percent") == 0
+
+
+@patch("imagecb.retrieval.session.rerank")
+@patch("imagecb.retrieval.session.search")
+@patch("imagecb.retrieval.session.parse_query")
+def test_ask_marks_relaxed_when_backfill_below_threshold(mock_parse, mock_search, mock_rerank):
+    from imagecb.retrieval.rerank import RankedResult
+
+    session = ChatSession()
+    mock_parse.return_value = _spec(semantic_query="charts")
+    mock_search.return_value = SearchOutcome(
+        candidates=[Candidate(image_id="img-1", fused_score=0.5)]
+    )
+    mock_rerank.return_value = [
+        RankedResult(
+            image_id="img-1",
+            score=0.5,
+            record=MagicMock(),
+            provenance_line="Slide 1",
+        )
+    ]
+
+    result = session.ask("charts", min_match_percent=80)
+
+    assert mock_rerank.call_count == 1
+    assert result.relaxed_min_score is True
 
 
 @patch("imagecb.retrieval.session.rerank")

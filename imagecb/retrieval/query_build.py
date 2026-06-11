@@ -52,10 +52,12 @@ def rerank_query_text(spec: QuerySpec, fallback: str = "") -> str:
     return (fallback or "").strip()
 
 
-def resolve_rerank_top_n(spec: QuerySpec) -> int:
+def resolve_rerank_top_n(spec: QuerySpec, top_k: int = 10) -> int:
     if is_short_query(spec):
-        return SETTINGS.short_query_rerank_top_n
-    return SETTINGS.rerank_top_n
+        base = SETTINGS.short_query_rerank_top_n
+    else:
+        base = SETTINGS.rerank_top_n
+    return max(base, top_k * 3)
 
 
 def resolve_retrieval_top_k(spec: QuerySpec) -> Tuple[int, int]:
