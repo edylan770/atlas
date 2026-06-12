@@ -18,4 +18,113 @@
   .prose-chat strong {
     @apply font-semibold text-navy-900;
   }
+
+  @keyframes atlas-thumbnail-drift {
+    0% {
+      transform: translate(-50%, -50%) scale(0.5);
+      opacity: 0;
+    }
+    20% {
+      opacity: 1;
+    }
+    100% {
+      transform: translate(var(--drift-x), var(--drift-y)) scale(1);
+      opacity: 0.92;
+    }
+  }
+
+  @keyframes atlas-network-pulse {
+    0%,
+    100% {
+      opacity: 0.16;
+    }
+    50% {
+      opacity: 0.28;
+    }
+  }
+
+  @keyframes atlas-hub-pulse {
+    0%,
+    100% {
+      box-shadow: 0 0 20px rgba(43, 123, 196, 0.25);
+    }
+    50% {
+      box-shadow: 0 0 34px rgba(43, 123, 196, 0.45);
+    }
+  }
+
+  @keyframes atlas-title-enter {
+    from {
+      opacity: 0;
+      letter-spacing: 0.32em;
+      transform: translateY(8px);
+    }
+    to {
+      opacity: 1;
+      letter-spacing: 0.22em;
+      transform: translateY(0);
+    }
+  }
+
+  @keyframes atlas-slide-in-left {
+    from {
+      opacity: 0;
+      transform: translateY(-50%) translateX(-12px);
+    }
+    to {
+      opacity: 1;
+      transform: translateY(-50%) translateX(0);
+    }
+  }
+
+  @keyframes atlas-slide-in-right {
+    from {
+      opacity: 0;
+      transform: translateY(-50%) translateX(12px);
+    }
+    to {
+      opacity: 1;
+      transform: translateY(-50%) translateX(0);
+    }
+  }
+
+  @keyframes atlas-message-fade {
+    from {
+      opacity: 0;
+      transform: translateY(6px);
+    }
+    to {
+      opacity: 1;
+      transform: translateY(0);
+    }
+  }
+
+  .atlas-thumbnail-drift {
+    animation: atlas-thumbnail-drift 4.5s ease-out infinite;
+  }
+
+  .atlas-network-pulse {
+    animation: atlas-network-pulse 4s ease-in-out infinite;
+  }
+
+  .atlas-hub-pulse {
+    animation: atlas-hub-pulse 3s ease-in-out infinite;
+  }
+
+  .atlas-title-enter {
+    animation: atlas-title-enter 0.9s ease-out forwards;
+  }
+
+  .atlas-slide-in-left {
+    animation: atlas-slide-in-left 0.8s ease-out forwards;
+  }
+
+  .atlas-slide-in-right {
+    animation: atlas-slide-in-right 0.8s ease-out 0.15s forwards;
+    opacity: 0;
+  }
+
+  .atlas-message-fade {
+    animation: atlas-message-fade 0.45s ease-out forwards;
+  }
 }
