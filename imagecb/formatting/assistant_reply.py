@@ -8,10 +8,12 @@ from datetime import datetime
 from pathlib import Path
 from typing import List, Optional, Sequence
 
+from imagecb.caption.asset_type import format_asset_type_label
 from imagecb.formatting.match_display import display_match_percent
 from imagecb.paths import resolve_image_file, resolve_source_file
 from imagecb.retrieval.query_parser import QuerySpec
 from imagecb.retrieval.rerank import RankedResult
+from imagecb.caption.quality import needs_regeneration
 from imagecb.storage.metadata_db import ImageRecord, deserialize_list
 
 _CAPTION_FAILED = "[caption failed]"
@@ -28,6 +30,7 @@ class Provenance:
     page_index: Optional[int] = None
     modified: Optional[str] = None  # ISO date
     author: Optional[str] = None
+    asset_type: str = ""
 
     def location_label(self) -> str:
         if self.source_type == "pptx" and self.slide_index is not None:
@@ -38,6 +41,9 @@ class Provenance:
 
     def chips(self) -> List[str]:
         out: List[str] = []
+        asset_label = format_asset_type_label(self.asset_type)
+        if asset_label:
+            out.append(asset_label)
         if self.source_type == "pptx" and self.slide_index is not None:
             out.append(f"Slide {self.slide_index}")
         elif self.source_type == "pdf" and self.page_index is not None:
@@ -64,9 +70,15 @@ class ResultCard:
     use_case: str = ""
     tags: List[str] = field(default_factory=list)
     recommended_cases: List[str] = field(default_factory=list)
+    theme: str = ""
+    aliases: List[str] = field(default_factory=list)
     source_url: Optional[str] = None
     source_location: str = ""
     source_path: Optional[str] = None
+    caption_quality: str = "ok"
+    needs_regeneration: bool = False
+    created_at: Optional[str] = None
+    asset_type: str = ""
 
 
 @dataclass
@@ -75,12 +87,16 @@ class AssistantReply:
     results: List[ResultCard]
 
 
-def catalog_fields_from_record(record: ImageRecord) -> tuple[str, str, List[str], List[str]]:
+def catalog_fields_from_record(
+    record: ImageRecord,
+) -> tuple[str, str, List[str], List[str], str, List[str]]:
     name = (record.image_name or "").strip() or Path(record.source_file or "").name or "(unknown)"
     use_case = (record.use_case or "").strip()
     tags = deserialize_list(record.tags_json)
     recommended = deserialize_list(record.recommended_cases_json)
-    return name, use_case, tags, recommended
+    theme = (record.theme or "").strip()
+    aliases = deserialize_list(record.search_aliases_json)
+    return name, use_case, tags, recommended, theme, aliases
 
 
 def provenance_from_record(record: ImageRecord) -> Provenance:
@@ -96,6 +112,7 @@ def provenance_from_record(record: ImageRecord) -> Provenance:
         page_index=record.page_index,
         modified=modified,
         author=author,
+        asset_type=(record.asset_type or "").strip(),
     )
 
 
@@ -131,6 +148,11 @@ def source_location_label(record: ImageRecord) -> str:
     return Path(record.source_file or "").name or ""
 
 
+def _caption_quality_fields(record: ImageRecord) -> tuple[str, bool]:
+    quality = (record.caption_quality or "ok").lower()
+    return quality, needs_regeneration(quality)
+
+
 def build_result_cards(
     results: Sequence[RankedResult],
     *,
@@ -142,7 +164,13 @@ def build_result_cards(
         prov = provenance_from_record(r.record)
         cap = _display_caption(r.record)
         src_path = resolve_source_file(r.record)
-        image_name, use_case, tags, recommended = catalog_fields_from_record(r.record)
+        image_name, use_case, tags, recommended, theme, aliases = catalog_fields_from_record(
+            r.record
+        )
+        caption_quality, regen = _caption_quality_fields(r.record)
+        created_at: Optional[str] = None
+        if isinstance(r.record.created_at, datetime):
+            created_at = r.record.created_at.isoformat()
         cards.append(
             ResultCard(
                 rank=rank,
@@ -157,9 +185,15 @@ def build_result_cards(
                 use_case=use_case,
                 tags=tags,
                 recommended_cases=recommended,
+                theme=theme,
+                aliases=aliases,
                 source_url=f"{source_url_prefix}/{r.image_id}" if src_path else None,
                 source_location=source_location_label(r.record),
-                source_path=str(src_path) if src_path else None,
+                source_path=str(src_path) if src_path else (r.record.source_file or None),
+                caption_quality=caption_quality,
+                needs_regeneration=regen,
+                created_at=created_at,
+                asset_type=(r.record.asset_type or "").strip(),
             )
         )
     return cards

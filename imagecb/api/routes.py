@@ -5,9 +5,10 @@ from __future__ import annotations
 import io
 import json
 import logging
+from concurrent.futures import ThreadPoolExecutor
 from typing import Iterator, List, Optional
 
-from fastapi import APIRouter, Body, Depends, File, Form, HTTPException, UploadFile
+from fastapi import APIRouter, Depends, File, Form, HTTPException, Request, UploadFile
 from fastapi.responses import FileResponse, StreamingResponse
 from PIL import Image
 
@@ -23,6 +24,7 @@ from imagecb.api.schemas import (
     DeckForceResponse,
     DeckSuggestResponse,
     HealthResponse,
+    ReadyResponse,
     IngestResponse,
     InteractionRequest,
     InteractionResponse,
@@ -39,6 +41,7 @@ from imagecb.api.schemas import (
 )
 from imagecb.api.sessions import get_or_create_session, get_session, reset_session
 from imagecb.config import SETTINGS
+from imagecb.caption.quality import needs_regeneration
 from imagecb.formatting.assistant_reply import (
     _display_caption,
     build_result_cards,
@@ -51,17 +54,21 @@ from imagecb.formatting.conversational_reply import (
     iter_conversational_reply_text,
 )
 from imagecb.deck.pipeline import DeckSuggestResult, SlideSuggestion, force_slide_image, process_deck_upload
-from imagecb.ingest import ingest_paths
+from imagecb.ingest import IngestInProgressError, ingest_paths
 from imagecb.paths import resolve_image_file, resolve_source_file
 from imagecb.retrieval.image_query import SimilarityAxis, axis_label
 from imagecb.retrieval.query_parser import QuerySpec
 from imagecb.retrieval.session import AskResult
 from imagecb.retrieval.similar import search_similar
+from imagecb.retrieval.sort import InvalidSortError, ResultSort, resolve_sort
 from imagecb.storage import metadata_db, vector_store
-from imagecb.suggestions import generate_suggestions
+from imagecb.suggestions import generate_follow_up_suggestions, generate_suggestions
+from imagecb.suggestions.corpus_summary import build_corpus_context
 from imagecb.uploads import save_uploads_from_files
 
 logger = logging.getLogger(__name__)
+
+_follow_up_executor = ThreadPoolExecutor(max_workers=2, thread_name_prefix="follow-up")
 
 router = APIRouter(prefix="/api")
 
@@ -77,6 +84,13 @@ _SOURCE_MEDIA = {
     ".tif": "image/tiff",
     ".tiff": "image/tiff",
 }
+
+
+def _resolve_sort_param(sort: Optional[str], *, is_search: bool) -> ResultSort:
+    try:
+        return resolve_sort(sort, is_search=is_search)
+    except InvalidSortError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
 
 
 def _result_card_from_dict(d: dict) -> ResultCardOut:
@@ -102,9 +116,15 @@ def _result_card_from_dict(d: dict) -> ResultCardOut:
         use_case=str(d.get("use_case", "")),
         tags=list(d.get("tags") or []),
         recommended_cases=list(d.get("recommended_cases") or []),
+        theme=str(d.get("theme", "")),
+        aliases=list(d.get("aliases") or []),
         source_url=d.get("source_url"),
         source_location=str(d.get("source_location", "")),
         source_path=d.get("source_path"),
+        caption_quality=str(d.get("caption_quality", "ok")),
+        needs_regeneration=bool(d.get("needs_regeneration", False)),
+        created_at=d.get("created_at"),
+        asset_type=str(d.get("asset_type", "")),
     )
 
 
@@ -157,9 +177,15 @@ def _result_card_out(card) -> ResultCardOut:
         use_case=card.use_case,
         tags=card.tags,
         recommended_cases=card.recommended_cases,
+        theme=card.theme,
+        aliases=card.aliases,
         source_url=card.source_url,
         source_location=card.source_location,
         source_path=card.source_path,
+        caption_quality=card.caption_quality,
+        needs_regeneration=card.needs_regeneration,
+        created_at=card.created_at,
+        asset_type=card.asset_type,
     )
 
 
@@ -176,21 +202,87 @@ def health() -> HealthResponse:
     return HealthResponse()
 
 
+def _index_status_payload() -> StatusResponse:
+    from imagecb.repair import assess_index_health
+
+    try:
+        report = assess_index_health(include_weak=True)
+    except Exception:  # noqa: BLE001
+        logger.exception("Index health assessment failed")
+        try:
+            n = vector_store.count()
+        except Exception:  # noqa: BLE001
+            n = 0
+        return StatusResponse(indexed_count=n)
+
+    return StatusResponse(
+        indexed_count=report.chroma_vectors,
+        total_records=report.total_records,
+        chroma_vectors=report.chroma_vectors,
+        text_vector_count=report.text_vector_count,
+        bm25_doc_count=report.bm25_doc_count,
+        is_healthy=report.is_healthy,
+        stores_in_sync=report.stores_in_sync,
+    )
+
+
 @router.get("/status", response_model=StatusResponse)
 def status() -> StatusResponse:
+    return _index_status_payload()
+
+
+@router.get("/ready", response_model=ReadyResponse)
+def ready() -> ReadyResponse:
+    from imagecb.repair import assess_index_health
+
     try:
-        n = vector_store.count()
-    except Exception:  # noqa: BLE001
-        n = 0
-    return StatusResponse(indexed_count=n)
+        report = assess_index_health(include_weak=True)
+    except Exception as exc:  # noqa: BLE001
+        logger.exception("Readiness check failed")
+        raise HTTPException(
+            status_code=503,
+            detail={"ready": False, "error": str(exc)},
+        ) from exc
+
+    issues: List[str] = []
+    if not report.stores_in_sync:
+        if report.missing_chroma_count:
+            issues.append(f"{report.missing_chroma_count} active row(s) missing Chroma vectors")
+        if report.missing_text_vector_count:
+            issues.append(f"{report.missing_text_vector_count} missing caption-text vectors")
+        if report.orphan_chroma_count:
+            issues.append(f"{report.orphan_chroma_count} orphan Chroma vector(s)")
+        if report.orphan_text_vector_count:
+            issues.append(f"{report.orphan_text_vector_count} orphan caption-text vector(s)")
+        if report.stale_deleted_in_chroma_count:
+            issues.append(
+                f"{report.stale_deleted_in_chroma_count} soft-deleted row(s) still indexed"
+            )
+        if report.bm25_stale:
+            issues.append("BM25 index out of sync with SQLite")
+    if report.missing_cache_count:
+        issues.append(f"{report.missing_cache_count} missing cached PNG(s)")
+    if report.failed_caption_count:
+        issues.append(f"{report.failed_caption_count} failed caption(s)")
+
+    body = ReadyResponse(
+        ready=report.is_healthy,
+        is_healthy=report.is_healthy,
+        stores_in_sync=report.stores_in_sync,
+        total_records=report.total_records,
+        chroma_vectors=report.chroma_vectors,
+        text_vector_count=report.text_vector_count,
+        bm25_doc_count=report.bm25_doc_count,
+        issues=issues,
+    )
+    if not report.is_healthy:
+        raise HTTPException(status_code=503, detail=body.model_dump())
+    return body
 
 
 @router.post("/suggestions", response_model=SuggestionsResponse)
 def suggestions(body: SuggestionsRequest) -> SuggestionsResponse:
-    result = generate_suggestions(
-        body.recent_titles,
-        limit=body.limit,
-    )
+    result = generate_suggestions(limit=body.limit)
     return SuggestionsResponse(
         suggestions=result.suggestions,
         cached=result.cached,
@@ -233,18 +325,15 @@ def chat(
             message,
             top_k=body.top_k,
             min_match_percent=body.min_match_percent,
+            sort=body.sort,
         )
     except Exception as exc:  # noqa: BLE001
         logger.exception("Query failed")
         raise HTTPException(status_code=500, detail=format_query_error(exc)) from exc
 
     spec = ask_result.spec
-    results = ask_result.results
     notes = build_interpretation_notes(
         spec,
-        applied_refinement_pool=ask_result.applied_refinement_pool,
-        pool_size=ask_result.pool_size,
-        sticky_merged=ask_result.sticky_merged,
         min_match_percent=ask_result.min_match_percent,
         relaxed_min_score=ask_result.relaxed_min_score,
         dense_failed=ask_result.dense_failed,
@@ -255,12 +344,25 @@ def chat(
     except Exception:  # noqa: BLE001
         indexed_count = ask_result.indexed_count
 
+    corpus = build_corpus_context()
+    follow_up_future = _follow_up_executor.submit(
+        generate_follow_up_suggestions,
+        message,
+        ask_result,
+        notes,
+        corpus=corpus,
+    )
     reply = build_conversational_reply(
         message,
         ask_result,
         notes,
         indexed_count=indexed_count,
     )
+    try:
+        follow_ups = follow_up_future.result(timeout=15)
+    except Exception:  # noqa: BLE001
+        logger.exception("Follow-up suggestions failed")
+        follow_ups = []
     session.record_turn(message, reply.message)
     search_event_id = record_search_from_results(
         query_text=message,
@@ -276,6 +378,7 @@ def chat(
         results=[_result_card_out(c) for c in reply.results],
         parsed_query=_parsed_with_notes(spec, notes),
         search_event_id=search_event_id,
+        follow_up_suggestions=follow_ups,
     )
 
 
@@ -295,6 +398,7 @@ def chat_stream(
             message,
             top_k=body.top_k,
             min_match_percent=body.min_match_percent,
+            sort=body.sort,
         )
     except Exception as exc:  # noqa: BLE001
         logger.exception("Query failed")
@@ -303,9 +407,6 @@ def chat_stream(
     spec = ask_result.spec
     notes = build_interpretation_notes(
         spec,
-        applied_refinement_pool=ask_result.applied_refinement_pool,
-        pool_size=ask_result.pool_size,
-        sticky_merged=ask_result.sticky_merged,
         min_match_percent=ask_result.min_match_percent,
         relaxed_min_score=ask_result.relaxed_min_score,
         dense_failed=ask_result.dense_failed,
@@ -326,6 +427,15 @@ def chat_stream(
         search_kind="chat",
         results=ask_result.results,
         spec=spec,
+    )
+
+    corpus = build_corpus_context()
+    follow_up_future = _follow_up_executor.submit(
+        generate_follow_up_suggestions,
+        message,
+        ask_result,
+        notes,
+        corpus=corpus,
     )
 
     def event_stream() -> Iterator[str]:
@@ -356,9 +466,18 @@ def chat_stream(
             return
 
         assistant_message = "".join(full_message)
+        try:
+            follow_ups = follow_up_future.result(timeout=15)
+        except Exception:  # noqa: BLE001
+            logger.exception("Follow-up suggestions failed")
+            follow_ups = []
         session.record_turn(message, assistant_message)
         yield _sse_event(
-            {"type": "done", "assistant_message": assistant_message}
+            {
+                "type": "done",
+                "assistant_message": assistant_message,
+                "follow_up_suggestions": follow_ups,
+            }
         )
 
     return StreamingResponse(
@@ -373,58 +492,72 @@ def chat_stream(
 
 @router.post("/similar", response_model=SimilarResponse)
 async def similar(
-    body: Optional[SimilarRequest] = Body(None),
-    file: Optional[UploadFile] = File(None),
-    image_id: Optional[str] = Form(None),
-    session_id: Optional[str] = Form(None),
-    top_k: int = Form(10),
-    min_match_percent: int = Form(0),
-    similarity_axis: str = Form("balanced"),
+    request: Request,
     user_id: str = Depends(resolve_user_id),
 ) -> SimilarResponse:
     """Find visually similar images (JSON body or multipart with optional file)."""
     ref_id: Optional[str] = None
     upload_image: Optional[Image.Image] = None
+    upload_filename: Optional[str] = None
     sid: Optional[str] = None
-    k = top_k
-    min_pct = min_match_percent
-    axis = similarity_axis
+    k = 10
+    min_pct = 0
+    axis = "balanced"
+    sort_param: Optional[str] = None
 
-    if body is not None:
+    content_type = request.headers.get("content-type", "")
+    if "application/json" in content_type:
+        body = SimilarRequest.model_validate(await request.json())
         ref_id = body.image_id
         sid = body.session_id
         k = body.top_k
         min_pct = body.min_match_percent
         axis = body.similarity_axis
-    if image_id:
-        ref_id = image_id
-    if session_id:
-        sid = session_id
+        sort_param = body.sort
+    else:
+        form = await request.form()
+        raw_id = form.get("image_id")
+        if raw_id:
+            ref_id = str(raw_id)
+        raw_sid = form.get("session_id")
+        if raw_sid:
+            sid = str(raw_sid)
+        raw_top_k = form.get("top_k")
+        if raw_top_k:
+            k = int(raw_top_k)
+        raw_min = form.get("min_match_percent")
+        if raw_min is not None and raw_min != "":
+            min_pct = int(raw_min)
+        raw_axis = form.get("similarity_axis")
+        if raw_axis:
+            axis = str(raw_axis)
+        raw_sort = form.get("sort")
+        if raw_sort:
+            sort_param = str(raw_sort)
+
+        file = form.get("file")
+        if file is not None and hasattr(file, "read"):
+            filename = getattr(file, "filename", None)
+            if filename:
+                raw = await file.read()
+                if not raw:
+                    raise HTTPException(status_code=400, detail="empty image file")
+                try:
+                    upload_image = Image.open(io.BytesIO(raw))
+                    upload_image.load()
+                    upload_filename = filename
+                except Exception as exc:  # noqa: BLE001
+                    raise HTTPException(status_code=400, detail=f"invalid image: {exc}") from exc
 
     try:
         SimilarityAxis.parse(axis)
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
-    if file is not None and file.filename:
-        raw = await file.read()
-        if not raw:
-            raise HTTPException(status_code=400, detail="empty image file")
-        try:
-            upload_image = Image.open(io.BytesIO(raw))
-            upload_image.load()
-        except Exception as exc:  # noqa: BLE001
-            raise HTTPException(status_code=400, detail=f"invalid image: {exc}") from exc
-
     if not ref_id and upload_image is None:
         raise HTTPException(status_code=400, detail="image_id or image file is required")
 
-    restrict_to: Optional[List[str]] = None
-    if sid:
-        session = get_session(sid)
-        if session is not None and session.last_candidate_ids and session.last_spec is not None:
-            if session.last_spec.is_refinement:
-                restrict_to = list(session.last_candidate_ids)
+    _resolve_sort_param(sort_param, is_search=True)
 
     try:
         outcome = search_similar(
@@ -434,7 +567,7 @@ async def similar(
             exclude_image_id=ref_id,
             min_match_percent=min_pct,
             similarity_axis=axis,
-            restrict_to=restrict_to,
+            sort=sort_param,
         )
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
@@ -447,8 +580,8 @@ async def similar(
     facets = outcome.facets
     parsed_axis = SimilarityAxis.parse(axis)
 
-    if upload_image is not None and file is not None and file.filename:
-        user_label = f"[Image search] {file.filename}"
+    if upload_image is not None and upload_filename:
+        user_label = f"[Image search] {upload_filename}"
     elif ref_id:
         rec = metadata_db.get_record(ref_id)
         name = (rec.image_name if rec else None) or ref_id
@@ -458,7 +591,13 @@ async def similar(
 
     notes = [
         f"Blended visual similarity with text search ({axis_label(parsed_axis)}).",
-        f"Generated query: {facets.search_query}" if facets.search_query else "",
+        (
+            f"Generated query: {facets.search_query}"
+            if facets.is_usable() and facets.search_query
+            else "Visual similarity only (image query unavailable)."
+            if not facets.is_usable()
+            else ""
+        ),
         f"Showing visual matches at or above {min_pct}%." if min_pct > 0 else "",
     ]
     notes = [n for n in notes if n]
@@ -545,14 +684,17 @@ def get_source(image_id: str) -> FileResponse:
 
 
 @router.get("/corpus/catalog", response_model=CorpusCatalogResponse)
-def corpus_catalog(limit: int = 40) -> CorpusCatalogResponse:
+def corpus_catalog(limit: int = 40, sort: Optional[str] = None) -> CorpusCatalogResponse:
     """Recently ingested images with catalog metadata (name, tags, use cases)."""
+    resolved = _resolve_sort_param(sort, is_search=False)
     limit = max(1, min(limit, 200))
-    records = metadata_db.get_recent_records(limit)
+    records = metadata_db.list_catalog_records(limit, sort=resolved)
     items: List[CatalogItemOut] = []
     for r in records:
-        image_name, use_case, tags, recommended = catalog_fields_from_record(r)
+        image_name, use_case, tags, recommended, theme, aliases = catalog_fields_from_record(r)
         prov = provenance_from_record(r)
+        quality = (r.caption_quality or "ok").lower()
+        created_at = r.created_at.isoformat() if r.created_at else None
         items.append(
             CatalogItemOut(
                 image_id=r.image_id,
@@ -561,8 +703,15 @@ def corpus_catalog(limit: int = 40) -> CorpusCatalogResponse:
                 use_case=use_case,
                 tags=tags,
                 recommended_cases=recommended,
+                theme=theme,
+                aliases=aliases,
                 caption=_display_caption(r),
                 source_name=prov.source_name,
+                source_file=r.source_file or "",
+                created_at=created_at,
+                caption_quality=quality,
+                needs_regeneration=needs_regeneration(quality),
+                asset_type=(r.asset_type or "").strip(),
             )
         )
     try:
@@ -605,6 +754,8 @@ async def ingest(
             force=force,
             workers=ingest_workers,
         )
+    except IngestInProgressError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
     except Exception as exc:  # noqa: BLE001
         logger.exception("Ingest failed")
         raise HTTPException(status_code=500, detail=f"Ingest failed: {exc}") from exc
@@ -628,6 +779,11 @@ async def ingest(
         f"duplicates={stats.get('skipped_duplicates', 0)}, "
         f"errors={stats.get('errors', 0)}."
     )
+    from imagecb.repair import format_post_repair_summary
+
+    repair_line = format_post_repair_summary(stats.get("post_repair") or {})
+    if repair_line:
+        lines.append(repair_line)
     try:
         n = vector_store.count()
     except Exception:  # noqa: BLE001
@@ -640,6 +796,7 @@ async def deck_suggest(
     file: UploadFile = File(...),
     top_k: int = Form(10),
     min_match_percent: int = Form(0),
+    sort: Optional[str] = Form(None),
     user_id: str = Depends(resolve_user_id),  # noqa: ARG001
 ) -> DeckSuggestResponse:
     """Suggest corpus images per slide from an uploaded PowerPoint deck."""
@@ -654,6 +811,7 @@ async def deck_suggest(
 
     k = max(1, min(int(top_k), 30))
     min_pct = max(0, min(int(min_match_percent), 100))
+    _resolve_sort_param(sort, is_search=True)
 
     try:
         result = process_deck_upload(
@@ -661,6 +819,7 @@ async def deck_suggest(
             file.filename,
             top_k=k,
             min_match_percent=min_pct,
+            sort=sort,
         )
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
@@ -679,6 +838,7 @@ def deck_force(
     """Force image suggestion for a slide marked no_image_needed."""
     k = max(1, min(int(body.top_k), 30))
     min_pct = max(0, min(int(body.min_match_percent), 100))
+    _resolve_sort_param(body.sort, is_search=True)
 
     try:
         slide = force_slide_image(
@@ -686,6 +846,7 @@ def deck_force(
             body.slide_index,
             top_k=k,
             min_match_percent=min_pct,
+            sort=body.sort,
         )
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc

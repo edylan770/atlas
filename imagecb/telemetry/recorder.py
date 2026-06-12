@@ -116,3 +116,34 @@ def record_interaction(
             )
         )
     return interaction_id
+
+
+def get_recent_user_queries(user_id: str, *, limit: int = 8) -> List[str]:
+    """Return deduped recent chat query texts for a user, most recent first."""
+    if not user_id or user_id == "anonymous":
+        return []
+    ensure_telemetry_schema()
+    from sqlalchemy import select
+
+    seen: set[str] = set()
+    out: List[str] = []
+    with session_scope() as s:
+        rows = s.execute(
+            select(SearchEvent.query_text)
+            .where(SearchEvent.user_id == user_id)
+            .where(SearchEvent.search_kind == "chat")
+            .order_by(SearchEvent.created_at.desc())
+            .limit(limit * 3)
+        ).scalars().all()
+    for raw in rows:
+        q = (raw or "").strip()
+        if not q:
+            continue
+        key = q.lower()
+        if key in seen:
+            continue
+        seen.add(key)
+        out.append(q)
+        if len(out) >= limit:
+            break
+    return out

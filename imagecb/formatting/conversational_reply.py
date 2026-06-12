@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import logging
-from typing import Iterator, List, Optional, Sequence
+from typing import Iterator, List, Sequence
 
 from imagecb.config import SETTINGS
 from imagecb.formatting.match_display import display_match_percent

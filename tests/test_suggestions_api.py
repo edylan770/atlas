@@ -24,10 +24,10 @@ def test_suggestions_endpoint_returns_list(mock_gen, client):
     )
     res = client.post(
         "/api/suggestions",
-        json={"recent_titles": ["Charts"], "limit": 4},
+        json={"limit": 4},
     )
     assert res.status_code == 200
     body = res.json()
     assert body["suggestions"] == ["Find charts in deck.pptx", "Recent logos"]
     assert body["cached"] is True
-    mock_gen.assert_called_once_with(["Charts"], limit=4)
+    mock_gen.assert_called_once_with(limit=4)

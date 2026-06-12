@@ -12,36 +12,40 @@ Every image is:
   **AWS Bedrock** Claude Haiku 4.5
   (`us.anthropic.claude-haiku-4-5-20251001-v1:0`); OpenAI and Anthropic
   are also supported as drop-in providers.
-- Indexed in **ChromaDB** (dense), **rank-bm25** (sparse over caption +
-  OCR + slide context), and **SQLite** (provenance + filters).
+- Indexed in **ChromaDB** (dense image vectors plus a caption-text
+  vector lane), **rank-bm25** (sparse over caption + OCR + slide
+  context), and **SQLite** (provenance + filters).
 
 User turns are parsed by an LLM into a structured `QuerySpec`
 (semantic phrase, time window, source/author filters, must-have /
-must-avoid keywords, refinement flag). The system fuses dense + sparse
-hits with Reciprocal Rank Fusion, reranks with **Cohere Rerank 3.5**
+must-avoid keywords, refinement flag). The system fuses three lanes —
+visual dense, caption-text dense, and sparse BM25 — with Reciprocal
+Rank Fusion, reranks with **Cohere Rerank 3.5**
 on Bedrock (`cohere.rerank-v3-5:0`), and renders results with
 full provenance (e.g. `Slide 7 of Q3_Review.pptx, modified 2026-05-08`).
 
 ## Architecture at a glance
 
 ```
-ingest:  files -> extractor (pptx/pdf/image) -> OCR + VLM caption + Titan image emb
+ingest:  files -> extractor (pptx/pdf/image) -> OCR + VLM caption
+                                              -> Titan image emb + caption-text emb
                                               -> SQLite + Chroma + BM25
 
 query:   text + history -> LLM QuerySpec
                         -> metadata filter
-                        -> dense (Titan text -> Chroma) + sparse (BM25)
+                        -> visual dense + caption-text dense + sparse (BM25)
                         -> RRF fusion
                         -> Cohere Rerank 3.5 rerank
                         -> ranked images + provenance
 ```
 
 **Match % on result cards** is a calibrated display value derived from
-each hit's raw model score (Cohere rerank relevance for chat search,
-cosine similarity for small similar-image result sets). Ranking and the
-min-match slider still use raw scores. **100%** appears only for
-near-excellent raw scores (rerank ≥ 0.93, cosine ≥ 0.92); weaker but
-top-ranked results keep lower percentages.
+each hit's score. Chat search uses Cohere rerank relevance; similar-image
+search uses normalized RRF fusion across the visual and text lanes (rank,
+filter, and display all use the same fused score). The min-match % slider
+uses this same calibrated scale (not raw rerank scores). **100%** appears
+for near-excellent rerank scores (≥ 0.93), dense cosine (≥ 0.92), or fusion
+scores at 1.0.
 
 ## Setup
 
@@ -75,12 +79,13 @@ The default config drives **all** model calls through AWS Bedrock:
 | Role | Model | API |
 |------|-------|-----|
 | Image + text embeddings | `amazon.titan-embed-image-v1` | `invoke_model` |
+| Caption-text embeddings | `amazon.titan-embed-text-v2:0` | `invoke_model` |
 | VLM captioning | `us.anthropic.claude-haiku-4-5-20251001-v1:0` | `converse` |
 | Query parsing | same | `converse` |
 | Reranking | `cohere.rerank-v3-5:0` | `invoke_model` |
 
 1. In the AWS Bedrock console for `us-east-1`, enable model access for
-   all four models listed above.
+   all five models listed above.
 2. Copy `.env.example` to `.env`:
 
    ```powershell
@@ -105,8 +110,8 @@ The default config drives **all** model calls through AWS Bedrock:
    different Bedrock region (you'll then also need a matching inference
    profile prefix, e.g. `eu.anthropic...` for EU regions).
 
-Ingest makes **two Bedrock calls per image** (Titan embed + Claude
-caption). Cost scales per image and per token. For a fast dry-run that
+Ingest makes **three Bedrock calls per image** (Titan image embed +
+Claude caption + caption-text embed). Cost scales per image and per token. For a fast dry-run that
 skips captioning, see `--skip-caption` under [Usage](#usage) (the Titan
 embed call still runs — search requires it).
 
@@ -156,11 +161,9 @@ you ingest files or use **Add to corpus** in the UI.
 
 To index files from your machine via the CLI inside the container:
 
-1. Create a `corpus` folder next to the project (or use any path you
-   prefer).
-2. In `docker-compose.yml`, uncomment the corpus volume line:
-   `# - ./corpus:/corpus:ro`
-3. Run ingest:
+1. Create a `corpus` folder next to the project and add files to index
+   (Docker creates an empty `corpus/` folder on first start if missing).
+2. Run ingest:
 
    ```powershell
    docker compose run --rm imagecb python -m imagecb.cli ingest /corpus
@@ -176,6 +179,7 @@ Use the same pattern as ingest:
 
 ```powershell
 docker compose run --rm imagecb python -m imagecb.cli status
+docker compose run --rm imagecb python -m imagecb.cli repair-index
 docker compose run --rm imagecb python -m imagecb.cli repair-captions --workers 4
 ```
 
@@ -203,6 +207,10 @@ python -m imagecb.cli ingest "C:\path\to\corpus"
 SQLite metadata and BM25 can stay; only the Chroma directory needs
 deleting.
 
+The caption-text dense lane needs no manual migration: the next ingest
+(or `python -m imagecb.cli repair-index`) backfills one text vector per
+already-indexed image from its stored caption.
+
 ### Ingest a corpus
 
 ```powershell
@@ -229,7 +237,7 @@ Ingest runs **two Bedrock calls per image** (caption + embed). By default
 images are processed in parallel:
 
 ```powershell
-python -m imagecb.cli ingest "C:\path\to\corpus" --force --workers 4
+python -m imagecb.cli ingest "C:\path\to\corpus" --force --workers 2 --batch-size 25
 ```
 
 For ~50 images this typically lands around **5–10 minutes** instead of
@@ -237,10 +245,30 @@ For ~50 images this typically lands around **5–10 minutes** instead of
 
 | Flag | Effect |
 |------|--------|
-| `--workers 4` | Parallel images (default; set `INGEST_WORKERS` in `.env`) |
+| `--workers 2` | Parallel images (default `4`; use `2` for large re-ingest) |
+| `--batch-size 25` | Process files in batches of 25; rebuild BM25 once at end |
+| `--no-defer-bm25` | Rebuild BM25 after every batch (slower for large corpora) |
 | `--skip-ocr` | Skip Tesseract (faster; OCR text empty) |
 | `--max-image-side 1024` | Smaller payload to the VLM (default) |
 | `--force` | Re-process duplicates (refresh cache, captions, vectors) |
+
+**Large corpus / re-ingest:** If ingest stalls after a handful of images,
+lower concurrency and batch files:
+
+```powershell
+python -m imagecb.cli ingest "C:\path\to\corpus" --batch-size 25 --workers 2 --force
+```
+
+Set in `.env` for all ingest paths (CLI and API):
+
+```
+INGEST_WORKERS=2
+BEDROCK_MAX_CONCURRENT=2
+INGEST_BATCH_SIZE=25
+```
+
+Bedrock calls are gated by `BEDROCK_MAX_CONCURRENT` (default `2`) with
+timeouts and adaptive retries so hung workers do not freeze the whole run.
 
 If you see `ThrottlingException`, lower `--workers` to `2`. Refresh
 `AWS_BEARER_TOKEN_BEDROCK` for your `AWS_REGION` before `--force` if
@@ -256,15 +284,43 @@ without re-extracting decks:
 python -m imagecb.cli reindex-embeddings --workers 4
 ```
 
+### Index health and targeted repair
+
+After every ingest (CLI, API, or Gradio), the index is automatically
+checked for missing cached PNGs, failed captions, and missing Chroma
+vectors. When issues exist, only affected source files are re-ingested —
+not the whole corpus. Disable with `POST_INGEST_REPAIR_ENABLED=false`
+in `.env`.
+
+Check index health:
+
+```powershell
+python -m imagecb.cli status
+python -m imagecb.cli status --verbose
+```
+
+Run repair manually:
+
+```powershell
+python -m imagecb.cli repair-index
+python -m imagecb.cli repair-index --dry-run
+python -m imagecb.cli repair-index --include-weak --workers 4
+```
+
+Rows where both the cached PNG and original source file are missing are
+reported as **unrecoverable** (SQLite rows are not deleted automatically).
+Parallel ingests are not supported.
+
 ### Repair failed captions
 
-If `python -m imagecb.cli status` reports captions failed at ingest:
+If `status` still reports failed captions after automatic repair:
 
 ```powershell
 python -m imagecb.cli repair-captions --workers 4
 ```
 
 This re-runs the VLM only on failed rows and rebuilds the BM25 index.
+Requires cached PNGs; use `repair-index` if PNGs are missing.
 
 ### Launch the web UI (recommended)
 
@@ -349,7 +405,8 @@ API: `POST /api/deck/suggest` (multipart `.pptx`), `POST /api/deck/force` (JSON)
 #### Search features in the web UI
 
 - **Find similar** on any result card runs visual similarity search (no
-  query LLM).
+  query LLM). Axis buttons (balanced / subject / style / layout) change both
+  the text query focus and the visual-vs-text fusion weight.
 - **Camera** in the composer uploads a reference image for similarity
   search.
 - **Open source** downloads the original `.pptx`, `.pdf`, or image file;
@@ -381,6 +438,38 @@ python -m imagecb.cli status
 python -m imagecb.cli parse-query "screenshots of dashboards from last quarter"
 ```
 
+### Search evaluation harness
+
+Offline tool for measuring whether retrieval tuning actually helps. Not a
+user-facing feature — run it locally against your ingested `./data` index
+with Bedrock credentials.
+
+1. **Label cases** in [`eval/golden.json`](eval/golden.json). Each text case
+   maps a query to `relevant_ids`; each similar case maps a reference
+   `image_id` to expected neighbors. Set `"template": false` once IDs are
+   real. Starter entries are templates only.
+
+2. **Discover image IDs** to label:
+
+```powershell
+python -m imagecb.cli eval-suggest "operational dashboards" --top-k 15
+python -m imagecb.cli eval-suggest "operational dashboards" --mode chat
+python -m imagecb.cli eval-suggest --similar <image_id> --axis style
+```
+
+3. **Run eval** (reports separate scoreboards for chat, retrieval-only, and
+   similar search):
+
+```powershell
+python -m imagecb.cli eval-search
+python -m imagecb.cli eval-search --mode retrieval --k 1,5,10
+python -m imagecb.cli eval-search --case-id dashboard-screenshots --failures-only
+python -m imagecb.cli eval-search --json-out runs/baseline.json
+```
+
+While drafting cases, `--skip-id-validation` skips the SQLite ID check.
+Compare before/after tuning runs via `--json-out`.
+
 ## Configuration
 
 Everything is driven by environment variables - see `.env.example` for
@@ -395,14 +484,23 @@ the full list. Highlights:
 | `EMBEDDING_MODEL`           | Bedrock embedding model (default `amazon.titan-embed-image-v1`)                      |
 | `EMBEDDING_DIM`             | Titan output dimension: 256, 384, or 1024 (default `1024`)                           |
 | `RERANKER_MODEL`            | Bedrock rerank model (default `cohere.rerank-v3-5:0`)                                |
+| `CAPTION_TEXT_LANE_ENABLED` | Text-to-text dense lane over caption documents (default `true`)                      |
+| `TEXT_EMBEDDING_MODEL`      | Text embedding model for the caption-text lane (default `amazon.titan-embed-text-v2:0`) |
+| `TEXT_EMBEDDING_DIM`        | Text embedding dimension (default `1024`)                                            |
 | `AWS_REGION`                | AWS region for Bedrock (default `us-east-1`)                                         |
 | `AWS_BEARER_TOKEN_BEDROCK`  | Short-lived Bedrock API key (optional; otherwise use standard AWS credentials)       |
 | `DATA_DIR`                  | Root for all persisted state                                                         |
 | `UPLOADS_DIR`               | Staging dir for UI uploads (default `<DATA_DIR>/uploads`)                            |
 | `TESSERACT_CMD`             | Path to `tesseract.exe`                                                              |
-| `INGEST_WORKERS`            | Parallel ingest workers (default `4`)                                                |
+| `INGEST_WORKERS`            | Parallel ingest workers (default `4`; use `2` for large re-ingest)                   |
 | `INGEST_MAX_IMAGE_SIDE`     | Max longest edge for VLM caption input (default `1024`)                              |
 | `INGEST_BATCH_UPSERT`       | Chroma vectors per batch upsert (default `16`)                                       |
+| `INGEST_BATCH_SIZE`         | CLI file batch size (default `0` = no batching; use `25` for large corpora)          |
+| `INGEST_IMAGE_TIMEOUT_SEC`  | Per-image ingest timeout in seconds (default `300`)                                  |
+| `BEDROCK_MAX_CONCURRENT`    | Max concurrent Bedrock API calls (default `2`)                                       |
+| `BEDROCK_READ_TIMEOUT`      | Bedrock read timeout in seconds (default `120`)                                      |
+| `BEDROCK_CONNECT_TIMEOUT`   | Bedrock connect timeout in seconds (default `10`)                                    |
+| `BEDROCK_MAX_RETRIES`       | Bedrock adaptive retry attempts (default `6`)                                        |
 
 ## Project layout
 
@@ -428,9 +526,9 @@ imagecb/
     bm25_index.py        (rank_bm25, persisted)
   retrieval/
     query_parser.py      (text -> QuerySpec)
-    hybrid.py            (filter + dense + sparse + RRF)
+    hybrid.py            (filter + visual dense + caption-text dense + BM25 + RRF)
     rerank.py            (Bedrock rerank + provenance formatting)
-    session.py           (multi-turn state, sticky filters, refinement)
+    session.py           (multi-turn state and follow-up context)
   web/
     frontend_dist/       (pre-built React UI for serve-web — chat + admin)
     static/              (fallback vanilla chat UI)

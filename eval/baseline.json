@@ -1,0 +1,4257 @@
+{
+  "k_values": [
+    1,
+    3,
+    5,
+    10
+  ],
+  "chat": {
+    "mode": "chat",
+    "case_count": 18,
+    "hit_at": {
+      "1": 0.6111111111111112,
+      "3": 0.9444444444444444,
+      "5": 1.0,
+      "10": 1.0
+    },
+    "recall_at": {
+      "1": 0.34226190476190477,
+      "3": 0.49669312169312163,
+      "5": 0.6038359788359788,
+      "10": 0.7860449735449735
+    },
+    "mrr": 0.5783068783068783,
+    "cases": [
+      {
+        "case_id": "sdlc",
+        "relevant_ranks": [
+          {
+            "image_id": "15da4e9c-7f38-43f8-9fd4-21579281edbc",
+            "rank": 1
+          },
+          {
+            "image_id": "92f59ad2-1bd7-4e03-9099-85f29b95430a",
+            "rank": 5
+          },
+          {
+            "image_id": "9cd1ead9-5733-446b-893d-f3ac80094049",
+            "rank": 6
+          },
+          {
+            "image_id": "8b6fceca-fa0b-4488-9f0f-91d093639054",
+            "rank": 7
+          },
+          {
+            "image_id": "4e1ae09c-01ce-42a4-8c51-abb918071c79",
+            "rank": 3
+          },
+          {
+            "image_id": "9d0e7a39-f73f-4d51-a668-5ffa372869ad",
+            "rank": 2
+          },
+          {
+            "image_id": "089c9e5a-1add-40bb-823d-b3bae8646625",
+            "rank": 8
+          }
+        ],
+        "ranked_ids": [
+          "15da4e9c-7f38-43f8-9fd4-21579281edbc",
+          "9d0e7a39-f73f-4d51-a668-5ffa372869ad",
+          "4e1ae09c-01ce-42a4-8c51-abb918071c79",
+          "02c31fad-8512-4d7c-80df-39eb5b7cb12a",
+          "92f59ad2-1bd7-4e03-9099-85f29b95430a",
+          "9cd1ead9-5733-446b-893d-f3ac80094049",
+          "8b6fceca-fa0b-4488-9f0f-91d093639054",
+          "089c9e5a-1add-40bb-823d-b3bae8646625",
+          "ab23805b-9eb3-405d-89bf-25685d856189",
+          "7da65471-7646-4929-bb95-c568ebba50d8"
+        ],
+        "hit_at": {
+          "1": true,
+          "3": true,
+          "5": true,
+          "10": true
+        },
+        "recall_at": {
+          "1": 0.14285714285714285,
+          "3": 0.42857142857142855,
+          "5": 0.5714285714285714,
+          "10": 1.0
+        },
+        "mrr": 1.0
+      },
+      {
+        "case_id": "flowchart",
+        "relevant_ranks": [
+          {
+            "image_id": "02c31fad-8512-4d7c-80df-39eb5b7cb12a",
+            "rank": 1
+          }
+        ],
+        "ranked_ids": [
+          "02c31fad-8512-4d7c-80df-39eb5b7cb12a",
+          "2341bc05-b168-4bc8-945a-41fc58b93f9b",
+          "ab23805b-9eb3-405d-89bf-25685d856189",
+          "edcda462-53ab-4f22-8be3-a0aeef24f94a",
+          "9bfe0acd-f337-444f-b68d-ed6732bb7961",
+          "22965c1a-ee2e-4234-b31c-d8109e6a6761",
+          "edd27954-ccda-4e70-bafe-f776be5ab864",
+          "35b47782-d2ac-4e4f-b748-c4401209d3b0",
+          "017eb541-9599-4db4-b718-a970a95974c9",
+          "539f87eb-68cd-4d56-bbe0-0ff5b100a29c"
+        ],
+        "hit_at": {
+          "1": true,
+          "3": true,
+          "5": true,
+          "10": true
+        },
+        "recall_at": {
+          "1": 1.0,
+          "3": 1.0,
+          "5": 1.0,
+          "10": 1.0
+        },
+        "mrr": 1.0
+      },
+      {
+        "case_id": "diagram",
+        "relevant_ranks": [
+          {
+            "image_id": "35b47782-d2ac-4e4f-b748-c4401209d3b0",
+            "rank": 1
+          }
+        ],
+        "ranked_ids": [
+          "35b47782-d2ac-4e4f-b748-c4401209d3b0",
+          "02c31fad-8512-4d7c-80df-39eb5b7cb12a",
+          "22965c1a-ee2e-4234-b31c-d8109e6a6761",
+          "a91bd956-cb88-42e1-8ffa-abf8392a3dff",
+          "bd3c6a56-a21e-4638-88bc-91acc7337c96",
+          "36fedde0-0f2c-40fb-8861-ecb056b3baa9",
+          "a473d33c-9be7-4405-86e5-116a3843f8ea",
+          "9d0e7a39-f73f-4d51-a668-5ffa372869ad",
+          "4e1ae09c-01ce-42a4-8c51-abb918071c79",
+          "cdcf40ff-be2c-4f31-b5e0-ef398c9706b1"
+        ],
+        "hit_at": {
+          "1": true,
+          "3": true,
+          "5": true,
+          "10": true
+        },
+        "recall_at": {
+          "1": 1.0,
+          "3": 1.0,
+          "5": 1.0,
+          "10": 1.0
+        },
+        "mrr": 1.0
+      },
+      {
+        "case_id": "presentation",
+        "relevant_ranks": [
+          {
+            "image_id": "a1084b9b-0b14-42cb-b105-140f84785818",
+            "rank": 7
+          },
+          {
+            "image_id": "edd27954-ccda-4e70-bafe-f776be5ab864",
+            "rank": 3
+          },
+          {
+            "image_id": "17410011-f141-4738-8a99-70ac40b77e08",
+            "rank": null
+          }
+        ],
+        "ranked_ids": [
+          "585080bd-7a9d-4915-8899-8acbba57f66f",
+          "38b9b61b-3e27-4aad-a6f3-cfacae92e48d",
+          "edd27954-ccda-4e70-bafe-f776be5ab864",
+          "ec3cdf7f-cc83-4ece-8af5-94c189323c15",
+          "02c31fad-8512-4d7c-80df-39eb5b7cb12a",
+          "36fedde0-0f2c-40fb-8861-ecb056b3baa9",
+          "a1084b9b-0b14-42cb-b105-140f84785818",
+          "3c9d8968-6576-435f-850d-2e15279d212e",
+          "35b47782-d2ac-4e4f-b748-c4401209d3b0",
+          "a91bd956-cb88-42e1-8ffa-abf8392a3dff"
+        ],
+        "hit_at": {
+          "1": false,
+          "3": true,
+          "5": true,
+          "10": true
+        },
+        "recall_at": {
+          "1": 0.0,
+          "3": 0.3333333333333333,
+          "5": 0.3333333333333333,
+          "10": 0.6666666666666666
+        },
+        "mrr": 0.14285714285714285
+      },
+      {
+        "case_id": "office-worker-giving-a-presentation",
+        "relevant_ranks": [
+          {
+            "image_id": "edd27954-ccda-4e70-bafe-f776be5ab864",
+            "rank": 3
+          },
+          {
+            "image_id": "17410011-f141-4738-8a99-70ac40b77e08",
+            "rank": 10
+          },
+          {
+            "image_id": "22965c1a-ee2e-4234-b31c-d8109e6a6761",
+            "rank": 9
+          },
+          {
+            "image_id": "b24ea7cc-8660-473d-8843-c670ccf05573",
+            "rank": null
+          },
+          {
+            "image_id": "e481e5cf-8005-40df-a7bd-47badc3f5856",
+            "rank": null
+          },
+          {
+            "image_id": "83837dda-955c-4ac7-bb80-5e3f644389fd",
+            "rank": null
+          },
+          {
+            "image_id": "80fe45a4-f6a4-479f-bbff-f1a8c2913059",
+            "rank": null
+          },
+          {
+            "image_id": "017eb541-9599-4db4-b718-a970a95974c9",
+            "rank": null
+          }
+        ],
+        "ranked_ids": [
+          "585080bd-7a9d-4915-8899-8acbba57f66f",
+          "38b9b61b-3e27-4aad-a6f3-cfacae92e48d",
+          "edd27954-ccda-4e70-bafe-f776be5ab864",
+          "4d0f7da2-8788-498e-aa17-a496668c5ff5",
+          "f21b7957-e344-42e6-ab66-c1cb1b6bf0f0",
+          "e58ca98f-39fe-45f1-a5d5-4679e5d1f888",
+          "9f4ac0f8-ab8b-45f2-8b44-e07c1fef4aca",
+          "8b6fceca-fa0b-4488-9f0f-91d093639054",
+          "22965c1a-ee2e-4234-b31c-d8109e6a6761",
+          "17410011-f141-4738-8a99-70ac40b77e08"
+        ],
+        "hit_at": {
+          "1": false,
+          "3": true,
+          "5": true,
+          "10": true
+        },
+        "recall_at": {
+          "1": 0.0,
+          "3": 0.125,
+          "5": 0.125,
+          "10": 0.375
+        },
+        "mrr": 0.3333333333333333
+      },
+      {
+        "case_id": "software-developer",
+        "relevant_ranks": [
+          {
+            "image_id": "15da4e9c-7f38-43f8-9fd4-21579281edbc",
+            "rank": 5
+          },
+          {
+            "image_id": "92f59ad2-1bd7-4e03-9099-85f29b95430a",
+            "rank": 7
+          },
+          {
+            "image_id": "9d0e7a39-f73f-4d51-a668-5ffa372869ad",
+            "rank": 1
+          },
+          {
+            "image_id": "9cd1ead9-5733-446b-893d-f3ac80094049",
+            "rank": 3
+          },
+          {
+            "image_id": "8b6fceca-fa0b-4488-9f0f-91d093639054",
+            "rank": 2
+          },
+          {
+            "image_id": "dd3beef9-c8ff-4ec9-bb8c-1336e4386014",
+            "rank": null
+          },
+          {
+            "image_id": "4e1ae09c-01ce-42a4-8c51-abb918071c79",
+            "rank": 4
+          }
+        ],
+        "ranked_ids": [
+          "9d0e7a39-f73f-4d51-a668-5ffa372869ad",
+          "8b6fceca-fa0b-4488-9f0f-91d093639054",
+          "9cd1ead9-5733-446b-893d-f3ac80094049",
+          "4e1ae09c-01ce-42a4-8c51-abb918071c79",
+          "15da4e9c-7f38-43f8-9fd4-21579281edbc",
+          "089c9e5a-1add-40bb-823d-b3bae8646625",
+          "92f59ad2-1bd7-4e03-9099-85f29b95430a",
+          "b24ea7cc-8660-473d-8843-c670ccf05573",
+          "1d65a18d-10a6-4348-b394-abcbd883abec",
+          "1c13e4fe-f13f-404d-b3d3-c22c07b8e57a"
+        ],
+        "hit_at": {
+          "1": true,
+          "3": true,
+          "5": true,
+          "10": true
+        },
+        "recall_at": {
+          "1": 0.14285714285714285,
+          "3": 0.42857142857142855,
+          "5": 0.7142857142857143,
+          "10": 0.8571428571428571
+        },
+        "mrr": 0.2
+      },
+      {
+        "case_id": "dashboard",
+        "relevant_ranks": [
+          {
+            "image_id": "5638ddca-6a7d-462e-a781-47490bf5283c",
+            "rank": 5
+          },
+          {
+            "image_id": "b6b690b2-8956-487b-8486-74de4ee174c3",
+            "rank": 8
+          },
+          {
+            "image_id": "89bd6754-0163-4c75-8112-1273f222b73e",
+            "rank": 4
+          },
+          {
+            "image_id": "4a300a47-27f5-455f-a0b9-fec54a901b46",
+            "rank": 2
+          },
+          {
+            "image_id": "38b9b61b-3e27-4aad-a6f3-cfacae92e48d",
+            "rank": null
+          },
+          {
+            "image_id": "a08ce3bd-b905-4c92-8cb9-3b248101f001",
+            "rank": null
+          },
+          {
+            "image_id": "33d1fa1f-cc82-4b27-b175-3a3167bcbaf5",
+            "rank": null
+          },
+          {
+            "image_id": "097362a1-dfaa-4528-91d4-d9c51526e3dd",
+            "rank": 6
+          }
+        ],
+        "ranked_ids": [
+          "d9be3d92-6744-4680-880d-0907781f45f4",
+          "4a300a47-27f5-455f-a0b9-fec54a901b46",
+          "ab23805b-9eb3-405d-89bf-25685d856189",
+          "89bd6754-0163-4c75-8112-1273f222b73e",
+          "5638ddca-6a7d-462e-a781-47490bf5283c",
+          "097362a1-dfaa-4528-91d4-d9c51526e3dd",
+          "16cfe78f-53a9-4495-be36-9bd539634758",
+          "b6b690b2-8956-487b-8486-74de4ee174c3",
+          "904d4981-d01c-45ab-96a5-a0fc0b0b2464",
+          "bed20ebc-5a9b-44c2-9062-fececbf54e68"
+        ],
+        "hit_at": {
+          "1": false,
+          "3": true,
+          "5": true,
+          "10": true
+        },
+        "recall_at": {
+          "1": 0.0,
+          "3": 0.125,
+          "5": 0.375,
+          "10": 0.625
+        },
+        "mrr": 0.2
+      },
+      {
+        "case_id": "cybersecurity",
+        "relevant_ranks": [
+          {
+            "image_id": "44325c39-15c1-44ce-89cf-d4055bd2ebe5",
+            "rank": 5
+          },
+          {
+            "image_id": "e7c4a317-b8ef-4f63-8458-9c1945a2b3fe",
+            "rank": null
+          },
+          {
+            "image_id": "4fffb1d3-60a2-46f7-9270-4751cc6c2ed4",
+            "rank": 7
+          },
+          {
+            "image_id": "2c7b79f1-5990-41c2-b486-c20e96109079",
+            "rank": 10
+          },
+          {
+            "image_id": "e728e84a-14f2-4106-9c42-d443fe142292",
+            "rank": 2
+          },
+          {
+            "image_id": "a1084b9b-0b14-42cb-b105-140f84785818",
+            "rank": 3
+          },
+          {
+            "image_id": "aedb9d55-ef81-421a-9f8e-ad409e7bee14",
+            "rank": null
+          },
+          {
+            "image_id": "58abc1b7-429c-4054-bb33-24347b23953a",
+            "rank": 9
+          }
+        ],
+        "ranked_ids": [
+          "64c5dfba-0a44-4715-bde1-ed549d526df3",
+          "e728e84a-14f2-4106-9c42-d443fe142292",
+          "a1084b9b-0b14-42cb-b105-140f84785818",
+          "d4c047cf-bb7e-4d35-95b2-8e8a15404591",
+          "44325c39-15c1-44ce-89cf-d4055bd2ebe5",
+          "5b96dba3-c315-45bc-9843-103d046d61f3",
+          "4fffb1d3-60a2-46f7-9270-4751cc6c2ed4",
+          "cff3ff5f-b23f-4561-97bc-159f2895fb6a",
+          "58abc1b7-429c-4054-bb33-24347b23953a",
+          "2c7b79f1-5990-41c2-b486-c20e96109079"
+        ],
+        "hit_at": {
+          "1": false,
+          "3": true,
+          "5": true,
+          "10": true
+        },
+        "recall_at": {
+          "1": 0.0,
+          "3": 0.25,
+          "5": 0.375,
+          "10": 0.75
+        },
+        "mrr": 0.2
+      },
+      {
+        "case_id": "team-meeting",
+        "relevant_ranks": [
+          {
+            "image_id": "edd27954-ccda-4e70-bafe-f776be5ab864",
+            "rank": 6
+          },
+          {
+            "image_id": "17410011-f141-4738-8a99-70ac40b77e08",
+            "rank": 2
+          },
+          {
+            "image_id": "22965c1a-ee2e-4234-b31c-d8109e6a6761",
+            "rank": 8
+          },
+          {
+            "image_id": "55abb672-c1db-43f8-adb3-94f756ce1161",
+            "rank": 4
+          },
+          {
+            "image_id": "2e5e6f9e-aac7-4d5e-a4f5-3bb5f06ea473",
+            "rank": 10
+          },
+          {
+            "image_id": "e481e5cf-8005-40df-a7bd-47badc3f5856",
+            "rank": 7
+          },
+          {
+            "image_id": "ccc8b394-0030-438f-b09a-80817e562ea8",
+            "rank": 9
+          },
+          {
+            "image_id": "e58ca98f-39fe-45f1-a5d5-4679e5d1f888",
+            "rank": 1
+          }
+        ],
+        "ranked_ids": [
+          "e58ca98f-39fe-45f1-a5d5-4679e5d1f888",
+          "17410011-f141-4738-8a99-70ac40b77e08",
+          "81c2b2e3-863e-4eab-8511-98adf7642346",
+          "55abb672-c1db-43f8-adb3-94f756ce1161",
+          "4d0f7da2-8788-498e-aa17-a496668c5ff5",
+          "edd27954-ccda-4e70-bafe-f776be5ab864",
+          "e481e5cf-8005-40df-a7bd-47badc3f5856",
+          "22965c1a-ee2e-4234-b31c-d8109e6a6761",
+          "ccc8b394-0030-438f-b09a-80817e562ea8",
+          "2e5e6f9e-aac7-4d5e-a4f5-3bb5f06ea473"
+        ],
+        "hit_at": {
+          "1": true,
+          "3": true,
+          "5": true,
+          "10": true
+        },
+        "recall_at": {
+          "1": 0.125,
+          "3": 0.25,
+          "5": 0.375,
+          "10": 1.0
+        },
+        "mrr": 0.16666666666666666
+      },
+      {
+        "case_id": "financial-chart",
+        "relevant_ranks": [
+          {
+            "image_id": "80fe45a4-f6a4-479f-bbff-f1a8c2913059",
+            "rank": 3
+          },
+          {
+            "image_id": "017eb541-9599-4db4-b718-a970a95974c9",
+            "rank": 2
+          },
+          {
+            "image_id": "7380ec92-3b7d-4831-8e4f-516992dbb8b0",
+            "rank": 1
+          },
+          {
+            "image_id": "d9be3d92-6744-4680-880d-0907781f45f4",
+            "rank": null
+          },
+          {
+            "image_id": "4a300a47-27f5-455f-a0b9-fec54a901b46",
+            "rank": null
+          },
+          {
+            "image_id": "dae636a7-9aba-464a-bc90-f60fe18835d0",
+            "rank": null
+          },
+          {
+            "image_id": "5638ddca-6a7d-462e-a781-47490bf5283c",
+            "rank": null
+          },
+          {
+            "image_id": "4fffb1d3-60a2-46f7-9270-4751cc6c2ed4",
+            "rank": null
+          }
+        ],
+        "ranked_ids": [
+          "7380ec92-3b7d-4831-8e4f-516992dbb8b0",
+          "017eb541-9599-4db4-b718-a970a95974c9",
+          "80fe45a4-f6a4-479f-bbff-f1a8c2913059",
+          "904d4981-d01c-45ab-96a5-a0fc0b0b2464",
+          "58abc1b7-429c-4054-bb33-24347b23953a",
+          "81c2b2e3-863e-4eab-8511-98adf7642346",
+          "1f54ef5f-7112-418b-ae4b-808a7ccb4223",
+          "661633b6-fd1d-4752-bd5f-180983012abd",
+          "0bc2cdde-6bdf-4637-b5d5-d9b356891c23",
+          "1c13e4fe-f13f-404d-b3d3-c22c07b8e57a"
+        ],
+        "hit_at": {
+          "1": true,
+          "3": true,
+          "5": true,
+          "10": true
+        },
+        "recall_at": {
+          "1": 0.125,
+          "3": 0.375,
+          "5": 0.375,
+          "10": 0.375
+        },
+        "mrr": 0.3333333333333333
+      },
+      {
+        "case_id": "architecture-diagram",
+        "relevant_ranks": [
+          {
+            "image_id": "35b47782-d2ac-4e4f-b748-c4401209d3b0",
+            "rank": 1
+          },
+          {
+            "image_id": "36fedde0-0f2c-40fb-8861-ecb056b3baa9",
+            "rank": 2
+          }
+        ],
+        "ranked_ids": [
+          "35b47782-d2ac-4e4f-b748-c4401209d3b0",
+          "36fedde0-0f2c-40fb-8861-ecb056b3baa9",
+          "a91bd956-cb88-42e1-8ffa-abf8392a3dff",
+          "bd3c6a56-a21e-4638-88bc-91acc7337c96",
+          "22965c1a-ee2e-4234-b31c-d8109e6a6761",
+          "cdcf40ff-be2c-4f31-b5e0-ef398c9706b1",
+          "bdc2f5bd-bd51-4cb1-a559-ac12e2b50bc2",
+          "5d0a0317-f4e8-4f63-bfd5-e37bb22ad4dc",
+          "02c31fad-8512-4d7c-80df-39eb5b7cb12a",
+          "33048ff9-fa48-449b-84c9-c2cfc82cc556"
+        ],
+        "hit_at": {
+          "1": true,
+          "3": true,
+          "5": true,
+          "10": true
+        },
+        "recall_at": {
+          "1": 0.5,
+          "3": 1.0,
+          "5": 1.0,
+          "10": 1.0
+        },
+        "mrr": 1.0
+      },
+      {
+        "case_id": "data-visualization",
+        "relevant_ranks": [
+          {
+            "image_id": "4a300a47-27f5-455f-a0b9-fec54a901b46",
+            "rank": 4
+          },
+          {
+            "image_id": "7a5068f7-fe1c-4546-97c0-c3b81b3eefd7",
+            "rank": 5
+          },
+          {
+            "image_id": "dae636a7-9aba-464a-bc90-f60fe18835d0",
+            "rank": null
+          },
+          {
+            "image_id": "5638ddca-6a7d-462e-a781-47490bf5283c",
+            "rank": 10
+          },
+          {
+            "image_id": "4fffb1d3-60a2-46f7-9270-4751cc6c2ed4",
+            "rank": null
+          },
+          {
+            "image_id": "1f54ef5f-7112-418b-ae4b-808a7ccb4223",
+            "rank": 7
+          },
+          {
+            "image_id": "b6b690b2-8956-487b-8486-74de4ee174c3",
+            "rank": 3
+          },
+          {
+            "image_id": "904d4981-d01c-45ab-96a5-a0fc0b0b2464",
+            "rank": null
+          }
+        ],
+        "ranked_ids": [
+          "d9be3d92-6744-4680-880d-0907781f45f4",
+          "929d393b-b153-4e4b-9667-246506158ab1",
+          "b6b690b2-8956-487b-8486-74de4ee174c3",
+          "4a300a47-27f5-455f-a0b9-fec54a901b46",
+          "7a5068f7-fe1c-4546-97c0-c3b81b3eefd7",
+          "0bc2cdde-6bdf-4637-b5d5-d9b356891c23",
+          "1f54ef5f-7112-418b-ae4b-808a7ccb4223",
+          "89bd6754-0163-4c75-8112-1273f222b73e",
+          "16cfe78f-53a9-4495-be36-9bd539634758",
+          "5638ddca-6a7d-462e-a781-47490bf5283c"
+        ],
+        "hit_at": {
+          "1": false,
+          "3": true,
+          "5": true,
+          "10": true
+        },
+        "recall_at": {
+          "1": 0.0,
+          "3": 0.125,
+          "5": 0.375,
+          "10": 0.625
+        },
+        "mrr": 0.25
+      },
+      {
+        "case_id": "kanban",
+        "relevant_ranks": [
+          {
+            "image_id": "ab23805b-9eb3-405d-89bf-25685d856189",
+            "rank": 1
+          }
+        ],
+        "ranked_ids": [
+          "ab23805b-9eb3-405d-89bf-25685d856189",
+          "e481e5cf-8005-40df-a7bd-47badc3f5856",
+          "2bb0145d-1a75-42d0-8b06-c16f45855afe",
+          "568eaf93-b970-4cd3-acb1-f8591e30fd20",
+          "ccc8b394-0030-438f-b09a-80817e562ea8",
+          "22965c1a-ee2e-4234-b31c-d8109e6a6761",
+          "edd27954-ccda-4e70-bafe-f776be5ab864",
+          "6c2802a7-dbea-4d50-b990-dc5a376947fb",
+          "9d0e7a39-f73f-4d51-a668-5ffa372869ad",
+          "f21b7957-e344-42e6-ab66-c1cb1b6bf0f0"
+        ],
+        "hit_at": {
+          "1": true,
+          "3": true,
+          "5": true,
+          "10": true
+        },
+        "recall_at": {
+          "1": 1.0,
+          "3": 1.0,
+          "5": 1.0,
+          "10": 1.0
+        },
+        "mrr": 1.0
+      },
+      {
+        "case_id": "logo",
+        "relevant_ranks": [
+          {
+            "image_id": "9ee2caca-4dc1-459a-952d-2465c2febcb0",
+            "rank": 1
+          }
+        ],
+        "ranked_ids": [
+          "9ee2caca-4dc1-459a-952d-2465c2febcb0",
+          "568eaf93-b970-4cd3-acb1-f8591e30fd20",
+          "58a38354-577f-4967-b09a-35801bc9d770",
+          "1d65a18d-10a6-4348-b394-abcbd883abec",
+          "6c2802a7-dbea-4d50-b990-dc5a376947fb",
+          "34294904-179c-4539-9283-6e5dd47e6019",
+          "1c13e4fe-f13f-404d-b3d3-c22c07b8e57a",
+          "ef072a4f-1642-4cac-ba84-0f4f5bf05e92",
+          "4d40b59a-f0bd-4eff-8f09-caf957f38003",
+          "a7d2c74f-7f24-402d-9cd1-052d736d6ca8"
+        ],
+        "hit_at": {
+          "1": true,
+          "3": true,
+          "5": true,
+          "10": true
+        },
+        "recall_at": {
+          "1": 1.0,
+          "3": 1.0,
+          "5": 1.0,
+          "10": 1.0
+        },
+        "mrr": 1.0
+      },
+      {
+        "case_id": "screenshot",
+        "relevant_ranks": [
+          {
+            "image_id": "9d0e7a39-f73f-4d51-a668-5ffa372869ad",
+            "rank": 3
+          },
+          {
+            "image_id": "2b9eae44-5375-402e-8f95-302263a1eca2",
+            "rank": null
+          },
+          {
+            "image_id": "089c9e5a-1add-40bb-823d-b3bae8646625",
+            "rank": null
+          },
+          {
+            "image_id": "1c13e4fe-f13f-404d-b3d3-c22c07b8e57a",
+            "rank": null
+          },
+          {
+            "image_id": "4a300a47-27f5-455f-a0b9-fec54a901b46",
+            "rank": null
+          },
+          {
+            "image_id": "8d5033db-b90d-4fee-94fc-de60ba222329",
+            "rank": null
+          },
+          {
+            "image_id": "b65d1578-8e16-4592-9e90-1cedcdaabb81",
+            "rank": null
+          },
+          {
+            "image_id": "00324a72-1b3b-42b1-abf4-13b2bc19a431",
+            "rank": null
+          }
+        ],
+        "ranked_ids": [
+          "cdcf40ff-be2c-4f31-b5e0-ef398c9706b1",
+          "bd3c6a56-a21e-4638-88bc-91acc7337c96",
+          "9d0e7a39-f73f-4d51-a668-5ffa372869ad",
+          "e7c4a317-b8ef-4f63-8458-9c1945a2b3fe",
+          "8b6fceca-fa0b-4488-9f0f-91d093639054",
+          "e58ca98f-39fe-45f1-a5d5-4679e5d1f888",
+          "1a9628e1-93f8-48f3-a9f5-bfef874ddd77",
+          "dd26a93a-957d-41bf-9141-141190007ac4",
+          "cac3f72d-d350-4af0-a583-c687fea90e87",
+          "568eaf93-b970-4cd3-acb1-f8591e30fd20"
+        ],
+        "hit_at": {
+          "1": false,
+          "3": true,
+          "5": true,
+          "10": true
+        },
+        "recall_at": {
+          "1": 0.0,
+          "3": 0.125,
+          "5": 0.125,
+          "10": 0.125
+        },
+        "mrr": 0.3333333333333333
+      },
+      {
+        "case_id": "military-veteran",
+        "relevant_ranks": [
+          {
+            "image_id": "d31d4dbf-5f88-4049-9aeb-7fa027d9549d",
+            "rank": 1
+          },
+          {
+            "image_id": "b396384c-68aa-4567-8887-e86bd7e94415",
+            "rank": 2
+          },
+          {
+            "image_id": "32477ed8-2a9c-41a6-9dae-6d453f5ad8c6",
+            "rank": 8
+          },
+          {
+            "image_id": "d371a8bf-efbe-48c5-859d-3ea82e7653da",
+            "rank": 5
+          },
+          {
+            "image_id": "58a38354-577f-4967-b09a-35801bc9d770",
+            "rank": 3
+          },
+          {
+            "image_id": "602dae0d-1307-43bc-a458-b920e5e53b5f",
+            "rank": 10
+          },
+          {
+            "image_id": "a07e3175-8b41-4610-8af6-3adb044c1843",
+            "rank": 6
+          },
+          {
+            "image_id": "d47af46d-5304-4834-8065-d1561845b239",
+            "rank": 4
+          }
+        ],
+        "ranked_ids": [
+          "d31d4dbf-5f88-4049-9aeb-7fa027d9549d",
+          "b396384c-68aa-4567-8887-e86bd7e94415",
+          "58a38354-577f-4967-b09a-35801bc9d770",
+          "d47af46d-5304-4834-8065-d1561845b239",
+          "d371a8bf-efbe-48c5-859d-3ea82e7653da",
+          "a07e3175-8b41-4610-8af6-3adb044c1843",
+          "a61004cc-09b5-4936-a1f9-45f13cedc1a3",
+          "32477ed8-2a9c-41a6-9dae-6d453f5ad8c6",
+          "b46a3766-ad02-4ef5-a17c-3c8031177479",
+          "602dae0d-1307-43bc-a458-b920e5e53b5f"
+        ],
+        "hit_at": {
+          "1": true,
+          "3": true,
+          "5": true,
+          "10": true
+        },
+        "recall_at": {
+          "1": 0.125,
+          "3": 0.375,
+          "5": 0.625,
+          "10": 1.0
+        },
+        "mrr": 1.0
+      },
+      {
+        "case_id": "infographic-timeline",
+        "relevant_ranks": [
+          {
+            "image_id": "02c31fad-8512-4d7c-80df-39eb5b7cb12a",
+            "rank": 1
+          }
+        ],
+        "ranked_ids": [
+          "02c31fad-8512-4d7c-80df-39eb5b7cb12a",
+          "ab23805b-9eb3-405d-89bf-25685d856189",
+          "15da4e9c-7f38-43f8-9fd4-21579281edbc",
+          "2341bc05-b168-4bc8-945a-41fc58b93f9b",
+          "33048ff9-fa48-449b-84c9-c2cfc82cc556",
+          "3c9d8968-6576-435f-850d-2e15279d212e",
+          "017eb541-9599-4db4-b718-a970a95974c9",
+          "661633b6-fd1d-4752-bd5f-180983012abd",
+          "4e1ae09c-01ce-42a4-8c51-abb918071c79",
+          "ef804325-1103-4c4e-98f3-61bfb7b35ae9"
+        ],
+        "hit_at": {
+          "1": true,
+          "3": true,
+          "5": true,
+          "10": true
+        },
+        "recall_at": {
+          "1": 1.0,
+          "3": 1.0,
+          "5": 1.0,
+          "10": 1.0
+        },
+        "mrr": 1.0
+      },
+      {
+        "case_id": "office-collaboration",
+        "relevant_ranks": [
+          {
+            "image_id": "f6a42488-e36a-4bba-b141-f3f77f93b810",
+            "rank": 4
+          },
+          {
+            "image_id": "e481e5cf-8005-40df-a7bd-47badc3f5856",
+            "rank": null
+          },
+          {
+            "image_id": "edd27954-ccda-4e70-bafe-f776be5ab864",
+            "rank": 8
+          },
+          {
+            "image_id": "22965c1a-ee2e-4234-b31c-d8109e6a6761",
+            "rank": 5
+          }
+        ],
+        "ranked_ids": [
+          "f21b7957-e344-42e6-ab66-c1cb1b6bf0f0",
+          "40990155-9b88-49a1-abbe-dee8c2827ca4",
+          "81c2b2e3-863e-4eab-8511-98adf7642346",
+          "f6a42488-e36a-4bba-b141-f3f77f93b810",
+          "22965c1a-ee2e-4234-b31c-d8109e6a6761",
+          "e58ca98f-39fe-45f1-a5d5-4679e5d1f888",
+          "4d0f7da2-8788-498e-aa17-a496668c5ff5",
+          "edd27954-ccda-4e70-bafe-f776be5ab864",
+          "9f4ac0f8-ab8b-45f2-8b44-e07c1fef4aca",
+          "ccc8b394-0030-438f-b09a-80817e562ea8"
+        ],
+        "hit_at": {
+          "1": false,
+          "3": false,
+          "5": true,
+          "10": true
+        },
+        "recall_at": {
+          "1": 0.0,
+          "3": 0.0,
+          "5": 0.5,
+          "10": 0.75
+        },
+        "mrr": 0.25
+      }
+    ]
+  },
+  "retrieval": {
+    "mode": "retrieval",
+    "case_count": 18,
+    "hit_at": {
+      "1": 0.6111111111111112,
+      "3": 0.9444444444444444,
+      "5": 1.0,
+      "10": 1.0
+    },
+    "recall_at": {
+      "1": 0.34226190476190477,
+      "3": 0.49669312169312163,
+      "5": 0.5958994708994709,
+      "10": 0.7781084656084656
+    },
+    "mrr": 0.5486772486772487,
+    "cases": [
+      {
+        "case_id": "sdlc",
+        "relevant_ranks": [
+          {
+            "image_id": "15da4e9c-7f38-43f8-9fd4-21579281edbc",
+            "rank": 2
+          },
+          {
+            "image_id": "92f59ad2-1bd7-4e03-9099-85f29b95430a",
+            "rank": 5
+          },
+          {
+            "image_id": "9cd1ead9-5733-446b-893d-f3ac80094049",
+            "rank": 6
+          },
+          {
+            "image_id": "8b6fceca-fa0b-4488-9f0f-91d093639054",
+            "rank": 7
+          },
+          {
+            "image_id": "4e1ae09c-01ce-42a4-8c51-abb918071c79",
+            "rank": 3
+          },
+          {
+            "image_id": "9d0e7a39-f73f-4d51-a668-5ffa372869ad",
+            "rank": 1
+          },
+          {
+            "image_id": "089c9e5a-1add-40bb-823d-b3bae8646625",
+            "rank": 8
+          }
+        ],
+        "ranked_ids": [
+          "9d0e7a39-f73f-4d51-a668-5ffa372869ad",
+          "15da4e9c-7f38-43f8-9fd4-21579281edbc",
+          "4e1ae09c-01ce-42a4-8c51-abb918071c79",
+          "02c31fad-8512-4d7c-80df-39eb5b7cb12a",
+          "92f59ad2-1bd7-4e03-9099-85f29b95430a",
+          "9cd1ead9-5733-446b-893d-f3ac80094049",
+          "8b6fceca-fa0b-4488-9f0f-91d093639054",
+          "089c9e5a-1add-40bb-823d-b3bae8646625",
+          "ab23805b-9eb3-405d-89bf-25685d856189",
+          "7da65471-7646-4929-bb95-c568ebba50d8"
+        ],
+        "hit_at": {
+          "1": true,
+          "3": true,
+          "5": true,
+          "10": true
+        },
+        "recall_at": {
+          "1": 0.14285714285714285,
+          "3": 0.42857142857142855,
+          "5": 0.5714285714285714,
+          "10": 1.0
+        },
+        "mrr": 0.5
+      },
+      {
+        "case_id": "flowchart",
+        "relevant_ranks": [
+          {
+            "image_id": "02c31fad-8512-4d7c-80df-39eb5b7cb12a",
+            "rank": 1
+          }
+        ],
+        "ranked_ids": [
+          "02c31fad-8512-4d7c-80df-39eb5b7cb12a",
+          "2341bc05-b168-4bc8-945a-41fc58b93f9b",
+          "ab23805b-9eb3-405d-89bf-25685d856189",
+          "edcda462-53ab-4f22-8be3-a0aeef24f94a",
+          "9bfe0acd-f337-444f-b68d-ed6732bb7961",
+          "22965c1a-ee2e-4234-b31c-d8109e6a6761",
+          "edd27954-ccda-4e70-bafe-f776be5ab864",
+          "35b47782-d2ac-4e4f-b748-c4401209d3b0",
+          "017eb541-9599-4db4-b718-a970a95974c9",
+          "15da4e9c-7f38-43f8-9fd4-21579281edbc"
+        ],
+        "hit_at": {
+          "1": true,
+          "3": true,
+          "5": true,
+          "10": true
+        },
+        "recall_at": {
+          "1": 1.0,
+          "3": 1.0,
+          "5": 1.0,
+          "10": 1.0
+        },
+        "mrr": 1.0
+      },
+      {
+        "case_id": "diagram",
+        "relevant_ranks": [
+          {
+            "image_id": "35b47782-d2ac-4e4f-b748-c4401209d3b0",
+            "rank": 1
+          }
+        ],
+        "ranked_ids": [
+          "35b47782-d2ac-4e4f-b748-c4401209d3b0",
+          "02c31fad-8512-4d7c-80df-39eb5b7cb12a",
+          "22965c1a-ee2e-4234-b31c-d8109e6a6761",
+          "a91bd956-cb88-42e1-8ffa-abf8392a3dff",
+          "bd3c6a56-a21e-4638-88bc-91acc7337c96",
+          "36fedde0-0f2c-40fb-8861-ecb056b3baa9",
+          "a473d33c-9be7-4405-86e5-116a3843f8ea",
+          "9d0e7a39-f73f-4d51-a668-5ffa372869ad",
+          "4e1ae09c-01ce-42a4-8c51-abb918071c79",
+          "cdcf40ff-be2c-4f31-b5e0-ef398c9706b1"
+        ],
+        "hit_at": {
+          "1": true,
+          "3": true,
+          "5": true,
+          "10": true
+        },
+        "recall_at": {
+          "1": 1.0,
+          "3": 1.0,
+          "5": 1.0,
+          "10": 1.0
+        },
+        "mrr": 1.0
+      },
+      {
+        "case_id": "presentation",
+        "relevant_ranks": [
+          {
+            "image_id": "a1084b9b-0b14-42cb-b105-140f84785818",
+            "rank": 7
+          },
+          {
+            "image_id": "edd27954-ccda-4e70-bafe-f776be5ab864",
+            "rank": 3
+          },
+          {
+            "image_id": "17410011-f141-4738-8a99-70ac40b77e08",
+            "rank": null
+          }
+        ],
+        "ranked_ids": [
+          "585080bd-7a9d-4915-8899-8acbba57f66f",
+          "38b9b61b-3e27-4aad-a6f3-cfacae92e48d",
+          "edd27954-ccda-4e70-bafe-f776be5ab864",
+          "ec3cdf7f-cc83-4ece-8af5-94c189323c15",
+          "02c31fad-8512-4d7c-80df-39eb5b7cb12a",
+          "36fedde0-0f2c-40fb-8861-ecb056b3baa9",
+          "a1084b9b-0b14-42cb-b105-140f84785818",
+          "3c9d8968-6576-435f-850d-2e15279d212e",
+          "35b47782-d2ac-4e4f-b748-c4401209d3b0",
+          "a91bd956-cb88-42e1-8ffa-abf8392a3dff"
+        ],
+        "hit_at": {
+          "1": false,
+          "3": true,
+          "5": true,
+          "10": true
+        },
+        "recall_at": {
+          "1": 0.0,
+          "3": 0.3333333333333333,
+          "5": 0.3333333333333333,
+          "10": 0.6666666666666666
+        },
+        "mrr": 0.14285714285714285
+      },
+      {
+        "case_id": "office-worker-giving-a-presentation",
+        "relevant_ranks": [
+          {
+            "image_id": "edd27954-ccda-4e70-bafe-f776be5ab864",
+            "rank": 3
+          },
+          {
+            "image_id": "17410011-f141-4738-8a99-70ac40b77e08",
+            "rank": 10
+          },
+          {
+            "image_id": "22965c1a-ee2e-4234-b31c-d8109e6a6761",
+            "rank": 9
+          },
+          {
+            "image_id": "b24ea7cc-8660-473d-8843-c670ccf05573",
+            "rank": null
+          },
+          {
+            "image_id": "e481e5cf-8005-40df-a7bd-47badc3f5856",
+            "rank": null
+          },
+          {
+            "image_id": "83837dda-955c-4ac7-bb80-5e3f644389fd",
+            "rank": null
+          },
+          {
+            "image_id": "80fe45a4-f6a4-479f-bbff-f1a8c2913059",
+            "rank": null
+          },
+          {
+            "image_id": "017eb541-9599-4db4-b718-a970a95974c9",
+            "rank": null
+          }
+        ],
+        "ranked_ids": [
+          "585080bd-7a9d-4915-8899-8acbba57f66f",
+          "38b9b61b-3e27-4aad-a6f3-cfacae92e48d",
+          "edd27954-ccda-4e70-bafe-f776be5ab864",
+          "4d0f7da2-8788-498e-aa17-a496668c5ff5",
+          "f21b7957-e344-42e6-ab66-c1cb1b6bf0f0",
+          "e58ca98f-39fe-45f1-a5d5-4679e5d1f888",
+          "9f4ac0f8-ab8b-45f2-8b44-e07c1fef4aca",
+          "8b6fceca-fa0b-4488-9f0f-91d093639054",
+          "22965c1a-ee2e-4234-b31c-d8109e6a6761",
+          "17410011-f141-4738-8a99-70ac40b77e08"
+        ],
+        "hit_at": {
+          "1": false,
+          "3": true,
+          "5": true,
+          "10": true
+        },
+        "recall_at": {
+          "1": 0.0,
+          "3": 0.125,
+          "5": 0.125,
+          "10": 0.375
+        },
+        "mrr": 0.3333333333333333
+      },
+      {
+        "case_id": "software-developer",
+        "relevant_ranks": [
+          {
+            "image_id": "15da4e9c-7f38-43f8-9fd4-21579281edbc",
+            "rank": null
+          },
+          {
+            "image_id": "92f59ad2-1bd7-4e03-9099-85f29b95430a",
+            "rank": 6
+          },
+          {
+            "image_id": "9d0e7a39-f73f-4d51-a668-5ffa372869ad",
+            "rank": 1
+          },
+          {
+            "image_id": "9cd1ead9-5733-446b-893d-f3ac80094049",
+            "rank": 3
+          },
+          {
+            "image_id": "8b6fceca-fa0b-4488-9f0f-91d093639054",
+            "rank": 2
+          },
+          {
+            "image_id": "dd3beef9-c8ff-4ec9-bb8c-1336e4386014",
+            "rank": null
+          },
+          {
+            "image_id": "4e1ae09c-01ce-42a4-8c51-abb918071c79",
+            "rank": 4
+          }
+        ],
+        "ranked_ids": [
+          "9d0e7a39-f73f-4d51-a668-5ffa372869ad",
+          "8b6fceca-fa0b-4488-9f0f-91d093639054",
+          "9cd1ead9-5733-446b-893d-f3ac80094049",
+          "4e1ae09c-01ce-42a4-8c51-abb918071c79",
+          "089c9e5a-1add-40bb-823d-b3bae8646625",
+          "92f59ad2-1bd7-4e03-9099-85f29b95430a",
+          "b24ea7cc-8660-473d-8843-c670ccf05573",
+          "1d65a18d-10a6-4348-b394-abcbd883abec",
+          "1c13e4fe-f13f-404d-b3d3-c22c07b8e57a",
+          "ab23805b-9eb3-405d-89bf-25685d856189"
+        ],
+        "hit_at": {
+          "1": true,
+          "3": true,
+          "5": true,
+          "10": true
+        },
+        "recall_at": {
+          "1": 0.14285714285714285,
+          "3": 0.42857142857142855,
+          "5": 0.5714285714285714,
+          "10": 0.7142857142857143
+        },
+        "mrr": 0.16666666666666666
+      },
+      {
+        "case_id": "dashboard",
+        "relevant_ranks": [
+          {
+            "image_id": "5638ddca-6a7d-462e-a781-47490bf5283c",
+            "rank": 5
+          },
+          {
+            "image_id": "b6b690b2-8956-487b-8486-74de4ee174c3",
+            "rank": 8
+          },
+          {
+            "image_id": "89bd6754-0163-4c75-8112-1273f222b73e",
+            "rank": 4
+          },
+          {
+            "image_id": "4a300a47-27f5-455f-a0b9-fec54a901b46",
+            "rank": 2
+          },
+          {
+            "image_id": "38b9b61b-3e27-4aad-a6f3-cfacae92e48d",
+            "rank": null
+          },
+          {
+            "image_id": "a08ce3bd-b905-4c92-8cb9-3b248101f001",
+            "rank": null
+          },
+          {
+            "image_id": "33d1fa1f-cc82-4b27-b175-3a3167bcbaf5",
+            "rank": null
+          },
+          {
+            "image_id": "097362a1-dfaa-4528-91d4-d9c51526e3dd",
+            "rank": 6
+          }
+        ],
+        "ranked_ids": [
+          "d9be3d92-6744-4680-880d-0907781f45f4",
+          "4a300a47-27f5-455f-a0b9-fec54a901b46",
+          "ab23805b-9eb3-405d-89bf-25685d856189",
+          "89bd6754-0163-4c75-8112-1273f222b73e",
+          "5638ddca-6a7d-462e-a781-47490bf5283c",
+          "097362a1-dfaa-4528-91d4-d9c51526e3dd",
+          "16cfe78f-53a9-4495-be36-9bd539634758",
+          "b6b690b2-8956-487b-8486-74de4ee174c3",
+          "904d4981-d01c-45ab-96a5-a0fc0b0b2464",
+          "bed20ebc-5a9b-44c2-9062-fececbf54e68"
+        ],
+        "hit_at": {
+          "1": false,
+          "3": true,
+          "5": true,
+          "10": true
+        },
+        "recall_at": {
+          "1": 0.0,
+          "3": 0.125,
+          "5": 0.375,
+          "10": 0.625
+        },
+        "mrr": 0.2
+      },
+      {
+        "case_id": "cybersecurity",
+        "relevant_ranks": [
+          {
+            "image_id": "44325c39-15c1-44ce-89cf-d4055bd2ebe5",
+            "rank": 5
+          },
+          {
+            "image_id": "e7c4a317-b8ef-4f63-8458-9c1945a2b3fe",
+            "rank": null
+          },
+          {
+            "image_id": "4fffb1d3-60a2-46f7-9270-4751cc6c2ed4",
+            "rank": 7
+          },
+          {
+            "image_id": "2c7b79f1-5990-41c2-b486-c20e96109079",
+            "rank": 10
+          },
+          {
+            "image_id": "e728e84a-14f2-4106-9c42-d443fe142292",
+            "rank": 2
+          },
+          {
+            "image_id": "a1084b9b-0b14-42cb-b105-140f84785818",
+            "rank": 3
+          },
+          {
+            "image_id": "aedb9d55-ef81-421a-9f8e-ad409e7bee14",
+            "rank": null
+          },
+          {
+            "image_id": "58abc1b7-429c-4054-bb33-24347b23953a",
+            "rank": 9
+          }
+        ],
+        "ranked_ids": [
+          "64c5dfba-0a44-4715-bde1-ed549d526df3",
+          "e728e84a-14f2-4106-9c42-d443fe142292",
+          "a1084b9b-0b14-42cb-b105-140f84785818",
+          "d4c047cf-bb7e-4d35-95b2-8e8a15404591",
+          "44325c39-15c1-44ce-89cf-d4055bd2ebe5",
+          "5b96dba3-c315-45bc-9843-103d046d61f3",
+          "4fffb1d3-60a2-46f7-9270-4751cc6c2ed4",
+          "cff3ff5f-b23f-4561-97bc-159f2895fb6a",
+          "58abc1b7-429c-4054-bb33-24347b23953a",
+          "2c7b79f1-5990-41c2-b486-c20e96109079"
+        ],
+        "hit_at": {
+          "1": false,
+          "3": true,
+          "5": true,
+          "10": true
+        },
+        "recall_at": {
+          "1": 0.0,
+          "3": 0.25,
+          "5": 0.375,
+          "10": 0.75
+        },
+        "mrr": 0.2
+      },
+      {
+        "case_id": "team-meeting",
+        "relevant_ranks": [
+          {
+            "image_id": "edd27954-ccda-4e70-bafe-f776be5ab864",
+            "rank": 6
+          },
+          {
+            "image_id": "17410011-f141-4738-8a99-70ac40b77e08",
+            "rank": 2
+          },
+          {
+            "image_id": "22965c1a-ee2e-4234-b31c-d8109e6a6761",
+            "rank": 8
+          },
+          {
+            "image_id": "55abb672-c1db-43f8-adb3-94f756ce1161",
+            "rank": 4
+          },
+          {
+            "image_id": "2e5e6f9e-aac7-4d5e-a4f5-3bb5f06ea473",
+            "rank": 9
+          },
+          {
+            "image_id": "e481e5cf-8005-40df-a7bd-47badc3f5856",
+            "rank": 7
+          },
+          {
+            "image_id": "ccc8b394-0030-438f-b09a-80817e562ea8",
+            "rank": 10
+          },
+          {
+            "image_id": "e58ca98f-39fe-45f1-a5d5-4679e5d1f888",
+            "rank": 1
+          }
+        ],
+        "ranked_ids": [
+          "e58ca98f-39fe-45f1-a5d5-4679e5d1f888",
+          "17410011-f141-4738-8a99-70ac40b77e08",
+          "81c2b2e3-863e-4eab-8511-98adf7642346",
+          "55abb672-c1db-43f8-adb3-94f756ce1161",
+          "4d0f7da2-8788-498e-aa17-a496668c5ff5",
+          "edd27954-ccda-4e70-bafe-f776be5ab864",
+          "e481e5cf-8005-40df-a7bd-47badc3f5856",
+          "22965c1a-ee2e-4234-b31c-d8109e6a6761",
+          "2e5e6f9e-aac7-4d5e-a4f5-3bb5f06ea473",
+          "ccc8b394-0030-438f-b09a-80817e562ea8"
+        ],
+        "hit_at": {
+          "1": true,
+          "3": true,
+          "5": true,
+          "10": true
+        },
+        "recall_at": {
+          "1": 0.125,
+          "3": 0.25,
+          "5": 0.375,
+          "10": 1.0
+        },
+        "mrr": 0.16666666666666666
+      },
+      {
+        "case_id": "financial-chart",
+        "relevant_ranks": [
+          {
+            "image_id": "80fe45a4-f6a4-479f-bbff-f1a8c2913059",
+            "rank": 3
+          },
+          {
+            "image_id": "017eb541-9599-4db4-b718-a970a95974c9",
+            "rank": 2
+          },
+          {
+            "image_id": "7380ec92-3b7d-4831-8e4f-516992dbb8b0",
+            "rank": 1
+          },
+          {
+            "image_id": "d9be3d92-6744-4680-880d-0907781f45f4",
+            "rank": null
+          },
+          {
+            "image_id": "4a300a47-27f5-455f-a0b9-fec54a901b46",
+            "rank": null
+          },
+          {
+            "image_id": "dae636a7-9aba-464a-bc90-f60fe18835d0",
+            "rank": null
+          },
+          {
+            "image_id": "5638ddca-6a7d-462e-a781-47490bf5283c",
+            "rank": null
+          },
+          {
+            "image_id": "4fffb1d3-60a2-46f7-9270-4751cc6c2ed4",
+            "rank": null
+          }
+        ],
+        "ranked_ids": [
+          "7380ec92-3b7d-4831-8e4f-516992dbb8b0",
+          "017eb541-9599-4db4-b718-a970a95974c9",
+          "80fe45a4-f6a4-479f-bbff-f1a8c2913059",
+          "904d4981-d01c-45ab-96a5-a0fc0b0b2464",
+          "58abc1b7-429c-4054-bb33-24347b23953a",
+          "81c2b2e3-863e-4eab-8511-98adf7642346",
+          "1f54ef5f-7112-418b-ae4b-808a7ccb4223",
+          "661633b6-fd1d-4752-bd5f-180983012abd",
+          "0bc2cdde-6bdf-4637-b5d5-d9b356891c23",
+          "1c13e4fe-f13f-404d-b3d3-c22c07b8e57a"
+        ],
+        "hit_at": {
+          "1": true,
+          "3": true,
+          "5": true,
+          "10": true
+        },
+        "recall_at": {
+          "1": 0.125,
+          "3": 0.375,
+          "5": 0.375,
+          "10": 0.375
+        },
+        "mrr": 0.3333333333333333
+      },
+      {
+        "case_id": "architecture-diagram",
+        "relevant_ranks": [
+          {
+            "image_id": "35b47782-d2ac-4e4f-b748-c4401209d3b0",
+            "rank": 1
+          },
+          {
+            "image_id": "36fedde0-0f2c-40fb-8861-ecb056b3baa9",
+            "rank": 2
+          }
+        ],
+        "ranked_ids": [
+          "35b47782-d2ac-4e4f-b748-c4401209d3b0",
+          "36fedde0-0f2c-40fb-8861-ecb056b3baa9",
+          "a91bd956-cb88-42e1-8ffa-abf8392a3dff",
+          "bd3c6a56-a21e-4638-88bc-91acc7337c96",
+          "22965c1a-ee2e-4234-b31c-d8109e6a6761",
+          "cdcf40ff-be2c-4f31-b5e0-ef398c9706b1",
+          "bdc2f5bd-bd51-4cb1-a559-ac12e2b50bc2",
+          "5d0a0317-f4e8-4f63-bfd5-e37bb22ad4dc",
+          "02c31fad-8512-4d7c-80df-39eb5b7cb12a",
+          "33048ff9-fa48-449b-84c9-c2cfc82cc556"
+        ],
+        "hit_at": {
+          "1": true,
+          "3": true,
+          "5": true,
+          "10": true
+        },
+        "recall_at": {
+          "1": 0.5,
+          "3": 1.0,
+          "5": 1.0,
+          "10": 1.0
+        },
+        "mrr": 1.0
+      },
+      {
+        "case_id": "data-visualization",
+        "relevant_ranks": [
+          {
+            "image_id": "4a300a47-27f5-455f-a0b9-fec54a901b46",
+            "rank": 4
+          },
+          {
+            "image_id": "7a5068f7-fe1c-4546-97c0-c3b81b3eefd7",
+            "rank": 5
+          },
+          {
+            "image_id": "dae636a7-9aba-464a-bc90-f60fe18835d0",
+            "rank": null
+          },
+          {
+            "image_id": "5638ddca-6a7d-462e-a781-47490bf5283c",
+            "rank": 10
+          },
+          {
+            "image_id": "4fffb1d3-60a2-46f7-9270-4751cc6c2ed4",
+            "rank": null
+          },
+          {
+            "image_id": "1f54ef5f-7112-418b-ae4b-808a7ccb4223",
+            "rank": 7
+          },
+          {
+            "image_id": "b6b690b2-8956-487b-8486-74de4ee174c3",
+            "rank": 3
+          },
+          {
+            "image_id": "904d4981-d01c-45ab-96a5-a0fc0b0b2464",
+            "rank": null
+          }
+        ],
+        "ranked_ids": [
+          "d9be3d92-6744-4680-880d-0907781f45f4",
+          "929d393b-b153-4e4b-9667-246506158ab1",
+          "b6b690b2-8956-487b-8486-74de4ee174c3",
+          "4a300a47-27f5-455f-a0b9-fec54a901b46",
+          "7a5068f7-fe1c-4546-97c0-c3b81b3eefd7",
+          "0bc2cdde-6bdf-4637-b5d5-d9b356891c23",
+          "1f54ef5f-7112-418b-ae4b-808a7ccb4223",
+          "89bd6754-0163-4c75-8112-1273f222b73e",
+          "16cfe78f-53a9-4495-be36-9bd539634758",
+          "5638ddca-6a7d-462e-a781-47490bf5283c"
+        ],
+        "hit_at": {
+          "1": false,
+          "3": true,
+          "5": true,
+          "10": true
+        },
+        "recall_at": {
+          "1": 0.0,
+          "3": 0.125,
+          "5": 0.375,
+          "10": 0.625
+        },
+        "mrr": 0.25
+      },
+      {
+        "case_id": "kanban",
+        "relevant_ranks": [
+          {
+            "image_id": "ab23805b-9eb3-405d-89bf-25685d856189",
+            "rank": 1
+          }
+        ],
+        "ranked_ids": [
+          "ab23805b-9eb3-405d-89bf-25685d856189",
+          "e481e5cf-8005-40df-a7bd-47badc3f5856",
+          "2bb0145d-1a75-42d0-8b06-c16f45855afe",
+          "568eaf93-b970-4cd3-acb1-f8591e30fd20",
+          "ccc8b394-0030-438f-b09a-80817e562ea8",
+          "22965c1a-ee2e-4234-b31c-d8109e6a6761",
+          "edd27954-ccda-4e70-bafe-f776be5ab864",
+          "6c2802a7-dbea-4d50-b990-dc5a376947fb",
+          "9d0e7a39-f73f-4d51-a668-5ffa372869ad",
+          "f21b7957-e344-42e6-ab66-c1cb1b6bf0f0"
+        ],
+        "hit_at": {
+          "1": true,
+          "3": true,
+          "5": true,
+          "10": true
+        },
+        "recall_at": {
+          "1": 1.0,
+          "3": 1.0,
+          "5": 1.0,
+          "10": 1.0
+        },
+        "mrr": 1.0
+      },
+      {
+        "case_id": "logo",
+        "relevant_ranks": [
+          {
+            "image_id": "9ee2caca-4dc1-459a-952d-2465c2febcb0",
+            "rank": 1
+          }
+        ],
+        "ranked_ids": [
+          "9ee2caca-4dc1-459a-952d-2465c2febcb0",
+          "568eaf93-b970-4cd3-acb1-f8591e30fd20",
+          "58a38354-577f-4967-b09a-35801bc9d770",
+          "1d65a18d-10a6-4348-b394-abcbd883abec",
+          "6c2802a7-dbea-4d50-b990-dc5a376947fb",
+          "34294904-179c-4539-9283-6e5dd47e6019",
+          "1c13e4fe-f13f-404d-b3d3-c22c07b8e57a",
+          "ef072a4f-1642-4cac-ba84-0f4f5bf05e92",
+          "4d40b59a-f0bd-4eff-8f09-caf957f38003",
+          "a7d2c74f-7f24-402d-9cd1-052d736d6ca8"
+        ],
+        "hit_at": {
+          "1": true,
+          "3": true,
+          "5": true,
+          "10": true
+        },
+        "recall_at": {
+          "1": 1.0,
+          "3": 1.0,
+          "5": 1.0,
+          "10": 1.0
+        },
+        "mrr": 1.0
+      },
+      {
+        "case_id": "screenshot",
+        "relevant_ranks": [
+          {
+            "image_id": "9d0e7a39-f73f-4d51-a668-5ffa372869ad",
+            "rank": 3
+          },
+          {
+            "image_id": "2b9eae44-5375-402e-8f95-302263a1eca2",
+            "rank": null
+          },
+          {
+            "image_id": "089c9e5a-1add-40bb-823d-b3bae8646625",
+            "rank": null
+          },
+          {
+            "image_id": "1c13e4fe-f13f-404d-b3d3-c22c07b8e57a",
+            "rank": null
+          },
+          {
+            "image_id": "4a300a47-27f5-455f-a0b9-fec54a901b46",
+            "rank": null
+          },
+          {
+            "image_id": "8d5033db-b90d-4fee-94fc-de60ba222329",
+            "rank": null
+          },
+          {
+            "image_id": "b65d1578-8e16-4592-9e90-1cedcdaabb81",
+            "rank": null
+          },
+          {
+            "image_id": "00324a72-1b3b-42b1-abf4-13b2bc19a431",
+            "rank": null
+          }
+        ],
+        "ranked_ids": [
+          "cdcf40ff-be2c-4f31-b5e0-ef398c9706b1",
+          "bd3c6a56-a21e-4638-88bc-91acc7337c96",
+          "9d0e7a39-f73f-4d51-a668-5ffa372869ad",
+          "e7c4a317-b8ef-4f63-8458-9c1945a2b3fe",
+          "8b6fceca-fa0b-4488-9f0f-91d093639054",
+          "e58ca98f-39fe-45f1-a5d5-4679e5d1f888",
+          "1a9628e1-93f8-48f3-a9f5-bfef874ddd77",
+          "dd26a93a-957d-41bf-9141-141190007ac4",
+          "cac3f72d-d350-4af0-a583-c687fea90e87",
+          "568eaf93-b970-4cd3-acb1-f8591e30fd20"
+        ],
+        "hit_at": {
+          "1": false,
+          "3": true,
+          "5": true,
+          "10": true
+        },
+        "recall_at": {
+          "1": 0.0,
+          "3": 0.125,
+          "5": 0.125,
+          "10": 0.125
+        },
+        "mrr": 0.3333333333333333
+      },
+      {
+        "case_id": "military-veteran",
+        "relevant_ranks": [
+          {
+            "image_id": "d31d4dbf-5f88-4049-9aeb-7fa027d9549d",
+            "rank": 1
+          },
+          {
+            "image_id": "b396384c-68aa-4567-8887-e86bd7e94415",
+            "rank": 2
+          },
+          {
+            "image_id": "32477ed8-2a9c-41a6-9dae-6d453f5ad8c6",
+            "rank": 8
+          },
+          {
+            "image_id": "d371a8bf-efbe-48c5-859d-3ea82e7653da",
+            "rank": 5
+          },
+          {
+            "image_id": "58a38354-577f-4967-b09a-35801bc9d770",
+            "rank": 3
+          },
+          {
+            "image_id": "602dae0d-1307-43bc-a458-b920e5e53b5f",
+            "rank": 10
+          },
+          {
+            "image_id": "a07e3175-8b41-4610-8af6-3adb044c1843",
+            "rank": 6
+          },
+          {
+            "image_id": "d47af46d-5304-4834-8065-d1561845b239",
+            "rank": 4
+          }
+        ],
+        "ranked_ids": [
+          "d31d4dbf-5f88-4049-9aeb-7fa027d9549d",
+          "b396384c-68aa-4567-8887-e86bd7e94415",
+          "58a38354-577f-4967-b09a-35801bc9d770",
+          "d47af46d-5304-4834-8065-d1561845b239",
+          "d371a8bf-efbe-48c5-859d-3ea82e7653da",
+          "a07e3175-8b41-4610-8af6-3adb044c1843",
+          "a61004cc-09b5-4936-a1f9-45f13cedc1a3",
+          "32477ed8-2a9c-41a6-9dae-6d453f5ad8c6",
+          "b46a3766-ad02-4ef5-a17c-3c8031177479",
+          "602dae0d-1307-43bc-a458-b920e5e53b5f"
+        ],
+        "hit_at": {
+          "1": true,
+          "3": true,
+          "5": true,
+          "10": true
+        },
+        "recall_at": {
+          "1": 0.125,
+          "3": 0.375,
+          "5": 0.625,
+          "10": 1.0
+        },
+        "mrr": 1.0
+      },
+      {
+        "case_id": "infographic-timeline",
+        "relevant_ranks": [
+          {
+            "image_id": "02c31fad-8512-4d7c-80df-39eb5b7cb12a",
+            "rank": 1
+          }
+        ],
+        "ranked_ids": [
+          "02c31fad-8512-4d7c-80df-39eb5b7cb12a",
+          "ab23805b-9eb3-405d-89bf-25685d856189",
+          "15da4e9c-7f38-43f8-9fd4-21579281edbc",
+          "2341bc05-b168-4bc8-945a-41fc58b93f9b",
+          "33048ff9-fa48-449b-84c9-c2cfc82cc556",
+          "3c9d8968-6576-435f-850d-2e15279d212e",
+          "017eb541-9599-4db4-b718-a970a95974c9",
+          "661633b6-fd1d-4752-bd5f-180983012abd",
+          "4e1ae09c-01ce-42a4-8c51-abb918071c79",
+          "ef804325-1103-4c4e-98f3-61bfb7b35ae9"
+        ],
+        "hit_at": {
+          "1": true,
+          "3": true,
+          "5": true,
+          "10": true
+        },
+        "recall_at": {
+          "1": 1.0,
+          "3": 1.0,
+          "5": 1.0,
+          "10": 1.0
+        },
+        "mrr": 1.0
+      },
+      {
+        "case_id": "office-collaboration",
+        "relevant_ranks": [
+          {
+            "image_id": "f6a42488-e36a-4bba-b141-f3f77f93b810",
+            "rank": 4
+          },
+          {
+            "image_id": "e481e5cf-8005-40df-a7bd-47badc3f5856",
+            "rank": null
+          },
+          {
+            "image_id": "edd27954-ccda-4e70-bafe-f776be5ab864",
+            "rank": 8
+          },
+          {
+            "image_id": "22965c1a-ee2e-4234-b31c-d8109e6a6761",
+            "rank": 5
+          }
+        ],
+        "ranked_ids": [
+          "f21b7957-e344-42e6-ab66-c1cb1b6bf0f0",
+          "40990155-9b88-49a1-abbe-dee8c2827ca4",
+          "81c2b2e3-863e-4eab-8511-98adf7642346",
+          "f6a42488-e36a-4bba-b141-f3f77f93b810",
+          "22965c1a-ee2e-4234-b31c-d8109e6a6761",
+          "e58ca98f-39fe-45f1-a5d5-4679e5d1f888",
+          "4d0f7da2-8788-498e-aa17-a496668c5ff5",
+          "edd27954-ccda-4e70-bafe-f776be5ab864",
+          "ccc8b394-0030-438f-b09a-80817e562ea8",
+          "9f4ac0f8-ab8b-45f2-8b44-e07c1fef4aca"
+        ],
+        "hit_at": {
+          "1": false,
+          "3": false,
+          "5": true,
+          "10": true
+        },
+        "recall_at": {
+          "1": 0.0,
+          "3": 0.0,
+          "5": 0.5,
+          "10": 0.75
+        },
+        "mrr": 0.25
+      }
+    ]
+  },
+  "similar": null,
+  "case_results": [
+    {
+      "case_id": "sdlc",
+      "mode": "chat",
+      "scores": [
+        0.06886879,
+        0.05177361,
+        0.040302187,
+        0.03737261,
+        0.037036795,
+        0.03441388,
+        0.03315172,
+        0.031789716,
+        0.027483363,
+        0.026377967
+      ],
+      "metrics": {
+        "case_id": "sdlc",
+        "relevant_ranks": [
+          {
+            "image_id": "15da4e9c-7f38-43f8-9fd4-21579281edbc",
+            "rank": 1
+          },
+          {
+            "image_id": "92f59ad2-1bd7-4e03-9099-85f29b95430a",
+            "rank": 5
+          },
+          {
+            "image_id": "9cd1ead9-5733-446b-893d-f3ac80094049",
+            "rank": 6
+          },
+          {
+            "image_id": "8b6fceca-fa0b-4488-9f0f-91d093639054",
+            "rank": 7
+          },
+          {
+            "image_id": "4e1ae09c-01ce-42a4-8c51-abb918071c79",
+            "rank": 3
+          },
+          {
+            "image_id": "9d0e7a39-f73f-4d51-a668-5ffa372869ad",
+            "rank": 2
+          },
+          {
+            "image_id": "089c9e5a-1add-40bb-823d-b3bae8646625",
+            "rank": 8
+          }
+        ],
+        "ranked_ids": [
+          "15da4e9c-7f38-43f8-9fd4-21579281edbc",
+          "9d0e7a39-f73f-4d51-a668-5ffa372869ad",
+          "4e1ae09c-01ce-42a4-8c51-abb918071c79",
+          "02c31fad-8512-4d7c-80df-39eb5b7cb12a",
+          "92f59ad2-1bd7-4e03-9099-85f29b95430a",
+          "9cd1ead9-5733-446b-893d-f3ac80094049",
+          "8b6fceca-fa0b-4488-9f0f-91d093639054",
+          "089c9e5a-1add-40bb-823d-b3bae8646625",
+          "ab23805b-9eb3-405d-89bf-25685d856189",
+          "7da65471-7646-4929-bb95-c568ebba50d8"
+        ],
+        "hit_at": {
+          "1": true,
+          "3": true,
+          "5": true,
+          "10": true
+        },
+        "recall_at": {
+          "1": 0.14285714285714285,
+          "3": 0.42857142857142855,
+          "5": 0.5714285714285714,
+          "10": 1.0
+        },
+        "mrr": 1.0
+      }
+    },
+    {
+      "case_id": "flowchart",
+      "mode": "chat",
+      "scores": [
+        0.06506231,
+        0.064706795,
+        0.056262378,
+        0.05165867,
+        0.05125827,
+        0.049190234,
+        0.04725421,
+        0.042582717,
+        0.04389152,
+        0.043208163
+      ],
+      "metrics": {
+        "case_id": "flowchart",
+        "relevant_ranks": [
+          {
+            "image_id": "02c31fad-8512-4d7c-80df-39eb5b7cb12a",
+            "rank": 1
+          }
+        ],
+        "ranked_ids": [
+          "02c31fad-8512-4d7c-80df-39eb5b7cb12a",
+          "2341bc05-b168-4bc8-945a-41fc58b93f9b",
+          "ab23805b-9eb3-405d-89bf-25685d856189",
+          "edcda462-53ab-4f22-8be3-a0aeef24f94a",
+          "9bfe0acd-f337-444f-b68d-ed6732bb7961",
+          "22965c1a-ee2e-4234-b31c-d8109e6a6761",
+          "edd27954-ccda-4e70-bafe-f776be5ab864",
+          "35b47782-d2ac-4e4f-b748-c4401209d3b0",
+          "017eb541-9599-4db4-b718-a970a95974c9",
+          "539f87eb-68cd-4d56-bbe0-0ff5b100a29c"
+        ],
+        "hit_at": {
+          "1": true,
+          "3": true,
+          "5": true,
+          "10": true
+        },
+        "recall_at": {
+          "1": 1.0,
+          "3": 1.0,
+          "5": 1.0,
+          "10": 1.0
+        },
+        "mrr": 1.0
+      }
+    },
+    {
+      "case_id": "diagram",
+      "mode": "chat",
+      "scores": [
+        0.21591271,
+        0.15186892,
+        0.15808365,
+        0.14303228,
+        0.1391976,
+        0.13849701,
+        0.12781608,
+        0.12709928,
+        0.103939675,
+        0.086054444
+      ],
+      "metrics": {
+        "case_id": "diagram",
+        "relevant_ranks": [
+          {
+            "image_id": "35b47782-d2ac-4e4f-b748-c4401209d3b0",
+            "rank": 1
+          }
+        ],
+        "ranked_ids": [
+          "35b47782-d2ac-4e4f-b748-c4401209d3b0",
+          "02c31fad-8512-4d7c-80df-39eb5b7cb12a",
+          "22965c1a-ee2e-4234-b31c-d8109e6a6761",
+          "a91bd956-cb88-42e1-8ffa-abf8392a3dff",
+          "bd3c6a56-a21e-4638-88bc-91acc7337c96",
+          "36fedde0-0f2c-40fb-8861-ecb056b3baa9",
+          "a473d33c-9be7-4405-86e5-116a3843f8ea",
+          "9d0e7a39-f73f-4d51-a668-5ffa372869ad",
+          "4e1ae09c-01ce-42a4-8c51-abb918071c79",
+          "cdcf40ff-be2c-4f31-b5e0-ef398c9706b1"
+        ],
+        "hit_at": {
+          "1": true,
+          "3": true,
+          "5": true,
+          "10": true
+        },
+        "recall_at": {
+          "1": 1.0,
+          "3": 1.0,
+          "5": 1.0,
+          "10": 1.0
+        },
+        "mrr": 1.0
+      }
+    },
+    {
+      "case_id": "presentation",
+      "mode": "chat",
+      "scores": [
+        0.19273713,
+        0.18692514,
+        0.18273193,
+        0.13347194,
+        0.11651269,
+        0.09048623,
+        0.08679465,
+        0.083868034,
+        0.08226149,
+        0.08050932
+      ],
+      "metrics": {
+        "case_id": "presentation",
+        "relevant_ranks": [
+          {
+            "image_id": "a1084b9b-0b14-42cb-b105-140f84785818",
+            "rank": 7
+          },
+          {
+            "image_id": "edd27954-ccda-4e70-bafe-f776be5ab864",
+            "rank": 3
+          },
+          {
+            "image_id": "17410011-f141-4738-8a99-70ac40b77e08",
+            "rank": null
+          }
+        ],
+        "ranked_ids": [
+          "585080bd-7a9d-4915-8899-8acbba57f66f",
+          "38b9b61b-3e27-4aad-a6f3-cfacae92e48d",
+          "edd27954-ccda-4e70-bafe-f776be5ab864",
+          "ec3cdf7f-cc83-4ece-8af5-94c189323c15",
+          "02c31fad-8512-4d7c-80df-39eb5b7cb12a",
+          "36fedde0-0f2c-40fb-8861-ecb056b3baa9",
+          "a1084b9b-0b14-42cb-b105-140f84785818",
+          "3c9d8968-6576-435f-850d-2e15279d212e",
+          "35b47782-d2ac-4e4f-b748-c4401209d3b0",
+          "a91bd956-cb88-42e1-8ffa-abf8392a3dff"
+        ],
+        "hit_at": {
+          "1": false,
+          "3": true,
+          "5": true,
+          "10": true
+        },
+        "recall_at": {
+          "1": 0.0,
+          "3": 0.3333333333333333,
+          "5": 0.3333333333333333,
+          "10": 0.6666666666666666
+        },
+        "mrr": 0.14285714285714285
+      }
+    },
+    {
+      "case_id": "office-worker-giving-a-presentation",
+      "mode": "chat",
+      "scores": [
+        0.3574335,
+        0.33783728,
+        0.29204023,
+        0.08059611,
+        0.075210504,
+        0.07319798,
+        0.0685688,
+        0.067898266,
+        0.06767611,
+        0.06563491
+      ],
+      "metrics": {
+        "case_id": "office-worker-giving-a-presentation",
+        "relevant_ranks": [
+          {
+            "image_id": "edd27954-ccda-4e70-bafe-f776be5ab864",
+            "rank": 3
+          },
+          {
+            "image_id": "17410011-f141-4738-8a99-70ac40b77e08",
+            "rank": 10
+          },
+          {
+            "image_id": "22965c1a-ee2e-4234-b31c-d8109e6a6761",
+            "rank": 9
+          },
+          {
+            "image_id": "b24ea7cc-8660-473d-8843-c670ccf05573",
+            "rank": null
+          },
+          {
+            "image_id": "e481e5cf-8005-40df-a7bd-47badc3f5856",
+            "rank": null
+          },
+          {
+            "image_id": "83837dda-955c-4ac7-bb80-5e3f644389fd",
+            "rank": null
+          },
+          {
+            "image_id": "80fe45a4-f6a4-479f-bbff-f1a8c2913059",
+            "rank": null
+          },
+          {
+            "image_id": "017eb541-9599-4db4-b718-a970a95974c9",
+            "rank": null
+          }
+        ],
+        "ranked_ids": [
+          "585080bd-7a9d-4915-8899-8acbba57f66f",
+          "38b9b61b-3e27-4aad-a6f3-cfacae92e48d",
+          "edd27954-ccda-4e70-bafe-f776be5ab864",
+          "4d0f7da2-8788-498e-aa17-a496668c5ff5",
+          "f21b7957-e344-42e6-ab66-c1cb1b6bf0f0",
+          "e58ca98f-39fe-45f1-a5d5-4679e5d1f888",
+          "9f4ac0f8-ab8b-45f2-8b44-e07c1fef4aca",
+          "8b6fceca-fa0b-4488-9f0f-91d093639054",
+          "22965c1a-ee2e-4234-b31c-d8109e6a6761",
+          "17410011-f141-4738-8a99-70ac40b77e08"
+        ],
+        "hit_at": {
+          "1": false,
+          "3": true,
+          "5": true,
+          "10": true
+        },
+        "recall_at": {
+          "1": 0.0,
+          "3": 0.125,
+          "5": 0.125,
+          "10": 0.375
+        },
+        "mrr": 0.3333333333333333
+      }
+    },
+    {
+      "case_id": "software-developer",
+      "mode": "chat",
+      "scores": [
+        0.39747116,
+        0.38852578,
+        0.32187602,
+        0.17908539,
+        0.108274005,
+        0.096441865,
+        0.0954255,
+        0.06365108,
+        0.06004818,
+        0.057266273
+      ],
+      "metrics": {
+        "case_id": "software-developer",
+        "relevant_ranks": [
+          {
+            "image_id": "15da4e9c-7f38-43f8-9fd4-21579281edbc",
+            "rank": 5
+          },
+          {
+            "image_id": "92f59ad2-1bd7-4e03-9099-85f29b95430a",
+            "rank": 7
+          },
+          {
+            "image_id": "9d0e7a39-f73f-4d51-a668-5ffa372869ad",
+            "rank": 1
+          },
+          {
+            "image_id": "9cd1ead9-5733-446b-893d-f3ac80094049",
+            "rank": 3
+          },
+          {
+            "image_id": "8b6fceca-fa0b-4488-9f0f-91d093639054",
+            "rank": 2
+          },
+          {
+            "image_id": "dd3beef9-c8ff-4ec9-bb8c-1336e4386014",
+            "rank": null
+          },
+          {
+            "image_id": "4e1ae09c-01ce-42a4-8c51-abb918071c79",
+            "rank": 4
+          }
+        ],
+        "ranked_ids": [
+          "9d0e7a39-f73f-4d51-a668-5ffa372869ad",
+          "8b6fceca-fa0b-4488-9f0f-91d093639054",
+          "9cd1ead9-5733-446b-893d-f3ac80094049",
+          "4e1ae09c-01ce-42a4-8c51-abb918071c79",
+          "15da4e9c-7f38-43f8-9fd4-21579281edbc",
+          "089c9e5a-1add-40bb-823d-b3bae8646625",
+          "92f59ad2-1bd7-4e03-9099-85f29b95430a",
+          "b24ea7cc-8660-473d-8843-c670ccf05573",
+          "1d65a18d-10a6-4348-b394-abcbd883abec",
+          "1c13e4fe-f13f-404d-b3d3-c22c07b8e57a"
+        ],
+        "hit_at": {
+          "1": true,
+          "3": true,
+          "5": true,
+          "10": true
+        },
+        "recall_at": {
+          "1": 0.14285714285714285,
+          "3": 0.42857142857142855,
+          "5": 0.7142857142857143,
+          "10": 0.8571428571428571
+        },
+        "mrr": 0.2
+      }
+    },
+    {
+      "case_id": "dashboard",
+      "mode": "chat",
+      "scores": [
+        0.34362856,
+        0.27610505,
+        0.27081925,
+        0.25285003,
+        0.24026659,
+        0.2016406,
+        0.16130732,
+        0.15980688,
+        0.13717403,
+        0.13613708
+      ],
+      "metrics": {
+        "case_id": "dashboard",
+        "relevant_ranks": [
+          {
+            "image_id": "5638ddca-6a7d-462e-a781-47490bf5283c",
+            "rank": 5
+          },
+          {
+            "image_id": "b6b690b2-8956-487b-8486-74de4ee174c3",
+            "rank": 8
+          },
+          {
+            "image_id": "89bd6754-0163-4c75-8112-1273f222b73e",
+            "rank": 4
+          },
+          {
+            "image_id": "4a300a47-27f5-455f-a0b9-fec54a901b46",
+            "rank": 2
+          },
+          {
+            "image_id": "38b9b61b-3e27-4aad-a6f3-cfacae92e48d",
+            "rank": null
+          },
+          {
+            "image_id": "a08ce3bd-b905-4c92-8cb9-3b248101f001",
+            "rank": null
+          },
+          {
+            "image_id": "33d1fa1f-cc82-4b27-b175-3a3167bcbaf5",
+            "rank": null
+          },
+          {
+            "image_id": "097362a1-dfaa-4528-91d4-d9c51526e3dd",
+            "rank": 6
+          }
+        ],
+        "ranked_ids": [
+          "d9be3d92-6744-4680-880d-0907781f45f4",
+          "4a300a47-27f5-455f-a0b9-fec54a901b46",
+          "ab23805b-9eb3-405d-89bf-25685d856189",
+          "89bd6754-0163-4c75-8112-1273f222b73e",
+          "5638ddca-6a7d-462e-a781-47490bf5283c",
+          "097362a1-dfaa-4528-91d4-d9c51526e3dd",
+          "16cfe78f-53a9-4495-be36-9bd539634758",
+          "b6b690b2-8956-487b-8486-74de4ee174c3",
+          "904d4981-d01c-45ab-96a5-a0fc0b0b2464",
+          "bed20ebc-5a9b-44c2-9062-fececbf54e68"
+        ],
+        "hit_at": {
+          "1": false,
+          "3": true,
+          "5": true,
+          "10": true
+        },
+        "recall_at": {
+          "1": 0.0,
+          "3": 0.125,
+          "5": 0.375,
+          "10": 0.625
+        },
+        "mrr": 0.2
+      }
+    },
+    {
+      "case_id": "cybersecurity",
+      "mode": "chat",
+      "scores": [
+        0.4272061,
+        0.4003513,
+        0.39194164,
+        0.3512671,
+        0.34973314,
+        0.34561363,
+        0.3022886,
+        0.2952304,
+        0.29018113,
+        0.25666004
+      ],
+      "metrics": {
+        "case_id": "cybersecurity",
+        "relevant_ranks": [
+          {
+            "image_id": "44325c39-15c1-44ce-89cf-d4055bd2ebe5",
+            "rank": 5
+          },
+          {
+            "image_id": "e7c4a317-b8ef-4f63-8458-9c1945a2b3fe",
+            "rank": null
+          },
+          {
+            "image_id": "4fffb1d3-60a2-46f7-9270-4751cc6c2ed4",
+            "rank": 7
+          },
+          {
+            "image_id": "2c7b79f1-5990-41c2-b486-c20e96109079",
+            "rank": 10
+          },
+          {
+            "image_id": "e728e84a-14f2-4106-9c42-d443fe142292",
+            "rank": 2
+          },
+          {
+            "image_id": "a1084b9b-0b14-42cb-b105-140f84785818",
+            "rank": 3
+          },
+          {
+            "image_id": "aedb9d55-ef81-421a-9f8e-ad409e7bee14",
+            "rank": null
+          },
+          {
+            "image_id": "58abc1b7-429c-4054-bb33-24347b23953a",
+            "rank": 9
+          }
+        ],
+        "ranked_ids": [
+          "64c5dfba-0a44-4715-bde1-ed549d526df3",
+          "e728e84a-14f2-4106-9c42-d443fe142292",
+          "a1084b9b-0b14-42cb-b105-140f84785818",
+          "d4c047cf-bb7e-4d35-95b2-8e8a15404591",
+          "44325c39-15c1-44ce-89cf-d4055bd2ebe5",
+          "5b96dba3-c315-45bc-9843-103d046d61f3",
+          "4fffb1d3-60a2-46f7-9270-4751cc6c2ed4",
+          "cff3ff5f-b23f-4561-97bc-159f2895fb6a",
+          "58abc1b7-429c-4054-bb33-24347b23953a",
+          "2c7b79f1-5990-41c2-b486-c20e96109079"
+        ],
+        "hit_at": {
+          "1": false,
+          "3": true,
+          "5": true,
+          "10": true
+        },
+        "recall_at": {
+          "1": 0.0,
+          "3": 0.25,
+          "5": 0.375,
+          "10": 0.75
+        },
+        "mrr": 0.2
+      }
+    },
+    {
+      "case_id": "team-meeting",
+      "mode": "chat",
+      "scores": [
+        0.65173227,
+        0.5920305,
+        0.56200886,
+        0.51735204,
+        0.5135471,
+        0.51310796,
+        0.4797236,
+        0.45856747,
+        0.3846353,
+        0.3498664
+      ],
+      "metrics": {
+        "case_id": "team-meeting",
+        "relevant_ranks": [
+          {
+            "image_id": "edd27954-ccda-4e70-bafe-f776be5ab864",
+            "rank": 6
+          },
+          {
+            "image_id": "17410011-f141-4738-8a99-70ac40b77e08",
+            "rank": 2
+          },
+          {
+            "image_id": "22965c1a-ee2e-4234-b31c-d8109e6a6761",
+            "rank": 8
+          },
+          {
+            "image_id": "55abb672-c1db-43f8-adb3-94f756ce1161",
+            "rank": 4
+          },
+          {
+            "image_id": "2e5e6f9e-aac7-4d5e-a4f5-3bb5f06ea473",
+            "rank": 10
+          },
+          {
+            "image_id": "e481e5cf-8005-40df-a7bd-47badc3f5856",
+            "rank": 7
+          },
+          {
+            "image_id": "ccc8b394-0030-438f-b09a-80817e562ea8",
+            "rank": 9
+          },
+          {
+            "image_id": "e58ca98f-39fe-45f1-a5d5-4679e5d1f888",
+            "rank": 1
+          }
+        ],
+        "ranked_ids": [
+          "e58ca98f-39fe-45f1-a5d5-4679e5d1f888",
+          "17410011-f141-4738-8a99-70ac40b77e08",
+          "81c2b2e3-863e-4eab-8511-98adf7642346",
+          "55abb672-c1db-43f8-adb3-94f756ce1161",
+          "4d0f7da2-8788-498e-aa17-a496668c5ff5",
+          "edd27954-ccda-4e70-bafe-f776be5ab864",
+          "e481e5cf-8005-40df-a7bd-47badc3f5856",
+          "22965c1a-ee2e-4234-b31c-d8109e6a6761",
+          "ccc8b394-0030-438f-b09a-80817e562ea8",
+          "2e5e6f9e-aac7-4d5e-a4f5-3bb5f06ea473"
+        ],
+        "hit_at": {
+          "1": true,
+          "3": true,
+          "5": true,
+          "10": true
+        },
+        "recall_at": {
+          "1": 0.125,
+          "3": 0.25,
+          "5": 0.375,
+          "10": 1.0
+        },
+        "mrr": 0.16666666666666666
+      }
+    },
+    {
+      "case_id": "financial-chart",
+      "mode": "chat",
+      "scores": [
+        0.40867847,
+        0.30750406,
+        0.26665422,
+        0.19659509,
+        0.1449098,
+        0.14331982,
+        0.120615035,
+        0.07570102,
+        0.06827003,
+        0.06775009
+      ],
+      "metrics": {
+        "case_id": "financial-chart",
+        "relevant_ranks": [
+          {
+            "image_id": "80fe45a4-f6a4-479f-bbff-f1a8c2913059",
+            "rank": 3
+          },
+          {
+            "image_id": "017eb541-9599-4db4-b718-a970a95974c9",
+            "rank": 2
+          },
+          {
+            "image_id": "7380ec92-3b7d-4831-8e4f-516992dbb8b0",
+            "rank": 1
+          },
+          {
+            "image_id": "d9be3d92-6744-4680-880d-0907781f45f4",
+            "rank": null
+          },
+          {
+            "image_id": "4a300a47-27f5-455f-a0b9-fec54a901b46",
+            "rank": null
+          },
+          {
+            "image_id": "dae636a7-9aba-464a-bc90-f60fe18835d0",
+            "rank": null
+          },
+          {
+            "image_id": "5638ddca-6a7d-462e-a781-47490bf5283c",
+            "rank": null
+          },
+          {
+            "image_id": "4fffb1d3-60a2-46f7-9270-4751cc6c2ed4",
+            "rank": null
+          }
+        ],
+        "ranked_ids": [
+          "7380ec92-3b7d-4831-8e4f-516992dbb8b0",
+          "017eb541-9599-4db4-b718-a970a95974c9",
+          "80fe45a4-f6a4-479f-bbff-f1a8c2913059",
+          "904d4981-d01c-45ab-96a5-a0fc0b0b2464",
+          "58abc1b7-429c-4054-bb33-24347b23953a",
+          "81c2b2e3-863e-4eab-8511-98adf7642346",
+          "1f54ef5f-7112-418b-ae4b-808a7ccb4223",
+          "661633b6-fd1d-4752-bd5f-180983012abd",
+          "0bc2cdde-6bdf-4637-b5d5-d9b356891c23",
+          "1c13e4fe-f13f-404d-b3d3-c22c07b8e57a"
+        ],
+        "hit_at": {
+          "1": true,
+          "3": true,
+          "5": true,
+          "10": true
+        },
+        "recall_at": {
+          "1": 0.125,
+          "3": 0.375,
+          "5": 0.375,
+          "10": 0.375
+        },
+        "mrr": 0.3333333333333333
+      }
+    },
+    {
+      "case_id": "architecture-diagram",
+      "mode": "chat",
+      "scores": [
+        0.48162505,
+        0.2414451,
+        0.11412169,
+        0.11188995,
+        0.10952489,
+        0.06570681,
+        0.06520502,
+        0.06449435,
+        0.057076775,
+        0.06004818
+      ],
+      "metrics": {
+        "case_id": "architecture-diagram",
+        "relevant_ranks": [
+          {
+            "image_id": "35b47782-d2ac-4e4f-b748-c4401209d3b0",
+            "rank": 1
+          },
+          {
+            "image_id": "36fedde0-0f2c-40fb-8861-ecb056b3baa9",
+            "rank": 2
+          }
+        ],
+        "ranked_ids": [
+          "35b47782-d2ac-4e4f-b748-c4401209d3b0",
+          "36fedde0-0f2c-40fb-8861-ecb056b3baa9",
+          "a91bd956-cb88-42e1-8ffa-abf8392a3dff",
+          "bd3c6a56-a21e-4638-88bc-91acc7337c96",
+          "22965c1a-ee2e-4234-b31c-d8109e6a6761",
+          "cdcf40ff-be2c-4f31-b5e0-ef398c9706b1",
+          "bdc2f5bd-bd51-4cb1-a559-ac12e2b50bc2",
+          "5d0a0317-f4e8-4f63-bfd5-e37bb22ad4dc",
+          "02c31fad-8512-4d7c-80df-39eb5b7cb12a",
+          "33048ff9-fa48-449b-84c9-c2cfc82cc556"
+        ],
+        "hit_at": {
+          "1": true,
+          "3": true,
+          "5": true,
+          "10": true
+        },
+        "recall_at": {
+          "1": 0.5,
+          "3": 1.0,
+          "5": 1.0,
+          "10": 1.0
+        },
+        "mrr": 1.0
+      }
+    },
+    {
+      "case_id": "data-visualization",
+      "mode": "chat",
+      "scores": [
+        0.5315261,
+        0.5189612,
+        0.47416916,
+        0.444493,
+        0.43929082,
+        0.42520002,
+        0.42462727,
+        0.4075462,
+        0.40021065,
+        0.3731908
+      ],
+      "metrics": {
+        "case_id": "data-visualization",
+        "relevant_ranks": [
+          {
+            "image_id": "4a300a47-27f5-455f-a0b9-fec54a901b46",
+            "rank": 4
+          },
+          {
+            "image_id": "7a5068f7-fe1c-4546-97c0-c3b81b3eefd7",
+            "rank": 5
+          },
+          {
+            "image_id": "dae636a7-9aba-464a-bc90-f60fe18835d0",
+            "rank": null
+          },
+          {
+            "image_id": "5638ddca-6a7d-462e-a781-47490bf5283c",
+            "rank": 10
+          },
+          {
+            "image_id": "4fffb1d3-60a2-46f7-9270-4751cc6c2ed4",
+            "rank": null
+          },
+          {
+            "image_id": "1f54ef5f-7112-418b-ae4b-808a7ccb4223",
+            "rank": 7
+          },
+          {
+            "image_id": "b6b690b2-8956-487b-8486-74de4ee174c3",
+            "rank": 3
+          },
+          {
+            "image_id": "904d4981-d01c-45ab-96a5-a0fc0b0b2464",
+            "rank": null
+          }
+        ],
+        "ranked_ids": [
+          "d9be3d92-6744-4680-880d-0907781f45f4",
+          "929d393b-b153-4e4b-9667-246506158ab1",
+          "b6b690b2-8956-487b-8486-74de4ee174c3",
+          "4a300a47-27f5-455f-a0b9-fec54a901b46",
+          "7a5068f7-fe1c-4546-97c0-c3b81b3eefd7",
+          "0bc2cdde-6bdf-4637-b5d5-d9b356891c23",
+          "1f54ef5f-7112-418b-ae4b-808a7ccb4223",
+          "89bd6754-0163-4c75-8112-1273f222b73e",
+          "16cfe78f-53a9-4495-be36-9bd539634758",
+          "5638ddca-6a7d-462e-a781-47490bf5283c"
+        ],
+        "hit_at": {
+          "1": false,
+          "3": true,
+          "5": true,
+          "10": true
+        },
+        "recall_at": {
+          "1": 0.0,
+          "3": 0.125,
+          "5": 0.375,
+          "10": 0.625
+        },
+        "mrr": 0.25
+      }
+    },
+    {
+      "case_id": "kanban",
+      "mode": "chat",
+      "scores": [
+        0.28084362,
+        0.080249436,
+        0.07694017,
+        0.07092566,
+        0.06716035,
+        0.064777754,
+        0.061317287,
+        0.058030207,
+        0.05771075,
+        0.057139874
+      ],
+      "metrics": {
+        "case_id": "kanban",
+        "relevant_ranks": [
+          {
+            "image_id": "ab23805b-9eb3-405d-89bf-25685d856189",
+            "rank": 1
+          }
+        ],
+        "ranked_ids": [
+          "ab23805b-9eb3-405d-89bf-25685d856189",
+          "e481e5cf-8005-40df-a7bd-47badc3f5856",
+          "2bb0145d-1a75-42d0-8b06-c16f45855afe",
+          "568eaf93-b970-4cd3-acb1-f8591e30fd20",
+          "ccc8b394-0030-438f-b09a-80817e562ea8",
+          "22965c1a-ee2e-4234-b31c-d8109e6a6761",
+          "edd27954-ccda-4e70-bafe-f776be5ab864",
+          "6c2802a7-dbea-4d50-b990-dc5a376947fb",
+          "9d0e7a39-f73f-4d51-a668-5ffa372869ad",
+          "f21b7957-e344-42e6-ab66-c1cb1b6bf0f0"
+        ],
+        "hit_at": {
+          "1": true,
+          "3": true,
+          "5": true,
+          "10": true
+        },
+        "recall_at": {
+          "1": 1.0,
+          "3": 1.0,
+          "5": 1.0,
+          "10": 1.0
+        },
+        "mrr": 1.0
+      }
+    },
+    {
+      "case_id": "logo",
+      "mode": "chat",
+      "scores": [
+        0.25520253,
+        0.23092882,
+        0.19673395,
+        0.15232232,
+        0.15081534,
+        0.14082025,
+        0.11772442,
+        0.107596986,
+        0.102583274,
+        0.10242157
+      ],
+      "metrics": {
+        "case_id": "logo",
+        "relevant_ranks": [
+          {
+            "image_id": "9ee2caca-4dc1-459a-952d-2465c2febcb0",
+            "rank": 1
+          }
+        ],
+        "ranked_ids": [
+          "9ee2caca-4dc1-459a-952d-2465c2febcb0",
+          "568eaf93-b970-4cd3-acb1-f8591e30fd20",
+          "58a38354-577f-4967-b09a-35801bc9d770",
+          "1d65a18d-10a6-4348-b394-abcbd883abec",
+          "6c2802a7-dbea-4d50-b990-dc5a376947fb",
+          "34294904-179c-4539-9283-6e5dd47e6019",
+          "1c13e4fe-f13f-404d-b3d3-c22c07b8e57a",
+          "ef072a4f-1642-4cac-ba84-0f4f5bf05e92",
+          "4d40b59a-f0bd-4eff-8f09-caf957f38003",
+          "a7d2c74f-7f24-402d-9cd1-052d736d6ca8"
+        ],
+        "hit_at": {
+          "1": true,
+          "3": true,
+          "5": true,
+          "10": true
+        },
+        "recall_at": {
+          "1": 1.0,
+          "3": 1.0,
+          "5": 1.0,
+          "10": 1.0
+        },
+        "mrr": 1.0
+      }
+    },
+    {
+      "case_id": "screenshot",
+      "mode": "chat",
+      "scores": [
+        0.15645286,
+        0.14174438,
+        0.14004225,
+        0.12420263,
+        0.123693645,
+        0.1213628,
+        0.11937757,
+        0.11839552,
+        0.11142501,
+        0.110615395
+      ],
+      "metrics": {
+        "case_id": "screenshot",
+        "relevant_ranks": [
+          {
+            "image_id": "9d0e7a39-f73f-4d51-a668-5ffa372869ad",
+            "rank": 3
+          },
+          {
+            "image_id": "2b9eae44-5375-402e-8f95-302263a1eca2",
+            "rank": null
+          },
+          {
+            "image_id": "089c9e5a-1add-40bb-823d-b3bae8646625",
+            "rank": null
+          },
+          {
+            "image_id": "1c13e4fe-f13f-404d-b3d3-c22c07b8e57a",
+            "rank": null
+          },
+          {
+            "image_id": "4a300a47-27f5-455f-a0b9-fec54a901b46",
+            "rank": null
+          },
+          {
+            "image_id": "8d5033db-b90d-4fee-94fc-de60ba222329",
+            "rank": null
+          },
+          {
+            "image_id": "b65d1578-8e16-4592-9e90-1cedcdaabb81",
+            "rank": null
+          },
+          {
+            "image_id": "00324a72-1b3b-42b1-abf4-13b2bc19a431",
+            "rank": null
+          }
+        ],
+        "ranked_ids": [
+          "cdcf40ff-be2c-4f31-b5e0-ef398c9706b1",
+          "bd3c6a56-a21e-4638-88bc-91acc7337c96",
+          "9d0e7a39-f73f-4d51-a668-5ffa372869ad",
+          "e7c4a317-b8ef-4f63-8458-9c1945a2b3fe",
+          "8b6fceca-fa0b-4488-9f0f-91d093639054",
+          "e58ca98f-39fe-45f1-a5d5-4679e5d1f888",
+          "1a9628e1-93f8-48f3-a9f5-bfef874ddd77",
+          "dd26a93a-957d-41bf-9141-141190007ac4",
+          "cac3f72d-d350-4af0-a583-c687fea90e87",
+          "568eaf93-b970-4cd3-acb1-f8591e30fd20"
+        ],
+        "hit_at": {
+          "1": false,
+          "3": true,
+          "5": true,
+          "10": true
+        },
+        "recall_at": {
+          "1": 0.0,
+          "3": 0.125,
+          "5": 0.125,
+          "10": 0.125
+        },
+        "mrr": 0.3333333333333333
+      }
+    },
+    {
+      "case_id": "military-veteran",
+      "mode": "chat",
+      "scores": [
+        0.35702986,
+        0.2616378,
+        0.2602113,
+        0.2118245,
+        0.16922764,
+        0.12742467,
+        0.10793502,
+        0.097467884,
+        0.07652507,
+        0.060180597
+      ],
+      "metrics": {
+        "case_id": "military-veteran",
+        "relevant_ranks": [
+          {
+            "image_id": "d31d4dbf-5f88-4049-9aeb-7fa027d9549d",
+            "rank": 1
+          },
+          {
+            "image_id": "b396384c-68aa-4567-8887-e86bd7e94415",
+            "rank": 2
+          },
+          {
+            "image_id": "32477ed8-2a9c-41a6-9dae-6d453f5ad8c6",
+            "rank": 8
+          },
+          {
+            "image_id": "d371a8bf-efbe-48c5-859d-3ea82e7653da",
+            "rank": 5
+          },
+          {
+            "image_id": "58a38354-577f-4967-b09a-35801bc9d770",
+            "rank": 3
+          },
+          {
+            "image_id": "602dae0d-1307-43bc-a458-b920e5e53b5f",
+            "rank": 10
+          },
+          {
+            "image_id": "a07e3175-8b41-4610-8af6-3adb044c1843",
+            "rank": 6
+          },
+          {
+            "image_id": "d47af46d-5304-4834-8065-d1561845b239",
+            "rank": 4
+          }
+        ],
+        "ranked_ids": [
+          "d31d4dbf-5f88-4049-9aeb-7fa027d9549d",
+          "b396384c-68aa-4567-8887-e86bd7e94415",
+          "58a38354-577f-4967-b09a-35801bc9d770",
+          "d47af46d-5304-4834-8065-d1561845b239",
+          "d371a8bf-efbe-48c5-859d-3ea82e7653da",
+          "a07e3175-8b41-4610-8af6-3adb044c1843",
+          "a61004cc-09b5-4936-a1f9-45f13cedc1a3",
+          "32477ed8-2a9c-41a6-9dae-6d453f5ad8c6",
+          "b46a3766-ad02-4ef5-a17c-3c8031177479",
+          "602dae0d-1307-43bc-a458-b920e5e53b5f"
+        ],
+        "hit_at": {
+          "1": true,
+          "3": true,
+          "5": true,
+          "10": true
+        },
+        "recall_at": {
+          "1": 0.125,
+          "3": 0.375,
+          "5": 0.625,
+          "10": 1.0
+        },
+        "mrr": 1.0
+      }
+    },
+    {
+      "case_id": "infographic-timeline",
+      "mode": "chat",
+      "scores": [
+        0.79675186,
+        0.044685133,
+        0.04239202,
+        0.04173098,
+        0.038397707,
+        0.037162386,
+        0.03402659,
+        0.031288605,
+        0.030240413,
+        0.030171758
+      ],
+      "metrics": {
+        "case_id": "infographic-timeline",
+        "relevant_ranks": [
+          {
+            "image_id": "02c31fad-8512-4d7c-80df-39eb5b7cb12a",
+            "rank": 1
+          }
+        ],
+        "ranked_ids": [
+          "02c31fad-8512-4d7c-80df-39eb5b7cb12a",
+          "ab23805b-9eb3-405d-89bf-25685d856189",
+          "15da4e9c-7f38-43f8-9fd4-21579281edbc",
+          "2341bc05-b168-4bc8-945a-41fc58b93f9b",
+          "33048ff9-fa48-449b-84c9-c2cfc82cc556",
+          "3c9d8968-6576-435f-850d-2e15279d212e",
+          "017eb541-9599-4db4-b718-a970a95974c9",
+          "661633b6-fd1d-4752-bd5f-180983012abd",
+          "4e1ae09c-01ce-42a4-8c51-abb918071c79",
+          "ef804325-1103-4c4e-98f3-61bfb7b35ae9"
+        ],
+        "hit_at": {
+          "1": true,
+          "3": true,
+          "5": true,
+          "10": true
+        },
+        "recall_at": {
+          "1": 1.0,
+          "3": 1.0,
+          "5": 1.0,
+          "10": 1.0
+        },
+        "mrr": 1.0
+      }
+    },
+    {
+      "case_id": "office-collaboration",
+      "mode": "chat",
+      "scores": [
+        0.756376,
+        0.6999322,
+        0.6947383,
+        0.6922474,
+        0.6803909,
+        0.67706895,
+        0.6745014,
+        0.6636041,
+        0.6334335,
+        0.6083387
+      ],
+      "metrics": {
+        "case_id": "office-collaboration",
+        "relevant_ranks": [
+          {
+            "image_id": "f6a42488-e36a-4bba-b141-f3f77f93b810",
+            "rank": 4
+          },
+          {
+            "image_id": "e481e5cf-8005-40df-a7bd-47badc3f5856",
+            "rank": null
+          },
+          {
+            "image_id": "edd27954-ccda-4e70-bafe-f776be5ab864",
+            "rank": 8
+          },
+          {
+            "image_id": "22965c1a-ee2e-4234-b31c-d8109e6a6761",
+            "rank": 5
+          }
+        ],
+        "ranked_ids": [
+          "f21b7957-e344-42e6-ab66-c1cb1b6bf0f0",
+          "40990155-9b88-49a1-abbe-dee8c2827ca4",
+          "81c2b2e3-863e-4eab-8511-98adf7642346",
+          "f6a42488-e36a-4bba-b141-f3f77f93b810",
+          "22965c1a-ee2e-4234-b31c-d8109e6a6761",
+          "e58ca98f-39fe-45f1-a5d5-4679e5d1f888",
+          "4d0f7da2-8788-498e-aa17-a496668c5ff5",
+          "edd27954-ccda-4e70-bafe-f776be5ab864",
+          "9f4ac0f8-ab8b-45f2-8b44-e07c1fef4aca",
+          "ccc8b394-0030-438f-b09a-80817e562ea8"
+        ],
+        "hit_at": {
+          "1": false,
+          "3": false,
+          "5": true,
+          "10": true
+        },
+        "recall_at": {
+          "1": 0.0,
+          "3": 0.0,
+          "5": 0.5,
+          "10": 0.75
+        },
+        "mrr": 0.25
+      }
+    },
+    {
+      "case_id": "sdlc",
+      "mode": "retrieval",
+      "scores": [
+        0.05177361,
+        0.04248727,
+        0.040302187,
+        0.03737261,
+        0.037036795,
+        0.03441388,
+        0.03315172,
+        0.031789716,
+        0.027483363,
+        0.026377967
+      ],
+      "metrics": {
+        "case_id": "sdlc",
+        "relevant_ranks": [
+          {
+            "image_id": "15da4e9c-7f38-43f8-9fd4-21579281edbc",
+            "rank": 2
+          },
+          {
+            "image_id": "92f59ad2-1bd7-4e03-9099-85f29b95430a",
+            "rank": 5
+          },
+          {
+            "image_id": "9cd1ead9-5733-446b-893d-f3ac80094049",
+            "rank": 6
+          },
+          {
+            "image_id": "8b6fceca-fa0b-4488-9f0f-91d093639054",
+            "rank": 7
+          },
+          {
+            "image_id": "4e1ae09c-01ce-42a4-8c51-abb918071c79",
+            "rank": 3
+          },
+          {
+            "image_id": "9d0e7a39-f73f-4d51-a668-5ffa372869ad",
+            "rank": 1
+          },
+          {
+            "image_id": "089c9e5a-1add-40bb-823d-b3bae8646625",
+            "rank": 8
+          }
+        ],
+        "ranked_ids": [
+          "9d0e7a39-f73f-4d51-a668-5ffa372869ad",
+          "15da4e9c-7f38-43f8-9fd4-21579281edbc",
+          "4e1ae09c-01ce-42a4-8c51-abb918071c79",
+          "02c31fad-8512-4d7c-80df-39eb5b7cb12a",
+          "92f59ad2-1bd7-4e03-9099-85f29b95430a",
+          "9cd1ead9-5733-446b-893d-f3ac80094049",
+          "8b6fceca-fa0b-4488-9f0f-91d093639054",
+          "089c9e5a-1add-40bb-823d-b3bae8646625",
+          "ab23805b-9eb3-405d-89bf-25685d856189",
+          "7da65471-7646-4929-bb95-c568ebba50d8"
+        ],
+        "hit_at": {
+          "1": true,
+          "3": true,
+          "5": true,
+          "10": true
+        },
+        "recall_at": {
+          "1": 0.14285714285714285,
+          "3": 0.42857142857142855,
+          "5": 0.5714285714285714,
+          "10": 1.0
+        },
+        "mrr": 0.5
+      }
+    },
+    {
+      "case_id": "flowchart",
+      "mode": "retrieval",
+      "scores": [
+        0.06506231,
+        0.064706795,
+        0.056262378,
+        0.05165867,
+        0.05125827,
+        0.049190234,
+        0.04725421,
+        0.042582717,
+        0.04389152,
+        0.04349978
+      ],
+      "metrics": {
+        "case_id": "flowchart",
+        "relevant_ranks": [
+          {
+            "image_id": "02c31fad-8512-4d7c-80df-39eb5b7cb12a",
+            "rank": 1
+          }
+        ],
+        "ranked_ids": [
+          "02c31fad-8512-4d7c-80df-39eb5b7cb12a",
+          "2341bc05-b168-4bc8-945a-41fc58b93f9b",
+          "ab23805b-9eb3-405d-89bf-25685d856189",
+          "edcda462-53ab-4f22-8be3-a0aeef24f94a",
+          "9bfe0acd-f337-444f-b68d-ed6732bb7961",
+          "22965c1a-ee2e-4234-b31c-d8109e6a6761",
+          "edd27954-ccda-4e70-bafe-f776be5ab864",
+          "35b47782-d2ac-4e4f-b748-c4401209d3b0",
+          "017eb541-9599-4db4-b718-a970a95974c9",
+          "15da4e9c-7f38-43f8-9fd4-21579281edbc"
+        ],
+        "hit_at": {
+          "1": true,
+          "3": true,
+          "5": true,
+          "10": true
+        },
+        "recall_at": {
+          "1": 1.0,
+          "3": 1.0,
+          "5": 1.0,
+          "10": 1.0
+        },
+        "mrr": 1.0
+      }
+    },
+    {
+      "case_id": "diagram",
+      "mode": "retrieval",
+      "scores": [
+        0.21591271,
+        0.15186892,
+        0.15808365,
+        0.14303228,
+        0.1391976,
+        0.13849701,
+        0.12781608,
+        0.12709928,
+        0.103939675,
+        0.086054444
+      ],
+      "metrics": {
+        "case_id": "diagram",
+        "relevant_ranks": [
+          {
+            "image_id": "35b47782-d2ac-4e4f-b748-c4401209d3b0",
+            "rank": 1
+          }
+        ],
+        "ranked_ids": [
+          "35b47782-d2ac-4e4f-b748-c4401209d3b0",
+          "02c31fad-8512-4d7c-80df-39eb5b7cb12a",
+          "22965c1a-ee2e-4234-b31c-d8109e6a6761",
+          "a91bd956-cb88-42e1-8ffa-abf8392a3dff",
+          "bd3c6a56-a21e-4638-88bc-91acc7337c96",
+          "36fedde0-0f2c-40fb-8861-ecb056b3baa9",
+          "a473d33c-9be7-4405-86e5-116a3843f8ea",
+          "9d0e7a39-f73f-4d51-a668-5ffa372869ad",
+          "4e1ae09c-01ce-42a4-8c51-abb918071c79",
+          "cdcf40ff-be2c-4f31-b5e0-ef398c9706b1"
+        ],
+        "hit_at": {
+          "1": true,
+          "3": true,
+          "5": true,
+          "10": true
+        },
+        "recall_at": {
+          "1": 1.0,
+          "3": 1.0,
+          "5": 1.0,
+          "10": 1.0
+        },
+        "mrr": 1.0
+      }
+    },
+    {
+      "case_id": "presentation",
+      "mode": "retrieval",
+      "scores": [
+        0.19273713,
+        0.18692514,
+        0.18273193,
+        0.13347194,
+        0.11651269,
+        0.09048623,
+        0.08679465,
+        0.083868034,
+        0.08226149,
+        0.08050932
+      ],
+      "metrics": {
+        "case_id": "presentation",
+        "relevant_ranks": [
+          {
+            "image_id": "a1084b9b-0b14-42cb-b105-140f84785818",
+            "rank": 7
+          },
+          {
+            "image_id": "edd27954-ccda-4e70-bafe-f776be5ab864",
+            "rank": 3
+          },
+          {
+            "image_id": "17410011-f141-4738-8a99-70ac40b77e08",
+            "rank": null
+          }
+        ],
+        "ranked_ids": [
+          "585080bd-7a9d-4915-8899-8acbba57f66f",
+          "38b9b61b-3e27-4aad-a6f3-cfacae92e48d",
+          "edd27954-ccda-4e70-bafe-f776be5ab864",
+          "ec3cdf7f-cc83-4ece-8af5-94c189323c15",
+          "02c31fad-8512-4d7c-80df-39eb5b7cb12a",
+          "36fedde0-0f2c-40fb-8861-ecb056b3baa9",
+          "a1084b9b-0b14-42cb-b105-140f84785818",
+          "3c9d8968-6576-435f-850d-2e15279d212e",
+          "35b47782-d2ac-4e4f-b748-c4401209d3b0",
+          "a91bd956-cb88-42e1-8ffa-abf8392a3dff"
+        ],
+        "hit_at": {
+          "1": false,
+          "3": true,
+          "5": true,
+          "10": true
+        },
+        "recall_at": {
+          "1": 0.0,
+          "3": 0.3333333333333333,
+          "5": 0.3333333333333333,
+          "10": 0.6666666666666666
+        },
+        "mrr": 0.14285714285714285
+      }
+    },
+    {
+      "case_id": "office-worker-giving-a-presentation",
+      "mode": "retrieval",
+      "scores": [
+        0.35723165,
+        0.3379028,
+        0.29185852,
+        0.080682985,
+        0.075210504,
+        0.07319798,
+        0.06849401,
+        0.067898266,
+        0.06767611,
+        0.06570681
+      ],
+      "metrics": {
+        "case_id": "office-worker-giving-a-presentation",
+        "relevant_ranks": [
+          {
+            "image_id": "edd27954-ccda-4e70-bafe-f776be5ab864",
+            "rank": 3
+          },
+          {
+            "image_id": "17410011-f141-4738-8a99-70ac40b77e08",
+            "rank": 10
+          },
+          {
+            "image_id": "22965c1a-ee2e-4234-b31c-d8109e6a6761",
+            "rank": 9
+          },
+          {
+            "image_id": "b24ea7cc-8660-473d-8843-c670ccf05573",
+            "rank": null
+          },
+          {
+            "image_id": "e481e5cf-8005-40df-a7bd-47badc3f5856",
+            "rank": null
+          },
+          {
+            "image_id": "83837dda-955c-4ac7-bb80-5e3f644389fd",
+            "rank": null
+          },
+          {
+            "image_id": "80fe45a4-f6a4-479f-bbff-f1a8c2913059",
+            "rank": null
+          },
+          {
+            "image_id": "017eb541-9599-4db4-b718-a970a95974c9",
+            "rank": null
+          }
+        ],
+        "ranked_ids": [
+          "585080bd-7a9d-4915-8899-8acbba57f66f",
+          "38b9b61b-3e27-4aad-a6f3-cfacae92e48d",
+          "edd27954-ccda-4e70-bafe-f776be5ab864",
+          "4d0f7da2-8788-498e-aa17-a496668c5ff5",
+          "f21b7957-e344-42e6-ab66-c1cb1b6bf0f0",
+          "e58ca98f-39fe-45f1-a5d5-4679e5d1f888",
+          "9f4ac0f8-ab8b-45f2-8b44-e07c1fef4aca",
+          "8b6fceca-fa0b-4488-9f0f-91d093639054",
+          "22965c1a-ee2e-4234-b31c-d8109e6a6761",
+          "17410011-f141-4738-8a99-70ac40b77e08"
+        ],
+        "hit_at": {
+          "1": false,
+          "3": true,
+          "5": true,
+          "10": true
+        },
+        "recall_at": {
+          "1": 0.0,
+          "3": 0.125,
+          "5": 0.125,
+          "10": 0.375
+        },
+        "mrr": 0.3333333333333333
+      }
+    },
+    {
+      "case_id": "software-developer",
+      "mode": "retrieval",
+      "scores": [
+        0.39747116,
+        0.38852578,
+        0.32187602,
+        0.17908539,
+        0.096441865,
+        0.0954255,
+        0.06365108,
+        0.06004818,
+        0.057266273,
+        0.05720304
+      ],
+      "metrics": {
+        "case_id": "software-developer",
+        "relevant_ranks": [
+          {
+            "image_id": "15da4e9c-7f38-43f8-9fd4-21579281edbc",
+            "rank": null
+          },
+          {
+            "image_id": "92f59ad2-1bd7-4e03-9099-85f29b95430a",
+            "rank": 6
+          },
+          {
+            "image_id": "9d0e7a39-f73f-4d51-a668-5ffa372869ad",
+            "rank": 1
+          },
+          {
+            "image_id": "9cd1ead9-5733-446b-893d-f3ac80094049",
+            "rank": 3
+          },
+          {
+            "image_id": "8b6fceca-fa0b-4488-9f0f-91d093639054",
+            "rank": 2
+          },
+          {
+            "image_id": "dd3beef9-c8ff-4ec9-bb8c-1336e4386014",
+            "rank": null
+          },
+          {
+            "image_id": "4e1ae09c-01ce-42a4-8c51-abb918071c79",
+            "rank": 4
+          }
+        ],
+        "ranked_ids": [
+          "9d0e7a39-f73f-4d51-a668-5ffa372869ad",
+          "8b6fceca-fa0b-4488-9f0f-91d093639054",
+          "9cd1ead9-5733-446b-893d-f3ac80094049",
+          "4e1ae09c-01ce-42a4-8c51-abb918071c79",
+          "089c9e5a-1add-40bb-823d-b3bae8646625",
+          "92f59ad2-1bd7-4e03-9099-85f29b95430a",
+          "b24ea7cc-8660-473d-8843-c670ccf05573",
+          "1d65a18d-10a6-4348-b394-abcbd883abec",
+          "1c13e4fe-f13f-404d-b3d3-c22c07b8e57a",
+          "ab23805b-9eb3-405d-89bf-25685d856189"
+        ],
+        "hit_at": {
+          "1": true,
+          "3": true,
+          "5": true,
+          "10": true
+        },
+        "recall_at": {
+          "1": 0.14285714285714285,
+          "3": 0.42857142857142855,
+          "5": 0.5714285714285714,
+          "10": 0.7142857142857143
+        },
+        "mrr": 0.16666666666666666
+      }
+    },
+    {
+      "case_id": "dashboard",
+      "mode": "retrieval",
+      "scores": [
+        0.34362856,
+        0.27610505,
+        0.27081925,
+        0.25285003,
+        0.24026659,
+        0.2016406,
+        0.16130732,
+        0.15980688,
+        0.13717403,
+        0.13613708
+      ],
+      "metrics": {
+        "case_id": "dashboard",
+        "relevant_ranks": [
+          {
+            "image_id": "5638ddca-6a7d-462e-a781-47490bf5283c",
+            "rank": 5
+          },
+          {
+            "image_id": "b6b690b2-8956-487b-8486-74de4ee174c3",
+            "rank": 8
+          },
+          {
+            "image_id": "89bd6754-0163-4c75-8112-1273f222b73e",
+            "rank": 4
+          },
+          {
+            "image_id": "4a300a47-27f5-455f-a0b9-fec54a901b46",
+            "rank": 2
+          },
+          {
+            "image_id": "38b9b61b-3e27-4aad-a6f3-cfacae92e48d",
+            "rank": null
+          },
+          {
+            "image_id": "a08ce3bd-b905-4c92-8cb9-3b248101f001",
+            "rank": null
+          },
+          {
+            "image_id": "33d1fa1f-cc82-4b27-b175-3a3167bcbaf5",
+            "rank": null
+          },
+          {
+            "image_id": "097362a1-dfaa-4528-91d4-d9c51526e3dd",
+            "rank": 6
+          }
+        ],
+        "ranked_ids": [
+          "d9be3d92-6744-4680-880d-0907781f45f4",
+          "4a300a47-27f5-455f-a0b9-fec54a901b46",
+          "ab23805b-9eb3-405d-89bf-25685d856189",
+          "89bd6754-0163-4c75-8112-1273f222b73e",
+          "5638ddca-6a7d-462e-a781-47490bf5283c",
+          "097362a1-dfaa-4528-91d4-d9c51526e3dd",
+          "16cfe78f-53a9-4495-be36-9bd539634758",
+          "b6b690b2-8956-487b-8486-74de4ee174c3",
+          "904d4981-d01c-45ab-96a5-a0fc0b0b2464",
+          "bed20ebc-5a9b-44c2-9062-fececbf54e68"
+        ],
+        "hit_at": {
+          "1": false,
+          "3": true,
+          "5": true,
+          "10": true
+        },
+        "recall_at": {
+          "1": 0.0,
+          "3": 0.125,
+          "5": 0.375,
+          "10": 0.625
+        },
+        "mrr": 0.2
+      }
+    },
+    {
+      "case_id": "cybersecurity",
+      "mode": "retrieval",
+      "scores": [
+        0.4272061,
+        0.4003513,
+        0.39194164,
+        0.3512671,
+        0.34973314,
+        0.34561363,
+        0.3022886,
+        0.2952304,
+        0.29018113,
+        0.25666004
+      ],
+      "metrics": {
+        "case_id": "cybersecurity",
+        "relevant_ranks": [
+          {
+            "image_id": "44325c39-15c1-44ce-89cf-d4055bd2ebe5",
+            "rank": 5
+          },
+          {
+            "image_id": "e7c4a317-b8ef-4f63-8458-9c1945a2b3fe",
+            "rank": null
+          },
+          {
+            "image_id": "4fffb1d3-60a2-46f7-9270-4751cc6c2ed4",
+            "rank": 7
+          },
+          {
+            "image_id": "2c7b79f1-5990-41c2-b486-c20e96109079",
+            "rank": 10
+          },
+          {
+            "image_id": "e728e84a-14f2-4106-9c42-d443fe142292",
+            "rank": 2
+          },
+          {
+            "image_id": "a1084b9b-0b14-42cb-b105-140f84785818",
+            "rank": 3
+          },
+          {
+            "image_id": "aedb9d55-ef81-421a-9f8e-ad409e7bee14",
+            "rank": null
+          },
+          {
+            "image_id": "58abc1b7-429c-4054-bb33-24347b23953a",
+            "rank": 9
+          }
+        ],
+        "ranked_ids": [
+          "64c5dfba-0a44-4715-bde1-ed549d526df3",
+          "e728e84a-14f2-4106-9c42-d443fe142292",
+          "a1084b9b-0b14-42cb-b105-140f84785818",
+          "d4c047cf-bb7e-4d35-95b2-8e8a15404591",
+          "44325c39-15c1-44ce-89cf-d4055bd2ebe5",
+          "5b96dba3-c315-45bc-9843-103d046d61f3",
+          "4fffb1d3-60a2-46f7-9270-4751cc6c2ed4",
+          "cff3ff5f-b23f-4561-97bc-159f2895fb6a",
+          "58abc1b7-429c-4054-bb33-24347b23953a",
+          "2c7b79f1-5990-41c2-b486-c20e96109079"
+        ],
+        "hit_at": {
+          "1": false,
+          "3": true,
+          "5": true,
+          "10": true
+        },
+        "recall_at": {
+          "1": 0.0,
+          "3": 0.25,
+          "5": 0.375,
+          "10": 0.75
+        },
+        "mrr": 0.2
+      }
+    },
+    {
+      "case_id": "team-meeting",
+      "mode": "retrieval",
+      "scores": [
+        0.65173227,
+        0.5920305,
+        0.56200886,
+        0.51735204,
+        0.5135471,
+        0.51310796,
+        0.4797236,
+        0.45856747,
+        0.3498664,
+        0.3355473
+      ],
+      "metrics": {
+        "case_id": "team-meeting",
+        "relevant_ranks": [
+          {
+            "image_id": "edd27954-ccda-4e70-bafe-f776be5ab864",
+            "rank": 6
+          },
+          {
+            "image_id": "17410011-f141-4738-8a99-70ac40b77e08",
+            "rank": 2
+          },
+          {
+            "image_id": "22965c1a-ee2e-4234-b31c-d8109e6a6761",
+            "rank": 8
+          },
+          {
+            "image_id": "55abb672-c1db-43f8-adb3-94f756ce1161",
+            "rank": 4
+          },
+          {
+            "image_id": "2e5e6f9e-aac7-4d5e-a4f5-3bb5f06ea473",
+            "rank": 9
+          },
+          {
+            "image_id": "e481e5cf-8005-40df-a7bd-47badc3f5856",
+            "rank": 7
+          },
+          {
+            "image_id": "ccc8b394-0030-438f-b09a-80817e562ea8",
+            "rank": 10
+          },
+          {
+            "image_id": "e58ca98f-39fe-45f1-a5d5-4679e5d1f888",
+            "rank": 1
+          }
+        ],
+        "ranked_ids": [
+          "e58ca98f-39fe-45f1-a5d5-4679e5d1f888",
+          "17410011-f141-4738-8a99-70ac40b77e08",
+          "81c2b2e3-863e-4eab-8511-98adf7642346",
+          "55abb672-c1db-43f8-adb3-94f756ce1161",
+          "4d0f7da2-8788-498e-aa17-a496668c5ff5",
+          "edd27954-ccda-4e70-bafe-f776be5ab864",
+          "e481e5cf-8005-40df-a7bd-47badc3f5856",
+          "22965c1a-ee2e-4234-b31c-d8109e6a6761",
+          "2e5e6f9e-aac7-4d5e-a4f5-3bb5f06ea473",
+          "ccc8b394-0030-438f-b09a-80817e562ea8"
+        ],
+        "hit_at": {
+          "1": true,
+          "3": true,
+          "5": true,
+          "10": true
+        },
+        "recall_at": {
+          "1": 0.125,
+          "3": 0.25,
+          "5": 0.375,
+          "10": 1.0
+        },
+        "mrr": 0.16666666666666666
+      }
+    },
+    {
+      "case_id": "financial-chart",
+      "mode": "retrieval",
+      "scores": [
+        0.40867847,
+        0.30750406,
+        0.26665422,
+        0.19659509,
+        0.1449098,
+        0.14331982,
+        0.120615035,
+        0.07570102,
+        0.06827003,
+        0.06775009
+      ],
+      "metrics": {
+        "case_id": "financial-chart",
+        "relevant_ranks": [
+          {
+            "image_id": "80fe45a4-f6a4-479f-bbff-f1a8c2913059",
+            "rank": 3
+          },
+          {
+            "image_id": "017eb541-9599-4db4-b718-a970a95974c9",
+            "rank": 2
+          },
+          {
+            "image_id": "7380ec92-3b7d-4831-8e4f-516992dbb8b0",
+            "rank": 1
+          },
+          {
+            "image_id": "d9be3d92-6744-4680-880d-0907781f45f4",
+            "rank": null
+          },
+          {
+            "image_id": "4a300a47-27f5-455f-a0b9-fec54a901b46",
+            "rank": null
+          },
+          {
+            "image_id": "dae636a7-9aba-464a-bc90-f60fe18835d0",
+            "rank": null
+          },
+          {
+            "image_id": "5638ddca-6a7d-462e-a781-47490bf5283c",
+            "rank": null
+          },
+          {
+            "image_id": "4fffb1d3-60a2-46f7-9270-4751cc6c2ed4",
+            "rank": null
+          }
+        ],
+        "ranked_ids": [
+          "7380ec92-3b7d-4831-8e4f-516992dbb8b0",
+          "017eb541-9599-4db4-b718-a970a95974c9",
+          "80fe45a4-f6a4-479f-bbff-f1a8c2913059",
+          "904d4981-d01c-45ab-96a5-a0fc0b0b2464",
+          "58abc1b7-429c-4054-bb33-24347b23953a",
+          "81c2b2e3-863e-4eab-8511-98adf7642346",
+          "1f54ef5f-7112-418b-ae4b-808a7ccb4223",
+          "661633b6-fd1d-4752-bd5f-180983012abd",
+          "0bc2cdde-6bdf-4637-b5d5-d9b356891c23",
+          "1c13e4fe-f13f-404d-b3d3-c22c07b8e57a"
+        ],
+        "hit_at": {
+          "1": true,
+          "3": true,
+          "5": true,
+          "10": true
+        },
+        "recall_at": {
+          "1": 0.125,
+          "3": 0.375,
+          "5": 0.375,
+          "10": 0.375
+        },
+        "mrr": 0.3333333333333333
+      }
+    },
+    {
+      "case_id": "architecture-diagram",
+      "mode": "retrieval",
+      "scores": [
+        0.48162505,
+        0.2414451,
+        0.11412169,
+        0.11188995,
+        0.10952489,
+        0.06570681,
+        0.06520502,
+        0.06449435,
+        0.057076775,
+        0.06004818
+      ],
+      "metrics": {
+        "case_id": "architecture-diagram",
+        "relevant_ranks": [
+          {
+            "image_id": "35b47782-d2ac-4e4f-b748-c4401209d3b0",
+            "rank": 1
+          },
+          {
+            "image_id": "36fedde0-0f2c-40fb-8861-ecb056b3baa9",
+            "rank": 2
+          }
+        ],
+        "ranked_ids": [
+          "35b47782-d2ac-4e4f-b748-c4401209d3b0",
+          "36fedde0-0f2c-40fb-8861-ecb056b3baa9",
+          "a91bd956-cb88-42e1-8ffa-abf8392a3dff",
+          "bd3c6a56-a21e-4638-88bc-91acc7337c96",
+          "22965c1a-ee2e-4234-b31c-d8109e6a6761",
+          "cdcf40ff-be2c-4f31-b5e0-ef398c9706b1",
+          "bdc2f5bd-bd51-4cb1-a559-ac12e2b50bc2",
+          "5d0a0317-f4e8-4f63-bfd5-e37bb22ad4dc",
+          "02c31fad-8512-4d7c-80df-39eb5b7cb12a",
+          "33048ff9-fa48-449b-84c9-c2cfc82cc556"
+        ],
+        "hit_at": {
+          "1": true,
+          "3": true,
+          "5": true,
+          "10": true
+        },
+        "recall_at": {
+          "1": 0.5,
+          "3": 1.0,
+          "5": 1.0,
+          "10": 1.0
+        },
+        "mrr": 1.0
+      }
+    },
+    {
+      "case_id": "data-visualization",
+      "mode": "retrieval",
+      "scores": [
+        0.5313802,
+        0.518815,
+        0.47431523,
+        0.44434834,
+        0.4395795,
+        0.42520002,
+        0.42477044,
+        0.40782914,
+        0.40042162,
+        0.37346497
+      ],
+      "metrics": {
+        "case_id": "data-visualization",
+        "relevant_ranks": [
+          {
+            "image_id": "4a300a47-27f5-455f-a0b9-fec54a901b46",
+            "rank": 4
+          },
+          {
+            "image_id": "7a5068f7-fe1c-4546-97c0-c3b81b3eefd7",
+            "rank": 5
+          },
+          {
+            "image_id": "dae636a7-9aba-464a-bc90-f60fe18835d0",
+            "rank": null
+          },
+          {
+            "image_id": "5638ddca-6a7d-462e-a781-47490bf5283c",
+            "rank": 10
+          },
+          {
+            "image_id": "4fffb1d3-60a2-46f7-9270-4751cc6c2ed4",
+            "rank": null
+          },
+          {
+            "image_id": "1f54ef5f-7112-418b-ae4b-808a7ccb4223",
+            "rank": 7
+          },
+          {
+            "image_id": "b6b690b2-8956-487b-8486-74de4ee174c3",
+            "rank": 3
+          },
+          {
+            "image_id": "904d4981-d01c-45ab-96a5-a0fc0b0b2464",
+            "rank": null
+          }
+        ],
+        "ranked_ids": [
+          "d9be3d92-6744-4680-880d-0907781f45f4",
+          "929d393b-b153-4e4b-9667-246506158ab1",
+          "b6b690b2-8956-487b-8486-74de4ee174c3",
+          "4a300a47-27f5-455f-a0b9-fec54a901b46",
+          "7a5068f7-fe1c-4546-97c0-c3b81b3eefd7",
+          "0bc2cdde-6bdf-4637-b5d5-d9b356891c23",
+          "1f54ef5f-7112-418b-ae4b-808a7ccb4223",
+          "89bd6754-0163-4c75-8112-1273f222b73e",
+          "16cfe78f-53a9-4495-be36-9bd539634758",
+          "5638ddca-6a7d-462e-a781-47490bf5283c"
+        ],
+        "hit_at": {
+          "1": false,
+          "3": true,
+          "5": true,
+          "10": true
+        },
+        "recall_at": {
+          "1": 0.0,
+          "3": 0.125,
+          "5": 0.375,
+          "10": 0.625
+        },
+        "mrr": 0.25
+      }
+    },
+    {
+      "case_id": "kanban",
+      "mode": "retrieval",
+      "scores": [
+        0.28084362,
+        0.080249436,
+        0.07694017,
+        0.07092566,
+        0.06827003,
+        0.064777754,
+        0.061317287,
+        0.058030207,
+        0.05771075,
+        0.057139874
+      ],
+      "metrics": {
+        "case_id": "kanban",
+        "relevant_ranks": [
+          {
+            "image_id": "ab23805b-9eb3-405d-89bf-25685d856189",
+            "rank": 1
+          }
+        ],
+        "ranked_ids": [
+          "ab23805b-9eb3-405d-89bf-25685d856189",
+          "e481e5cf-8005-40df-a7bd-47badc3f5856",
+          "2bb0145d-1a75-42d0-8b06-c16f45855afe",
+          "568eaf93-b970-4cd3-acb1-f8591e30fd20",
+          "ccc8b394-0030-438f-b09a-80817e562ea8",
+          "22965c1a-ee2e-4234-b31c-d8109e6a6761",
+          "edd27954-ccda-4e70-bafe-f776be5ab864",
+          "6c2802a7-dbea-4d50-b990-dc5a376947fb",
+          "9d0e7a39-f73f-4d51-a668-5ffa372869ad",
+          "f21b7957-e344-42e6-ab66-c1cb1b6bf0f0"
+        ],
+        "hit_at": {
+          "1": true,
+          "3": true,
+          "5": true,
+          "10": true
+        },
+        "recall_at": {
+          "1": 1.0,
+          "3": 1.0,
+          "5": 1.0,
+          "10": 1.0
+        },
+        "mrr": 1.0
+      }
+    },
+    {
+      "case_id": "logo",
+      "mode": "retrieval",
+      "scores": [
+        0.25520253,
+        0.23092882,
+        0.19673395,
+        0.15232232,
+        0.15081534,
+        0.14082025,
+        0.11772442,
+        0.107596986,
+        0.102583274,
+        0.10242157
+      ],
+      "metrics": {
+        "case_id": "logo",
+        "relevant_ranks": [
+          {
+            "image_id": "9ee2caca-4dc1-459a-952d-2465c2febcb0",
+            "rank": 1
+          }
+        ],
+        "ranked_ids": [
+          "9ee2caca-4dc1-459a-952d-2465c2febcb0",
+          "568eaf93-b970-4cd3-acb1-f8591e30fd20",
+          "58a38354-577f-4967-b09a-35801bc9d770",
+          "1d65a18d-10a6-4348-b394-abcbd883abec",
+          "6c2802a7-dbea-4d50-b990-dc5a376947fb",
+          "34294904-179c-4539-9283-6e5dd47e6019",
+          "1c13e4fe-f13f-404d-b3d3-c22c07b8e57a",
+          "ef072a4f-1642-4cac-ba84-0f4f5bf05e92",
+          "4d40b59a-f0bd-4eff-8f09-caf957f38003",
+          "a7d2c74f-7f24-402d-9cd1-052d736d6ca8"
+        ],
+        "hit_at": {
+          "1": true,
+          "3": true,
+          "5": true,
+          "10": true
+        },
+        "recall_at": {
+          "1": 1.0,
+          "3": 1.0,
+          "5": 1.0,
+          "10": 1.0
+        },
+        "mrr": 1.0
+      }
+    },
+    {
+      "case_id": "screenshot",
+      "mode": "retrieval",
+      "scores": [
+        0.15645286,
+        0.14174438,
+        0.14004225,
+        0.12420263,
+        0.123693645,
+        0.1213628,
+        0.11937757,
+        0.11839552,
+        0.11142501,
+        0.110615395
+      ],
+      "metrics": {
+        "case_id": "screenshot",
+        "relevant_ranks": [
+          {
+            "image_id": "9d0e7a39-f73f-4d51-a668-5ffa372869ad",
+            "rank": 3
+          },
+          {
+            "image_id": "2b9eae44-5375-402e-8f95-302263a1eca2",
+            "rank": null
+          },
+          {
+            "image_id": "089c9e5a-1add-40bb-823d-b3bae8646625",
+            "rank": null
+          },
+          {
+            "image_id": "1c13e4fe-f13f-404d-b3d3-c22c07b8e57a",
+            "rank": null
+          },
+          {
+            "image_id": "4a300a47-27f5-455f-a0b9-fec54a901b46",
+            "rank": null
+          },
+          {
+            "image_id": "8d5033db-b90d-4fee-94fc-de60ba222329",
+            "rank": null
+          },
+          {
+            "image_id": "b65d1578-8e16-4592-9e90-1cedcdaabb81",
+            "rank": null
+          },
+          {
+            "image_id": "00324a72-1b3b-42b1-abf4-13b2bc19a431",
+            "rank": null
+          }
+        ],
+        "ranked_ids": [
+          "cdcf40ff-be2c-4f31-b5e0-ef398c9706b1",
+          "bd3c6a56-a21e-4638-88bc-91acc7337c96",
+          "9d0e7a39-f73f-4d51-a668-5ffa372869ad",
+          "e7c4a317-b8ef-4f63-8458-9c1945a2b3fe",
+          "8b6fceca-fa0b-4488-9f0f-91d093639054",
+          "e58ca98f-39fe-45f1-a5d5-4679e5d1f888",
+          "1a9628e1-93f8-48f3-a9f5-bfef874ddd77",
+          "dd26a93a-957d-41bf-9141-141190007ac4",
+          "cac3f72d-d350-4af0-a583-c687fea90e87",
+          "568eaf93-b970-4cd3-acb1-f8591e30fd20"
+        ],
+        "hit_at": {
+          "1": false,
+          "3": true,
+          "5": true,
+          "10": true
+        },
+        "recall_at": {
+          "1": 0.0,
+          "3": 0.125,
+          "5": 0.125,
+          "10": 0.125
+        },
+        "mrr": 0.3333333333333333
+      }
+    },
+    {
+      "case_id": "military-veteran",
+      "mode": "retrieval",
+      "scores": [
+        0.35702986,
+        0.2616378,
+        0.2602113,
+        0.2118245,
+        0.16922764,
+        0.12742467,
+        0.10793502,
+        0.097467884,
+        0.07652507,
+        0.060180597
+      ],
+      "metrics": {
+        "case_id": "military-veteran",
+        "relevant_ranks": [
+          {
+            "image_id": "d31d4dbf-5f88-4049-9aeb-7fa027d9549d",
+            "rank": 1
+          },
+          {
+            "image_id": "b396384c-68aa-4567-8887-e86bd7e94415",
+            "rank": 2
+          },
+          {
+            "image_id": "32477ed8-2a9c-41a6-9dae-6d453f5ad8c6",
+            "rank": 8
+          },
+          {
+            "image_id": "d371a8bf-efbe-48c5-859d-3ea82e7653da",
+            "rank": 5
+          },
+          {
+            "image_id": "58a38354-577f-4967-b09a-35801bc9d770",
+            "rank": 3
+          },
+          {
+            "image_id": "602dae0d-1307-43bc-a458-b920e5e53b5f",
+            "rank": 10
+          },
+          {
+            "image_id": "a07e3175-8b41-4610-8af6-3adb044c1843",
+            "rank": 6
+          },
+          {
+            "image_id": "d47af46d-5304-4834-8065-d1561845b239",
+            "rank": 4
+          }
+        ],
+        "ranked_ids": [
+          "d31d4dbf-5f88-4049-9aeb-7fa027d9549d",
+          "b396384c-68aa-4567-8887-e86bd7e94415",
+          "58a38354-577f-4967-b09a-35801bc9d770",
+          "d47af46d-5304-4834-8065-d1561845b239",
+          "d371a8bf-efbe-48c5-859d-3ea82e7653da",
+          "a07e3175-8b41-4610-8af6-3adb044c1843",
+          "a61004cc-09b5-4936-a1f9-45f13cedc1a3",
+          "32477ed8-2a9c-41a6-9dae-6d453f5ad8c6",
+          "b46a3766-ad02-4ef5-a17c-3c8031177479",
+          "602dae0d-1307-43bc-a458-b920e5e53b5f"
+        ],
+        "hit_at": {
+          "1": true,
+          "3": true,
+          "5": true,
+          "10": true
+        },
+        "recall_at": {
+          "1": 0.125,
+          "3": 0.375,
+          "5": 0.625,
+          "10": 1.0
+        },
+        "mrr": 1.0
+      }
+    },
+    {
+      "case_id": "infographic-timeline",
+      "mode": "retrieval",
+      "scores": [
+        0.79675186,
+        0.044685133,
+        0.04239202,
+        0.04173098,
+        0.038397707,
+        0.037162386,
+        0.03402659,
+        0.031288605,
+        0.030240413,
+        0.030171758
+      ],
+      "metrics": {
+        "case_id": "infographic-timeline",
+        "relevant_ranks": [
+          {
+            "image_id": "02c31fad-8512-4d7c-80df-39eb5b7cb12a",
+            "rank": 1
+          }
+        ],
+        "ranked_ids": [
+          "02c31fad-8512-4d7c-80df-39eb5b7cb12a",
+          "ab23805b-9eb3-405d-89bf-25685d856189",
+          "15da4e9c-7f38-43f8-9fd4-21579281edbc",
+          "2341bc05-b168-4bc8-945a-41fc58b93f9b",
+          "33048ff9-fa48-449b-84c9-c2cfc82cc556",
+          "3c9d8968-6576-435f-850d-2e15279d212e",
+          "017eb541-9599-4db4-b718-a970a95974c9",
+          "661633b6-fd1d-4752-bd5f-180983012abd",
+          "4e1ae09c-01ce-42a4-8c51-abb918071c79",
+          "ef804325-1103-4c4e-98f3-61bfb7b35ae9"
+        ],
+        "hit_at": {
+          "1": true,
+          "3": true,
+          "5": true,
+          "10": true
+        },
+        "recall_at": {
+          "1": 1.0,
+          "3": 1.0,
+          "5": 1.0,
+          "10": 1.0
+        },
+        "mrr": 1.0
+      }
+    },
+    {
+      "case_id": "office-collaboration",
+      "mode": "retrieval",
+      "scores": [
+        0.756376,
+        0.6999322,
+        0.6947383,
+        0.6922474,
+        0.6803909,
+        0.67706895,
+        0.6745014,
+        0.6636041,
+        0.638588,
+        0.6334335
+      ],
+      "metrics": {
+        "case_id": "office-collaboration",
+        "relevant_ranks": [
+          {
+            "image_id": "f6a42488-e36a-4bba-b141-f3f77f93b810",
+            "rank": 4
+          },
+          {
+            "image_id": "e481e5cf-8005-40df-a7bd-47badc3f5856",
+            "rank": null
+          },
+          {
+            "image_id": "edd27954-ccda-4e70-bafe-f776be5ab864",
+            "rank": 8
+          },
+          {
+            "image_id": "22965c1a-ee2e-4234-b31c-d8109e6a6761",
+            "rank": 5
+          }
+        ],
+        "ranked_ids": [
+          "f21b7957-e344-42e6-ab66-c1cb1b6bf0f0",
+          "40990155-9b88-49a1-abbe-dee8c2827ca4",
+          "81c2b2e3-863e-4eab-8511-98adf7642346",
+          "f6a42488-e36a-4bba-b141-f3f77f93b810",
+          "22965c1a-ee2e-4234-b31c-d8109e6a6761",
+          "e58ca98f-39fe-45f1-a5d5-4679e5d1f888",
+          "4d0f7da2-8788-498e-aa17-a496668c5ff5",
+          "edd27954-ccda-4e70-bafe-f776be5ab864",
+          "ccc8b394-0030-438f-b09a-80817e562ea8",
+          "9f4ac0f8-ab8b-45f2-8b44-e07c1fef4aca"
+        ],
+        "hit_at": {
+          "1": false,
+          "3": false,
+          "5": true,
+          "10": true
+        },
+        "recall_at": {
+          "1": 0.0,
+          "3": 0.0,
+          "5": 0.5,
+          "10": 0.75
+        },
+        "mrr": 0.25
+      }
+    }
+  ]
+}

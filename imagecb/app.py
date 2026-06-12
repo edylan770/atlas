@@ -90,6 +90,11 @@ def _format_ingest_summary(stats: dict, *, staged: int, stage_errors: list[str])
         f"duplicates={stats.get('skipped_duplicates', 0)}, "
         f"errors={stats.get('errors', 0)}."
     )
+    from imagecb.repair import format_post_repair_summary
+
+    repair_line = format_post_repair_summary(stats.get("post_repair") or {})
+    if repair_line:
+        lines.append(f"**{repair_line}**")
     lines.append(
         "_PPTX/PDF: only embedded raster images are indexed. "
         "Re-upload with **Force re-ingest** to refresh captions._"

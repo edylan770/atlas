@@ -7,7 +7,6 @@ image, etc.) so ingestion never breaks on OCR alone.
 from __future__ import annotations
 
 import logging
-from typing import Optional
 
 from PIL import Image
 

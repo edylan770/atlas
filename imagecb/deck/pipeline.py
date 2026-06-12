@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import logging
 from dataclasses import dataclass, field
-from pathlib import Path
 from typing import List, Optional
 
 from imagecb.deck import cache as deck_cache
@@ -85,6 +84,7 @@ def _refresh_suggestions_from_manifest(
     *,
     top_k: int,
     min_match_percent: int,
+    sort: str = "relevance",
 ) -> List[SlideSuggestion]:
     """Re-run search for manifest slides when request params or corpus changed."""
     suggestions: List[SlideSuggestion] = []
@@ -104,6 +104,7 @@ def _refresh_suggestions_from_manifest(
                 llm_out,
                 top_k=top_k,
                 min_match_percent=min_match_percent,
+                sort=sort,
             )
         suggestions.append(
             _build_suggestion_from_manifest_entry(
@@ -173,6 +174,7 @@ def _run_search_for_slide(
     *,
     top_k: int,
     min_match_percent: int,
+    sort: str = "relevance",
 ) -> tuple[List[dict], bool]:
     if llm_out.status != "image_needed" or not llm_out.description:
         return [], False
@@ -181,6 +183,7 @@ def _run_search_for_slide(
         llm_out.description,
         top_k=top_k,
         min_match_percent=min_match_percent,
+        sort=sort,
     )
     cached_results = deck_cache.get_slide_search_cache(slide.content_hash, search_fp)
     if cached_results is not None:
@@ -190,6 +193,7 @@ def _run_search_for_slide(
         llm_out.description,
         top_k=top_k,
         min_match_percent=min_match_percent,
+        sort=sort,
     )
     result_dicts = result_cards_to_dicts(cards)
     deck_cache.put_slide_search_cache(
@@ -210,7 +214,11 @@ def process_deck_upload(
     *,
     top_k: int = 10,
     min_match_percent: int = 0,
+    sort: Optional[str] = None,
 ) -> DeckSuggestResult:
+    from imagecb.retrieval.sort import resolve_sort
+
+    resolved_sort = resolve_sort(sort, is_search=True)
     indexed = vector_store.count()
     if indexed == 0:
         raise ValueError(
@@ -229,6 +237,7 @@ def process_deck_upload(
     req_fp = deck_cache.request_fingerprint(
         top_k=top_k,
         min_match_percent=min_match_percent,
+        sort=resolved_sort,
     )
     manifest = deck_cache.get_deck_manifest(d_hash)
     if manifest is not None and manifest.slides:
@@ -246,6 +255,7 @@ def process_deck_upload(
             manifest.slides,
             top_k=top_k,
             min_match_percent=min_match_percent,
+            sort=resolved_sort,
         )
         refreshed_entries = _manifest_entries_from_slides(suggestions)
         orig_by_index = {int(e.get("slide_index", 0)): e for e in manifest.slides}
@@ -304,6 +314,7 @@ def process_deck_upload(
                 llm_out,
                 top_k=top_k,
                 min_match_percent=min_match_percent,
+                sort=resolved_sort,
             )
 
         suggestions.append(
@@ -345,8 +356,12 @@ def force_slide_image(
     *,
     top_k: int = 10,
     min_match_percent: int = 0,
+    sort: Optional[str] = None,
 ) -> SlideSuggestion:
     """Force image suggestion for one slide (re-LLM + search)."""
+    from imagecb.retrieval.sort import resolve_sort
+
+    resolved_sort = resolve_sort(sort, is_search=True)
     manifest = deck_cache.get_deck_manifest(deck_hash_value)
     if manifest is None:
         raise ValueError("Deck not found in cache; re-upload the presentation.")
@@ -380,6 +395,7 @@ def force_slide_image(
         llm_out,
         top_k=top_k,
         min_match_percent=min_match_percent,
+        sort=resolved_sort,
     )
 
     suggestion = SlideSuggestion(
@@ -411,6 +427,7 @@ def force_slide_image(
         request_fingerprint=deck_cache.request_fingerprint(
             top_k=top_k,
             min_match_percent=min_match_percent,
+            sort=resolved_sort,
         ),
     )
 

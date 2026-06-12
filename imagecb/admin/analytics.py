@@ -39,7 +39,6 @@ def _event_dict(row: SearchEvent, *, category: str) -> dict:
     except json.JSONDecodeError:
         served = []
     user_message = (row.query_text or "").strip()
-    semantic = (row.parsed_semantic_query or "").strip()
     return {
         "search_event_id": row.id,
         "created_at": row.created_at.isoformat() if row.created_at else None,

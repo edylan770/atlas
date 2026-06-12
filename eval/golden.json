@@ -1,0 +1,266 @@
+{
+  "version": 1,
+  "text_cases": [
+    {
+      "id": "sdlc",
+      "query": "sdlc",
+      "relevant_ids": [
+        "15da4e9c-7f38-43f8-9fd4-21579281edbc",
+        "92f59ad2-1bd7-4e03-9099-85f29b95430a",
+        "9cd1ead9-5733-446b-893d-f3ac80094049",
+        "8b6fceca-fa0b-4488-9f0f-91d093639054",
+        "4e1ae09c-01ce-42a4-8c51-abb918071c79",
+        "9d0e7a39-f73f-4d51-a668-5ffa372869ad",
+        "089c9e5a-1add-40bb-823d-b3bae8646625"
+      ],
+      "top_k": 10,
+      "template": false,
+      "short_query": true,
+      "notes": "Auto-labeled 7 ids from caption/tag match"
+    },
+    {
+      "id": "flowchart",
+      "query": "flowchart",
+      "relevant_ids": [
+        "02c31fad-8512-4d7c-80df-39eb5b7cb12a"
+      ],
+      "top_k": 10,
+      "template": false,
+      "short_query": true,
+      "notes": "Auto-labeled 1 ids from caption/tag match"
+    },
+    {
+      "id": "diagram",
+      "query": "diagram",
+      "relevant_ids": [
+        "35b47782-d2ac-4e4f-b748-c4401209d3b0"
+      ],
+      "top_k": 10,
+      "template": false,
+      "short_query": true,
+      "notes": "Auto-labeled 1 ids from caption/tag match"
+    },
+    {
+      "id": "presentation",
+      "query": "presentation",
+      "relevant_ids": [
+        "a1084b9b-0b14-42cb-b105-140f84785818",
+        "edd27954-ccda-4e70-bafe-f776be5ab864",
+        "17410011-f141-4738-8a99-70ac40b77e08"
+      ],
+      "top_k": 10,
+      "template": false,
+      "notes": "Hand-tightened to 3 presentation-scene images"
+    },
+    {
+      "id": "office-worker-giving-a-presentation",
+      "query": "office worker giving a presentation",
+      "relevant_ids": [
+        "edd27954-ccda-4e70-bafe-f776be5ab864",
+        "17410011-f141-4738-8a99-70ac40b77e08",
+        "22965c1a-ee2e-4234-b31c-d8109e6a6761",
+        "b24ea7cc-8660-473d-8843-c670ccf05573",
+        "e481e5cf-8005-40df-a7bd-47badc3f5856",
+        "83837dda-955c-4ac7-bb80-5e3f644389fd",
+        "80fe45a4-f6a4-479f-bbff-f1a8c2913059",
+        "017eb541-9599-4db4-b718-a970a95974c9"
+      ],
+      "top_k": 10,
+      "template": false,
+      "notes": "Auto-labeled 8 ids from caption/tag match"
+    },
+    {
+      "id": "software-developer",
+      "query": "software developer",
+      "relevant_ids": [
+        "15da4e9c-7f38-43f8-9fd4-21579281edbc",
+        "92f59ad2-1bd7-4e03-9099-85f29b95430a",
+        "9d0e7a39-f73f-4d51-a668-5ffa372869ad",
+        "9cd1ead9-5733-446b-893d-f3ac80094049",
+        "8b6fceca-fa0b-4488-9f0f-91d093639054",
+        "dd3beef9-c8ff-4ec9-bb8c-1336e4386014",
+        "4e1ae09c-01ce-42a4-8c51-abb918071c79"
+      ],
+      "top_k": 10,
+      "template": false,
+      "notes": "Auto-labeled 7 ids from caption/tag match"
+    },
+    {
+      "id": "dashboard",
+      "query": "dashboard",
+      "relevant_ids": [
+        "5638ddca-6a7d-462e-a781-47490bf5283c",
+        "b6b690b2-8956-487b-8486-74de4ee174c3",
+        "89bd6754-0163-4c75-8112-1273f222b73e",
+        "4a300a47-27f5-455f-a0b9-fec54a901b46",
+        "38b9b61b-3e27-4aad-a6f3-cfacae92e48d",
+        "a08ce3bd-b905-4c92-8cb9-3b248101f001",
+        "33d1fa1f-cc82-4b27-b175-3a3167bcbaf5",
+        "097362a1-dfaa-4528-91d4-d9c51526e3dd"
+      ],
+      "top_k": 10,
+      "template": false,
+      "notes": "Auto-labeled 8 ids from caption/tag match"
+    },
+    {
+      "id": "cybersecurity",
+      "query": "cybersecurity",
+      "relevant_ids": [
+        "44325c39-15c1-44ce-89cf-d4055bd2ebe5",
+        "e7c4a317-b8ef-4f63-8458-9c1945a2b3fe",
+        "4fffb1d3-60a2-46f7-9270-4751cc6c2ed4",
+        "2c7b79f1-5990-41c2-b486-c20e96109079",
+        "e728e84a-14f2-4106-9c42-d443fe142292",
+        "a1084b9b-0b14-42cb-b105-140f84785818",
+        "aedb9d55-ef81-421a-9f8e-ad409e7bee14",
+        "58abc1b7-429c-4054-bb33-24347b23953a"
+      ],
+      "top_k": 10,
+      "template": false,
+      "notes": "Auto-labeled 8 ids from caption/tag match"
+    },
+    {
+      "id": "team-meeting",
+      "query": "team meeting",
+      "relevant_ids": [
+        "edd27954-ccda-4e70-bafe-f776be5ab864",
+        "17410011-f141-4738-8a99-70ac40b77e08",
+        "22965c1a-ee2e-4234-b31c-d8109e6a6761",
+        "55abb672-c1db-43f8-adb3-94f756ce1161",
+        "2e5e6f9e-aac7-4d5e-a4f5-3bb5f06ea473",
+        "e481e5cf-8005-40df-a7bd-47badc3f5856",
+        "ccc8b394-0030-438f-b09a-80817e562ea8",
+        "e58ca98f-39fe-45f1-a5d5-4679e5d1f888"
+      ],
+      "top_k": 10,
+      "template": false,
+      "notes": "Auto-labeled 8 ids from caption/tag match"
+    },
+    {
+      "id": "financial-chart",
+      "query": "financial chart",
+      "relevant_ids": [
+        "80fe45a4-f6a4-479f-bbff-f1a8c2913059",
+        "017eb541-9599-4db4-b718-a970a95974c9",
+        "7380ec92-3b7d-4831-8e4f-516992dbb8b0",
+        "d9be3d92-6744-4680-880d-0907781f45f4",
+        "4a300a47-27f5-455f-a0b9-fec54a901b46",
+        "dae636a7-9aba-464a-bc90-f60fe18835d0",
+        "5638ddca-6a7d-462e-a781-47490bf5283c",
+        "4fffb1d3-60a2-46f7-9270-4751cc6c2ed4"
+      ],
+      "top_k": 10,
+      "template": false,
+      "notes": "Auto-labeled 8 ids from caption/tag match"
+    },
+    {
+      "id": "architecture-diagram",
+      "query": "architecture diagram",
+      "relevant_ids": [
+        "35b47782-d2ac-4e4f-b748-c4401209d3b0",
+        "36fedde0-0f2c-40fb-8861-ecb056b3baa9"
+      ],
+      "top_k": 10,
+      "template": false,
+      "notes": "Auto-labeled 2 ids from caption/tag match"
+    },
+    {
+      "id": "data-visualization",
+      "query": "data visualization",
+      "relevant_ids": [
+        "4a300a47-27f5-455f-a0b9-fec54a901b46",
+        "7a5068f7-fe1c-4546-97c0-c3b81b3eefd7",
+        "dae636a7-9aba-464a-bc90-f60fe18835d0",
+        "5638ddca-6a7d-462e-a781-47490bf5283c",
+        "4fffb1d3-60a2-46f7-9270-4751cc6c2ed4",
+        "1f54ef5f-7112-418b-ae4b-808a7ccb4223",
+        "b6b690b2-8956-487b-8486-74de4ee174c3",
+        "904d4981-d01c-45ab-96a5-a0fc0b0b2464"
+      ],
+      "top_k": 10,
+      "template": false,
+      "notes": "Auto-labeled 8 ids from caption/tag match"
+    },
+    {
+      "id": "kanban",
+      "query": "kanban",
+      "relevant_ids": [
+        "ab23805b-9eb3-405d-89bf-25685d856189"
+      ],
+      "top_k": 10,
+      "template": false,
+      "short_query": true,
+      "notes": "Auto-labeled 1 ids from caption/tag match"
+    },
+    {
+      "id": "logo",
+      "query": "logo",
+      "relevant_ids": [
+        "9ee2caca-4dc1-459a-952d-2465c2febcb0"
+      ],
+      "top_k": 10,
+      "template": false,
+      "short_query": true,
+      "notes": "Auto-labeled 1 ids from caption/tag match"
+    },
+    {
+      "id": "screenshot",
+      "query": "screenshot",
+      "relevant_ids": [
+        "9d0e7a39-f73f-4d51-a668-5ffa372869ad",
+        "2b9eae44-5375-402e-8f95-302263a1eca2",
+        "089c9e5a-1add-40bb-823d-b3bae8646625",
+        "1c13e4fe-f13f-404d-b3d3-c22c07b8e57a",
+        "4a300a47-27f5-455f-a0b9-fec54a901b46",
+        "8d5033db-b90d-4fee-94fc-de60ba222329",
+        "b65d1578-8e16-4592-9e90-1cedcdaabb81",
+        "00324a72-1b3b-42b1-abf4-13b2bc19a431"
+      ],
+      "top_k": 10,
+      "template": false,
+      "short_query": true,
+      "notes": "Auto-labeled 8 ids from caption/tag match"
+    },
+    {
+      "id": "military-veteran",
+      "query": "military veteran",
+      "relevant_ids": [
+        "d31d4dbf-5f88-4049-9aeb-7fa027d9549d",
+        "b396384c-68aa-4567-8887-e86bd7e94415",
+        "32477ed8-2a9c-41a6-9dae-6d453f5ad8c6",
+        "d371a8bf-efbe-48c5-859d-3ea82e7653da",
+        "58a38354-577f-4967-b09a-35801bc9d770",
+        "602dae0d-1307-43bc-a458-b920e5e53b5f",
+        "a07e3175-8b41-4610-8af6-3adb044c1843",
+        "d47af46d-5304-4834-8065-d1561845b239"
+      ],
+      "top_k": 10,
+      "template": false,
+      "notes": "Auto-labeled 8 ids from caption/tag match"
+    },
+    {
+      "id": "infographic-timeline",
+      "query": "infographic timeline",
+      "relevant_ids": [
+        "02c31fad-8512-4d7c-80df-39eb5b7cb12a"
+      ],
+      "top_k": 10,
+      "template": false,
+      "notes": "Auto-labeled 1 ids from caption/tag match"
+    },
+    {
+      "id": "office-collaboration",
+      "query": "office collaboration",
+      "relevant_ids": [
+        "f6a42488-e36a-4bba-b141-f3f77f93b810",
+        "e481e5cf-8005-40df-a7bd-47badc3f5856",
+        "edd27954-ccda-4e70-bafe-f776be5ab864",
+        "22965c1a-ee2e-4234-b31c-d8109e6a6761"
+      ],
+      "top_k": 10,
+      "template": false,
+      "notes": "Hand-tightened to 4 collaboration-scene images"
+    }
+  ],
+  "similar_cases": []
+}

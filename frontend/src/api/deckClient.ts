@@ -1,5 +1,5 @@
 import { getUserId } from "./telemetry";
-import type { DeckForceResponse, DeckSuggestResponse } from "../types";
+import type { DeckForceResponse, DeckSuggestResponse, ResultSort } from "../types";
 
 function withUserHeaders(init?: RequestInit): RequestInit {
   const headers: Record<string, string> = {
@@ -31,6 +31,7 @@ async function deckRequest<T>(path: string, init?: RequestInit): Promise<T> {
 export interface DeckSuggestOptions {
   topK?: number;
   minMatchPercent?: number;
+  sort?: ResultSort;
 }
 
 export async function suggestDeck(
@@ -41,6 +42,7 @@ export async function suggestDeck(
   form.append("file", file);
   form.append("top_k", String(options.topK ?? 10));
   form.append("min_match_percent", String(options.minMatchPercent ?? 0));
+  if (options.sort) form.append("sort", options.sort);
   return deckRequest<DeckSuggestResponse>("/api/deck/suggest", {
     method: "POST",
     body: form,
@@ -60,6 +62,7 @@ export async function forceDeckSlide(
       slide_index: slideIndex,
       top_k: options.topK ?? 10,
       min_match_percent: options.minMatchPercent ?? 0,
+      sort: options.sort,
     }),
   });
 }

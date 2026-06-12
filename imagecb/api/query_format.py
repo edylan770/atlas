@@ -29,6 +29,7 @@ def spec_to_parsed_query(
         must_avoid_keywords=list(spec.must_avoid_keywords),
         source_filters=SourceFiltersOut(
             file_types=list(spec.source_filters.file_types),
+            asset_types=list(spec.source_filters.asset_types),
             filename_contains=list(spec.source_filters.filename_contains),
             authors=list(spec.source_filters.authors),
         ),

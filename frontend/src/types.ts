@@ -8,6 +8,8 @@ export interface Provenance {
   chips: string[];
 }
 
+export type ResultSort = "relevance" | "newest" | "oldest" | "name" | "source";
+
 export interface ResultCard {
   rank: number;
   image_id: string;
@@ -24,6 +26,8 @@ export interface ResultCard {
   source_url?: string | null;
   source_location?: string;
   source_path?: string | null;
+  created_at?: string | null;
+  asset_type?: string;
 }
 
 export interface CatalogItem {
@@ -35,6 +39,9 @@ export interface CatalogItem {
   recommended_cases: string[];
   caption: string;
   source_name: string;
+  source_file?: string;
+  created_at?: string | null;
+  asset_type?: string;
 }
 
 export interface CorpusCatalogResponse {
@@ -51,6 +58,7 @@ export interface ParsedQuery {
   must_avoid_keywords: string[];
   source_filters: {
     file_types: string[];
+    asset_types: string[];
     filename_contains: string[];
     authors: string[];
   };
@@ -66,6 +74,7 @@ export interface ChatResponse {
   results: ResultCard[];
   parsed_query?: ParsedQuery | null;
   search_event_id?: string | null;
+  follow_up_suggestions?: string[];
 }
 
 export interface SimilarResponse {
@@ -86,7 +95,7 @@ export interface ChatStreamMetadata {
 export interface ChatStreamCallbacks {
   onMetadata: (data: ChatStreamMetadata) => void;
   onToken: (text: string) => void;
-  onDone: (assistantMessage: string) => void;
+  onDone: (assistantMessage: string, followUpSuggestions: string[]) => void;
   onError: (detail: string) => void;
 }
 
@@ -103,6 +112,7 @@ export interface ConversationTurn {
   results: ResultCard[];
   parsedQuery: ParsedQuery | null;
   searchEventId?: string | null;
+  followUpSuggestions?: string[];
 }
 
 export interface Conversation {
@@ -116,6 +126,12 @@ export interface Conversation {
 
 export interface StatusResponse {
   indexed_count: number;
+  total_records?: number;
+  chroma_vectors?: number;
+  text_vector_count?: number;
+  bm25_doc_count?: number;
+  is_healthy?: boolean;
+  stores_in_sync?: boolean;
 }
 
 export interface SuggestionsResponse {

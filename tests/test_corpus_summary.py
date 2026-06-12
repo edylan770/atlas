@@ -19,6 +19,8 @@ def _record(
     source_type: str = "pptx",
     author: str = "Alice",
     caption_short: str = "A bar chart",
+    tags_json: str | None = '["chart", "bar"]',
+    recommended_cases_json: str | None = '["Find bar charts"]',
     modified: datetime | None = None,
 ):
     return SimpleNamespace(
@@ -26,6 +28,8 @@ def _record(
         source_type=source_type,
         author=author,
         caption_short=caption_short,
+        tags_json=tags_json,
+        recommended_cases_json=recommended_cases_json,
         source_modified_at=modified or datetime(2024, 6, 1),
     )
 
@@ -70,3 +74,31 @@ def test_build_corpus_context_calls_db(mock_get):
     ctx = build_corpus_context()
     assert ctx.indexed_count == 1
     mock_get.assert_called_once()
+
+
+def test_summarize_records_includes_tags_and_recommended_cases():
+    records = [
+        _record(tags_json='["chart", "revenue"]', recommended_cases_json='["Show revenue charts"]'),
+        _record(tags_json='["chart", "sales"]', recommended_cases_json='["Quarterly sales"]'),
+    ]
+    ctx = _summarize_records(records)
+    assert "chart" in ctx.top_tags
+    assert "Show revenue charts" in ctx.sample_recommended_cases
+
+
+def test_context_to_prompt_text_includes_tags_and_cases():
+    ctx = _summarize_records([_record()])
+    text = context_to_prompt_text(ctx)
+    assert "chart" in text
+    assert "Find bar charts" in text
+
+
+def test_context_to_prompt_text_deemphasizes_filenames():
+    ctx = _summarize_records([_record(source_file="/data/report.pptx")])
+    text = context_to_prompt_text(ctx)
+    tags_pos = text.find("Common tags")
+    sources_pos = text.find("Top source files")
+    assert tags_pos != -1
+    assert sources_pos != -1
+    assert tags_pos < sources_pos
+    assert "do not suggest filename-filter" in text

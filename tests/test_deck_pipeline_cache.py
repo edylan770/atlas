@@ -100,10 +100,10 @@ def test_manifest_refresh_when_top_k_changes(pipeline_env):
 
     call_count = {"n": 0}
 
-    def fake_request_fp(*, top_k: int, min_match_percent: int) -> str:
+    def fake_request_fp(*, top_k: int, min_match_percent: int, sort: str = "relevance") -> str:
         return f"k{top_k}"
 
-    def fake_run_search(slide, llm_out, *, top_k, min_match_percent):
+    def fake_run_search(slide, llm_out, *, top_k, min_match_percent, sort="relevance"):
         call_count["n"] += 1
         return fresh_results, False
 

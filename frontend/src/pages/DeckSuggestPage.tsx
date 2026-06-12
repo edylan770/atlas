@@ -7,13 +7,16 @@ import {
 } from "../api/deckClient";
 import { AtlasAcronymLine, AtlasWordmark } from "../components/AtlasBranding";
 import { DeckSlideCard } from "../components/DeckSlideCard";
-import type { DeckSuggestResponse, SlideDecision, SlideSuggestion } from "../types";
+import { SortSelect } from "../components/SortSelect";
+import type { DeckSuggestResponse, ResultSort, SlideDecision, SlideSuggestion } from "../types";
+import { defaultSearchSort } from "../sortResults";
 
 export default function DeckSuggestPage() {
   const [indexedCount, setIndexedCount] = useState(0);
   const [file, setFile] = useState<File | null>(null);
   const [topK, setTopK] = useState(10);
   const [minMatchPercent, setMinMatchPercent] = useState(0);
+  const [sortBy, setSortBy] = useState<ResultSort>(defaultSearchSort());
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [response, setResponse] = useState<DeckSuggestResponse | null>(null);
@@ -44,7 +47,7 @@ export default function DeckSuggestPage() {
     setLoading(true);
     setError(null);
     try {
-      const res = await suggestDeck(file, { topK, minMatchPercent });
+      const res = await suggestDeck(file, { topK, minMatchPercent, sort: sortBy });
       setResponse(res);
       setDecisions(loadSlideDecisions(res.deck_hash));
     } catch (e) {
@@ -53,7 +56,7 @@ export default function DeckSuggestPage() {
     } finally {
       setLoading(false);
     }
-  }, [file, topK, minMatchPercent]);
+  }, [file, topK, minMatchPercent, sortBy]);
 
   const updateSlide = (updated: SlideSuggestion) => {
     setResponse((prev) => {
@@ -154,6 +157,7 @@ export default function DeckSuggestPage() {
                 className="ml-2 w-16 rounded border border-navy-200 px-2 py-1"
               />
             </label>
+            <SortSelect value={sortBy} onChange={setSortBy} disabled={loading} />
             <button
               type="button"
               onClick={() => void runSuggest()}
@@ -188,6 +192,7 @@ export default function DeckSuggestPage() {
                 decision={decisions[slide.slide_index]}
                 topK={topK}
                 minMatchPercent={minMatchPercent}
+                sort={sortBy}
                 onDecision={setDecision}
                 onSlideUpdate={updateSlide}
               />

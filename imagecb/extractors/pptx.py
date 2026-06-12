@@ -6,14 +6,23 @@ import io
 import logging
 from datetime import datetime
 from pathlib import Path
-from typing import Iterator, Optional
+from typing import Iterator
 
 from PIL import Image
 
-from .pptx_text import slide_notes, slide_title
+from .pptx_text import slide_body_text, slide_notes, slide_title
 from .types import ExtractedImage, Provenance
 
 logger = logging.getLogger(__name__)
+
+_MAX_BODY_CHARS = 1500
+
+
+def _truncate(text: str, limit: int) -> str:
+    text = (text or "").strip()
+    if len(text) <= limit:
+        return text
+    return text[: limit - 3].rstrip() + "..."
 
 
 def _iter_picture_shapes(shapes):
@@ -50,6 +59,7 @@ def extract(path: Path) -> Iterator[ExtractedImage]:
     for slide_idx, slide in enumerate(prs.slides, start=1):
         title = slide_title(slide)
         notes = slide_notes(slide)
+        body = _truncate(slide_body_text(slide, title=title), _MAX_BODY_CHARS)
         for shape in _iter_picture_shapes(slide.shapes):
             try:
                 blob = shape.image.blob
@@ -67,5 +77,6 @@ def extract(path: Path) -> Iterator[ExtractedImage]:
                 slide_index=slide_idx,
                 slide_title=title,
                 slide_notes=notes,
+                extra={"slide_body_text": body} if body else {},
             )
             yield ExtractedImage(image=img, provenance=provenance)

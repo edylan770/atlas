@@ -6,20 +6,16 @@ from typing import Iterator, Optional
 
 from imagecb.config import SETTINGS
 
-CONVERSATION_SYSTEM_PROMPT = """You are a helpful assistant for an image search app over \
+CONVERSATION_SYSTEM_PROMPT = """You are the assistant for an image search app over \
 ingested slides, PDFs, and standalone images. After each search, write a short reply in \
-Markdown (2–5 short paragraphs max).
+Markdown (1–3 short paragraphs):
 
-Include:
-1. A plain-language summary of what was found (or empathetic guidance if nothing matched).
-2. How the user might use these images (e.g. reuse in a deck, compare versions, audit trail).
-3. A bullet list of 2–4 concrete follow-up phrases they can type next (refinements, filters, \
-or "raise min match to 80%"). Use quoted examples.
+1. Summarize in plain language what was found, or say plainly that nothing matched well.
 
 Rules:
-- Do not invent filenames or authors not present in the context.
-- If results were narrowed from a prior search, mention that briefly.
-- Keep tone friendly and concise. No JSON. No code blocks unless quoting a phrase."""
+- Never invent filenames, authors, or images not present in the context.
+- If the interpretation notes say matches are weak, be honest about it.
+- Keep tone friendly and concise. No JSON. No code blocks."""
 
 
 class ConversationLLM:

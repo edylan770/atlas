@@ -85,22 +85,3 @@ export function lastTurn(turns: ConversationTurn[]): ConversationTurn | null {
   return turns.length > 0 ? turns[turns.length - 1]! : null;
 }
 
-/** Recent conversation titles for dynamic empty-state suggestions. */
-export function recentChatTitles(
-  conversations: Conversation[],
-  limit = 8,
-): string[] {
-  const sorted = [...conversations].sort((a, b) => b.updatedAt - a.updatedAt);
-  const seen = new Set<string>();
-  const out: string[] = [];
-  for (const c of sorted) {
-    const t = c.title.trim();
-    if (!t || t.toLowerCase() === "new chat") continue;
-    const key = t.toLowerCase();
-    if (seen.has(key)) continue;
-    seen.add(key);
-    out.push(t);
-    if (out.length >= limit) break;
-  }
-  return out;
-}
