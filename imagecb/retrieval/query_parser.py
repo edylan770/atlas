@@ -4,10 +4,12 @@ from __future__ import annotations
 
 import json
 import logging
+import re
 from dataclasses import dataclass, field
 from datetime import date, datetime
 from typing import TYPE_CHECKING, List, Optional
 
+from imagecb.caption.asset_type import normalize_asset_types
 from imagecb.config import SETTINGS
 from imagecb.models.llm import get_query_llm
 
@@ -20,6 +22,7 @@ logger = logging.getLogger(__name__)
 @dataclass
 class SourceFilters:
     file_types: List[str] = field(default_factory=list)
+    asset_types: List[str] = field(default_factory=list)
     filename_contains: List[str] = field(default_factory=list)
     authors: List[str] = field(default_factory=list)
 
@@ -40,6 +43,7 @@ class QuerySpec:
     top_k: int = 10
     is_refinement: bool = False
     raw_text: str = ""
+    sanitization_notes: List[str] = field(default_factory=list)
 
 
 @dataclass
@@ -56,6 +60,7 @@ def _serialize_previous_spec(spec: QuerySpec) -> str:
     payload = {
         "source_filters": {
             "file_types": list(sf.file_types),
+            "asset_types": list(sf.asset_types),
             "filename_contains": list(sf.filename_contains),
             "authors": list(sf.authors),
         },
@@ -132,6 +137,127 @@ def _normalize_file_types(values: List[str]) -> List[str]:
     return out
 
 
+# Explicit source-format filter language (not bare content words like "diagram").
+_EXPLICIT_ASSET_FILTER_RE = re.compile(
+    r"\b(?:only|just|exclude|excluding|without|no|not)\s+(?:the\s+)?"
+    r"(?:photos?|pictures?|diagrams?|flowcharts?|charts?|graphs?|screenshots?|"
+    r"logos?|illustrations?|icons?|tables?|maps?)\b"
+    r"|\b(?:photos?|pictures?|diagrams?|flowcharts?|charts?|graphs?|screenshots?|"
+    r"logos?|illustrations?|icons?|tables?|maps?)\s+only\b",
+    re.IGNORECASE,
+)
+
+_EXPLICIT_FILE_TYPE_RE = re.compile(
+    r"\b(?:pptx|powerpoint|power[\s-]?point|\.pptx?|pdf|\.pdf|image\s+files?|"
+    r"(?:pptx|pdf|image)\s+(?:files?|only)|only\s+(?:pptx|pdf|image)(?:\s+files?)?)\b",
+    re.IGNORECASE,
+)
+
+# Corpus is "unclassified" when most rows lack asset_type metadata.
+_ASSET_TYPE_UNCLASSIFIED_THRESHOLD = 0.5
+
+
+def _user_explicitly_requested_asset_types(text: str) -> bool:
+    return bool(_EXPLICIT_ASSET_FILTER_RE.search(text or ""))
+
+
+def _user_explicitly_requested_file_types(text: str) -> bool:
+    return bool(_EXPLICIT_FILE_TYPE_RE.search(text or ""))
+
+
+def _corpus_asset_type_unclassified_rate() -> float:
+    from sqlalchemy import func, select
+
+    from imagecb.storage.metadata_db import ImageRecord, get_engine, session_scope
+
+    get_engine()
+    with session_scope() as s:
+        total = s.execute(
+            select(func.count())
+            .select_from(ImageRecord)
+            .where(ImageRecord.deleted_at.is_(None))
+        ).scalar() or 0
+        if total == 0:
+            return 1.0
+        classified = s.execute(
+            select(func.count())
+            .select_from(ImageRecord)
+            .where(
+                ImageRecord.deleted_at.is_(None),
+                ImageRecord.asset_type.isnot(None),
+                ImageRecord.asset_type != "",
+            )
+        ).scalar() or 0
+    return 1.0 - (classified / total)
+
+
+def _file_type_filter_has_index_coverage(file_types: List[str]) -> bool:
+    if not file_types:
+        return True
+    from imagecb.storage import metadata_db, vector_store
+
+    ids = metadata_db.filter_image_ids(file_types=file_types)
+    if not ids:
+        return False
+    active = set(metadata_db.get_active_image_ids())
+    ids = [i for i in ids if i in active]
+    if not ids:
+        return False
+    embeddings = vector_store.get_embeddings(ids)
+    return any(embeddings.get(i) is not None for i in ids)
+
+
+def sanitize_query_spec(spec: QuerySpec) -> QuerySpec:
+    """Strip LLM-inferred metadata filters that would search empty corpus subsets."""
+    raw = (spec.raw_text or "").strip()
+    notes: List[str] = list(spec.sanitization_notes)
+    sf = spec.source_filters
+
+    if sf.asset_types:
+        strip = False
+        reason = ""
+        if not _user_explicitly_requested_asset_types(raw):
+            strip = True
+            reason = "asset type filter was inferred from content words, not an explicit request"
+        elif _corpus_asset_type_unclassified_rate() >= _ASSET_TYPE_UNCLASSIFIED_THRESHOLD:
+            strip = True
+            reason = "corpus asset types are not populated enough for format filtering"
+        if strip:
+            logger.warning(
+                "Stripped asset_types %s from query %r (%s).",
+                sf.asset_types,
+                raw,
+                reason,
+            )
+            sf.asset_types = []
+            notes.append(f"Removed asset type filter ({reason}).")
+
+    if sf.file_types:
+        strip = False
+        reason = ""
+        if not _user_explicitly_requested_file_types(raw):
+            strip = True
+            reason = "file type filter was inferred, not explicitly requested"
+        elif not _file_type_filter_has_index_coverage(sf.file_types):
+            strip = True
+            reason = "filtered file types have no indexed images"
+        if strip:
+            logger.warning(
+                "Stripped file_types %s from query %r (%s).",
+                sf.file_types,
+                raw,
+                reason,
+            )
+            sf.file_types = []
+            notes.append(f"Removed file type filter ({reason}).")
+
+    if not (spec.semantic_query or "").strip() and raw:
+        spec.semantic_query = raw
+
+    spec.sanitization_notes = notes
+    return spec
+
+
 def parse_query(
     text: str,
     history_summary: str = "",
@@ -141,7 +267,7 @@ def parse_query(
     """Use the LLM to convert `text` into a validated `QuerySpec`."""
     text = (text or "").strip()
     if not text:
-        return QuerySpec(raw_text=text)
+        return sanitize_query_spec(QuerySpec(raw_text=text))
 
     today_iso = date.today().isoformat()
     prev_spec_json = ""
@@ -161,9 +287,9 @@ def parse_query(
         )
     except Exception as exc:  # noqa: BLE001
         logger.warning("Query LLM failed (%s); falling back to literal query.", exc)
-        return QuerySpec(semantic_query=text, raw_text=text)
+        return sanitize_query_spec(QuerySpec(semantic_query=text, raw_text=text))
 
-    return _build_spec(raw, text)
+    return sanitize_query_spec(_build_spec(raw, text))
 
 
 def _build_spec(raw: dict, original_text: str) -> QuerySpec:
@@ -175,6 +301,7 @@ def _build_spec(raw: dict, original_text: str) -> QuerySpec:
         must_avoid_keywords=_slist(raw.get("must_avoid_keywords")),
         source_filters=SourceFilters(
             file_types=_normalize_file_types(_slist(sf_raw.get("file_types"))),
+            asset_types=normalize_asset_types(_slist(sf_raw.get("asset_types"))),
             filename_contains=_slist(sf_raw.get("filename_contains")),
             authors=_slist(sf_raw.get("authors")),
         ),

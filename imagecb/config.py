@@ -65,6 +65,19 @@ class Settings:
         or "cohere.rerank-v3-5:0"
     )
 
+    # Caption-text dense lane: text-to-text retrieval over caption documents.
+    caption_text_lane_enabled: bool = field(
+        default_factory=lambda: (_env("CAPTION_TEXT_LANE_ENABLED", "true") or "true").lower()
+        in ("1", "true", "yes", "on")
+    )
+    text_embedding_model: str = field(
+        default_factory=lambda: _env("TEXT_EMBEDDING_MODEL", "amazon.titan-embed-text-v2:0")
+        or "amazon.titan-embed-text-v2:0"
+    )
+    text_embedding_dim: int = field(
+        default_factory=lambda: int(_env("TEXT_EMBEDDING_DIM", "1024") or "1024")
+    )
+
     # Storage paths
     data_dir: Path = field(default_factory=lambda: _abspath(_env("DATA_DIR", "./data") or "./data"))
     chroma_dir: Path = field(default_factory=lambda: _abspath(_env("CHROMA_DIR", "./data/chroma") or "./data/chroma"))
@@ -86,7 +99,22 @@ class Settings:
     sparse_top_k: int = 50
     rrf_k: int = 60
     rerank_top_n: int = 50
+    short_query_max_tokens: int = field(
+        default_factory=lambda: int(_env("SHORT_QUERY_MAX_TOKENS", "2") or "2")
+    )
+    short_query_rerank_top_n: int = field(
+        default_factory=lambda: int(_env("SHORT_QUERY_RERANK_TOP_N", "100") or "100")
+    )
+    short_query_retrieval_top_k: int = field(
+        default_factory=lambda: int(_env("SHORT_QUERY_RETRIEVAL_TOP_K", "100") or "100")
+    )
+    embed_context_max_chars: int = field(
+        default_factory=lambda: int(_env("EMBED_CONTEXT_MAX_CHARS", "480") or "480")
+    )
     default_top_k: int = 10
+    asset_type_rerank_boost: float = field(
+        default_factory=lambda: float(_env("ASSET_TYPE_RERANK_BOOST", "1.10") or "1.10")
+    )
     enable_conversational_llm: bool = field(
         default_factory=lambda: (_env("ENABLE_CONVERSATIONAL_LLM", "true") or "true").lower()
         in ("1", "true", "yes", "on")
@@ -97,7 +125,13 @@ class Settings:
     suggestions_limit: int = field(
         default_factory=lambda: int(_env("SUGGESTIONS_LIMIT", "4") or "4")
     )
-
+    follow_up_suggestions_limit: int = field(
+        default_factory=lambda: int(_env("FOLLOW_UP_SUGGESTIONS_LIMIT", "3") or "3")
+    )
+    enable_follow_up_suggestions: bool = field(
+        default_factory=lambda: (_env("ENABLE_FOLLOW_UP_SUGGESTIONS", "true") or "true").lower()
+        in ("1", "true", "yes", "on")
+    )
     # Ingest performance
     ingest_workers: int = field(
         default_factory=lambda: int(_env("INGEST_WORKERS", "4") or "4")
@@ -108,6 +142,50 @@ class Settings:
     ingest_batch_upsert: int = field(
         default_factory=lambda: int(_env("INGEST_BATCH_UPSERT", "16") or "16")
     )
+    ingest_batch_size: int = field(
+        default_factory=lambda: int(_env("INGEST_BATCH_SIZE", "0") or "0")
+    )
+    ingest_image_timeout_sec: int = field(
+        default_factory=lambda: int(_env("INGEST_IMAGE_TIMEOUT_SEC", "300") or "300")
+    )
+
+    # Post-ingest index repair
+    post_ingest_repair_enabled: bool = field(
+        default_factory=lambda: (_env("POST_INGEST_REPAIR_ENABLED", "true") or "true").lower()
+        in ("1", "true", "yes", "on")
+    )
+    post_ingest_repair_include_weak: bool = field(
+        default_factory=lambda: (_env("POST_INGEST_REPAIR_INCLUDE_WEAK", "false") or "false").lower()
+        in ("1", "true", "yes", "on")
+    )
+    post_ingest_repair_reindex_vectors: bool = field(
+        default_factory=lambda: (_env("POST_INGEST_REPAIR_REINDEX_VECTORS", "true") or "true").lower()
+        in ("1", "true", "yes", "on")
+    )
+
+    # Index consistency (safe cross-store reconcile)
+    index_reconcile_on_startup: bool = field(
+        default_factory=lambda: (_env("INDEX_RECONCILE_ON_STARTUP", "true") or "true").lower()
+        in ("1", "true", "yes", "on")
+    )
+    index_reconcile_after_ingest: bool = field(
+        default_factory=lambda: (_env("INDEX_RECONCILE_AFTER_INGEST", "true") or "true").lower()
+        in ("1", "true", "yes", "on")
+    )
+
+    # Bedrock API resilience
+    bedrock_max_concurrent: int = field(
+        default_factory=lambda: int(_env("BEDROCK_MAX_CONCURRENT", "2") or "2")
+    )
+    bedrock_read_timeout: int = field(
+        default_factory=lambda: int(_env("BEDROCK_READ_TIMEOUT", "120") or "120")
+    )
+    bedrock_connect_timeout: int = field(
+        default_factory=lambda: int(_env("BEDROCK_CONNECT_TIMEOUT", "10") or "10")
+    )
+    bedrock_max_retries: int = field(
+        default_factory=lambda: int(_env("BEDROCK_MAX_RETRIES", "6") or "6")
+    )
 
     # Admin / telemetry
     admin_api_key: str = field(default_factory=lambda: _env("ADMIN_API_KEY", "") or "")
@@ -116,6 +194,15 @@ class Settings:
     )
     duplicate_similarity_threshold: float = field(
         default_factory=lambda: float(_env("DUPLICATE_SIMILARITY_THRESHOLD", "0.95") or "0.95")
+    )
+    result_deduplicate_enabled: bool = field(
+        default_factory=lambda: (_env("RESULT_DEDUPLICATE_ENABLED", "true") or "true").lower()
+        in ("1", "true", "yes", "on")
+    )
+    result_deduplicate_similarity_threshold: float = field(
+        default_factory=lambda: float(
+            _env("RESULT_DEDUPLICATE_SIMILARITY_THRESHOLD", "0.98") or "0.98"
+        )
     )
 
     # Deck slide-aware suggestion

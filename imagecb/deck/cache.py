@@ -8,7 +8,7 @@ import logging
 import time
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Sequence
+from typing import List, Optional, Sequence
 
 from imagecb.config import SETTINGS
 from imagecb.deck.llm import SlideLLMOutput
@@ -59,12 +59,13 @@ def corpus_fingerprint() -> str:
     return build_corpus_context().fingerprint
 
 
-def request_fingerprint(*, top_k: int, min_match_percent: int) -> str:
+def request_fingerprint(*, top_k: int, min_match_percent: int, sort: str = "relevance") -> str:
     """Fingerprint for deck-level manifest cache (search params + corpus)."""
     raw = json.dumps(
         {
             "top_k": top_k,
             "min_match_percent": min_match_percent,
+            "sort": sort,
             "corpus": corpus_fingerprint(),
         },
         sort_keys=True,
@@ -73,12 +74,19 @@ def request_fingerprint(*, top_k: int, min_match_percent: int) -> str:
     return hashlib.sha256(raw.encode("utf-8")).hexdigest()[:32]
 
 
-def search_fingerprint(description: str, *, top_k: int, min_match_percent: int) -> str:
+def search_fingerprint(
+    description: str,
+    *,
+    top_k: int,
+    min_match_percent: int,
+    sort: str = "relevance",
+) -> str:
     raw = json.dumps(
         {
             "description": description.strip(),
             "top_k": top_k,
             "min_match_percent": min_match_percent,
+            "sort": sort,
             "corpus": corpus_fingerprint(),
         },
         sort_keys=True,

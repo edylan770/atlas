@@ -14,6 +14,15 @@ from .types import ExtractedImage, Provenance
 
 logger = logging.getLogger(__name__)
 
+_MAX_NEARBY_CHARS = 1500
+
+
+def _truncate(text: str, limit: int) -> str:
+    text = (text or "").strip()
+    if len(text) <= limit:
+        return text
+    return text[: limit - 3].rstrip() + "..."
+
 
 def _parse_pdf_date(raw: Optional[str]) -> Optional[datetime]:
     """PDF date strings look like 'D:20240115093045+00'00''. Parse leniently."""
@@ -93,6 +102,7 @@ def extract(path: Path) -> Iterator[ExtractedImage]:
                 except Exception as exc:  # noqa: BLE001
                     logger.debug("Pillow could not open extracted image: %s", exc)
                     continue
+                nearby = _truncate(page_text, _MAX_NEARBY_CHARS) if page_text else ""
                 provenance = Provenance(
                     source_file=str(path),
                     source_type="pdf",
@@ -102,6 +112,7 @@ def extract(path: Path) -> Iterator[ExtractedImage]:
                     page_index=page_index + 1,
                     slide_title=page_title,
                     slide_notes=page_text if page_text else None,
+                    extra={"nearby_text": nearby} if nearby else {},
                 )
                 yield ExtractedImage(image=img, provenance=provenance)
     finally:

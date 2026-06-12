@@ -12,10 +12,12 @@ services:
       IMAGE_CACHE_DIR: /app/data/images
       UPLOADS_DIR: /app/data/uploads
       BM25_PATH: /app/data/bm25.pkl
+      DECK_CACHE_DIR: /app/data/deck_cache
+      ACRONYM_CACHE_PATH: /app/data/acronym_cache.json
       TESSERACT_CMD: /usr/bin/tesseract
     volumes:
       - ./data:/app/data
-      # Uncomment to ingest a host corpus at a stable path inside the container:
+      # Host corpus for CLI ingest at a stable path inside the container (comment out if unused):
       - ./corpus:/corpus:ro
     healthcheck:
       test: ["CMD", "curl", "-f", "http://127.0.0.1:8080/api/health"]

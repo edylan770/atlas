@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { forceDeckSlide, saveSlideDecision } from "../api/deckClient";
-import type { SlideDecision, SlideSuggestion } from "../types";
+import type { ResultSort, SlideDecision, SlideSuggestion } from "../types";
 import { ResultCard } from "./ResultCard";
 
 interface DeckSlideCardProps {
@@ -9,6 +9,7 @@ interface DeckSlideCardProps {
   decision?: SlideDecision;
   topK: number;
   minMatchPercent: number;
+  sort?: ResultSort;
   onDecision: (slideIndex: number, decision: SlideDecision) => void;
   onSlideUpdate: (slide: SlideSuggestion) => void;
 }
@@ -19,6 +20,7 @@ export function DeckSlideCard({
   decision,
   topK,
   minMatchPercent,
+  sort,
   onDecision,
   onSlideUpdate,
 }: DeckSlideCardProps) {
@@ -33,6 +35,7 @@ export function DeckSlideCard({
       const res = await forceDeckSlide(deckHash, slide.slide_index, {
         topK,
         minMatchPercent,
+        sort,
       });
       onSlideUpdate(res.slide);
     } catch (e) {

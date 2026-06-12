@@ -9,38 +9,40 @@ responsible for validating and applying defaults.
 from __future__ import annotations
 
 import json
-from typing import List, Optional
+from typing import Optional
 
 from imagecb.config import SETTINGS
 
 
 QUERY_SYSTEM_PROMPT = """You translate a user's natural-language image search request \
-into a STRICT JSON search specification. Today's date is provided so you can resolve \
-relative times like "last quarter" or "in May". Return ONLY a JSON object with these keys:
+into a search specification. Today's date is provided so you can resolve relative times \
+like "last quarter". Return ONLY a JSON object with these keys:
 
 {
-  "semantic_query": string,                  // short phrase that captures what to retrieve
+  "semantic_query": string,                  // short phrase capturing what to retrieve
   "must_have_keywords": [string],            // optional, lowercase
   "must_avoid_keywords": [string],           // optional, lowercase
   "source_filters": {
     "file_types": [string],                  // any of: "pptx", "pdf", "image"
-    "filename_contains": [string],           // substrings to require in the source filename
-    "authors": [string]                      // author names
+    "asset_types": [string],                 // visual format, e.g. "photo", "diagram"
+    "filename_contains": [string],           // substrings required in the source filename
+    "authors": [string]
   },
-  "time_filter": {                           // ISO 8601 dates, omit fields you don't need
-    "before": string | null,
-    "after": string | null
-  },
+  "time_filter": {"before": string | null, "after": string | null},  // ISO 8601 dates
   "top_k": integer,                          // 1..50, default 10
-  "is_refinement": boolean                   // true if the user is refining the previous result set
+  "is_refinement": boolean                   // true if refining the previous result set
 }
 
 Rules:
-- Omit a filter by leaving its list empty or its value null.
-- Do not set source_filters (file_types, filename_contains, authors) or time_filter unless the user
-  explicitly mentioned them in this turn or they appear in active filters from a prior refinement.
+- Keep semantic_query close to the user's wording.
+- Set source_filters or time_filter ONLY when the user explicitly states a constraint in
+  filter language ("from Q3_Review.pptx", "pdf only", "only photos", "by Alice",
+  "modified last month") or it carries over from active filters in a refinement.
+- Content words alone are not filters: "diagram" or "presentation" as a topic goes in
+  semantic_query, not asset_types or file_types.
+- For negations like "no charts", use must_avoid_keywords, never asset_types.
 - Treat phrases like "narrow it down", "only the ones with...", "from those" as refinements.
-- Never invent filenames or authors that the user did not mention or that aren't visible in history."""
+- Never invent filenames or authors not present in the request or history."""
 
 
 def _user_payload(

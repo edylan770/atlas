@@ -10,13 +10,23 @@ from __future__ import annotations
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
-from typing import List, Literal, Optional, Sequence
+from typing import List, Literal, Optional, Sequence, TYPE_CHECKING
 
+from imagecb.caption.asset_type import format_asset_type_label
 from imagecb.config import SETTINGS
+from imagecb.formatting.match_display import meets_min_match_percent
 from imagecb.models.reranker import get_reranker
 from imagecb.retrieval.hybrid import Candidate
 from imagecb.storage import metadata_db
 from imagecb.storage.metadata_db import ImageRecord, deserialize_list
+
+if TYPE_CHECKING:
+    from imagecb.retrieval.query_parser import QuerySpec
+
+_RERANK_MAX_TAGS = 8
+_RERANK_MAX_RECOMMENDED_CASES = 3
+_RERANK_MAX_ALIASES = 8
+_RERANK_MAX_OCR_CHARS = 600
 
 
 @dataclass
@@ -25,7 +35,7 @@ class RankedResult:
     score: float
     record: ImageRecord
     provenance_line: str
-    score_kind: Literal["rerank", "dense"] = "rerank"
+    score_kind: Literal["rerank", "dense", "fusion"] = "rerank"
 
     @property
     def image_path(self) -> str:
@@ -47,28 +57,56 @@ class RankedResult:
 
 def _candidate_text(r: ImageRecord) -> str:
     parts: List[str] = []
+
+    asset_label = format_asset_type_label(r.asset_type)
+    if asset_label:
+        parts.append(f"asset_type: {asset_label}")
+
     for v in (
-        r.image_name,
-        r.caption_detailed,
-        r.caption_short,
-        r.use_case,
         r.scene,
         r.text_overlay_summary,
-        r.slide_title,
-        r.slide_notes,
-        r.ocr_text,
     ):
         if v:
             parts.append(v)
-    tags = deserialize_list(r.tags_json)
-    if tags:
-        parts.append("tags: " + ", ".join(tags))
+
     objects = deserialize_list(r.objects_json)
     if objects:
         parts.append("objects: " + ", ".join(objects))
+
+    for v in (
+        r.slide_title,
+        r.slide_notes,
+        r.slide_body_text,
+    ):
+        if v:
+            parts.append(v)
+
+    ocr = (r.ocr_text or "").strip()
+    if ocr:
+        parts.append(ocr[:_RERANK_MAX_OCR_CHARS])
+
+    for v in (
+        r.image_name,
+        r.caption_short,
+        r.caption_detailed,
+        r.use_case,
+        r.theme,
+    ):
+        if v:
+            parts.append(v)
+
+    tags = deserialize_list(r.tags_json)
+    if tags:
+        parts.append("tags: " + ", ".join(tags[:_RERANK_MAX_TAGS]))
+
+    aliases = deserialize_list(r.search_aliases_json)
+    if aliases:
+        parts.append("aliases: " + ", ".join(aliases[:_RERANK_MAX_ALIASES]))
+
     cases = deserialize_list(r.recommended_cases_json)
     if cases:
-        parts.append("recommended: " + "; ".join(cases))
+        parts.append("recommended: " + "; ".join(cases[:_RERANK_MAX_RECOMMENDED_CASES]))
+
     return "\n".join(parts)
 
 
@@ -89,13 +127,40 @@ def _format_provenance(r: ImageRecord) -> str:
     return f"{loc}{modified}{author}"
 
 
+def _fusion_tail_results(
+    tail: Sequence[Candidate],
+    *,
+    exclude_ids: set[str],
+    records: dict[str, ImageRecord],
+) -> List[RankedResult]:
+    built: List[RankedResult] = []
+    for c in tail:
+        if c.image_id in exclude_ids:
+            continue
+        record = records.get(c.image_id)
+        if record is None:
+            continue
+        built.append(
+            RankedResult(
+                image_id=c.image_id,
+                score=float(c.fused_score),
+                record=record,
+                provenance_line=_format_provenance(record),
+                score_kind="fusion",
+            )
+        )
+    built.sort(key=lambda r: r.score, reverse=True)
+    return built
+
+
 def rerank(
     query: str,
     candidates: Sequence[Candidate],
     *,
     top_k: int,
     top_n: Optional[int] = None,
-    min_score: float = 0.0,
+    min_match_percent: int = 0,
+    spec: Optional["QuerySpec"] = None,
 ) -> List[RankedResult]:
     if not candidates:
         return []
@@ -122,6 +187,42 @@ def rerank(
         key=lambda r: r.score,
         reverse=True,
     )
-    if min_score > 0:
-        ranked = [r for r in ranked if r.score >= min_score]
-    return ranked[:top_k]
+
+    if spec is not None:
+        from imagecb.retrieval.asset_type_boost import apply_asset_type_boost
+
+        ranked = apply_asset_type_boost(spec, ranked)
+
+    from imagecb.retrieval.dedupe import dedupe_results
+
+    if min_match_percent > 0:
+        above = [
+            r
+            for r in ranked
+            if meets_min_match_percent(r.score, r.score_kind, min_match_percent)
+        ]
+        below = [
+            r
+            for r in ranked
+            if not meets_min_match_percent(r.score, r.score_kind, min_match_percent)
+        ]
+        results = dedupe_results(above, top_k=top_k, pool=below)
+    else:
+        results = dedupe_results(ranked, top_k=top_k)
+
+    if len(results) < top_k and len(candidates) > top_n:
+        kept_ids = {r.image_id for r in results}
+        tail_candidates = list(candidates[top_n:])
+        tail_ids = [c.image_id for c in tail_candidates if c.image_id not in kept_ids]
+        tail_records = {
+            r.image_id: r for r in metadata_db.get_records(tail_ids)
+        }
+        tail_ranked = _fusion_tail_results(
+            tail_candidates,
+            exclude_ids=kept_ids,
+            records=tail_records,
+        )
+        if tail_ranked:
+            results = dedupe_results(results, top_k=top_k, pool=tail_ranked)
+
+    return results

@@ -1,5 +1,6 @@
 import { useCallback, useRef, useState, type DragEvent } from "react";
-import type { CatalogItem } from "../types";
+import { SortSelect } from "./SortSelect";
+import type { CatalogItem, ResultSort } from "../types";
 
 const ACCEPT =
   ".png,.jpg,.jpeg,.webp,.gif,.bmp,.tif,.tiff,.pdf,.pptx";
@@ -21,6 +22,8 @@ interface CorpusDrawerProps {
   ingestProgress: { filesDone: number; filesTotal: number; batchLabel: string } | null;
   catalog: CatalogItem[];
   catalogLoading: boolean;
+  catalogSortBy: ResultSort;
+  onCatalogSortChange: (value: ResultSort) => void;
 }
 
 export function CorpusDrawer({
@@ -40,6 +43,8 @@ export function CorpusDrawer({
   ingestProgress,
   catalog,
   catalogLoading,
+  catalogSortBy,
+  onCatalogSortChange,
 }: CorpusDrawerProps) {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const folderInputRef = useRef<HTMLInputElement>(null);
@@ -237,7 +242,15 @@ export function CorpusDrawer({
           )}
 
           <div className="mt-8 border-t border-navy-100 pt-6">
-            <h3 className="text-sm font-semibold text-navy-800">Corpus catalog</h3>
+            <div className="flex items-center justify-between gap-2">
+              <h3 className="text-sm font-semibold text-navy-800">Corpus catalog</h3>
+              <SortSelect
+                value={catalogSortBy}
+                onChange={onCatalogSortChange}
+                includeRelevance={false}
+                disabled={catalogLoading}
+              />
+            </div>
             <p className="mt-1 text-xs text-navy-500">
               Recently indexed images with generated metadata.
             </p>
@@ -264,9 +277,16 @@ export function CorpusDrawer({
                       <p className="truncate text-sm font-medium text-navy-800">
                         {item.image_name}
                       </p>
-                      <p className="truncate text-[10px] text-navy-400">
-                        {item.source_name}
-                      </p>
+                      <div className="flex flex-wrap items-center gap-1">
+                        <p className="truncate text-[10px] text-navy-400">
+                          {item.source_name}
+                        </p>
+                        {item.asset_type && (
+                          <span className="rounded bg-navy-200 px-1 py-px text-[9px] font-semibold text-navy-800">
+                            {item.asset_type.charAt(0).toUpperCase() + item.asset_type.slice(1)}
+                          </span>
+                        )}
+                      </div>
                       {item.use_case && (
                         <p className="mt-1 line-clamp-2 text-xs text-navy-600">
                           {item.use_case}
