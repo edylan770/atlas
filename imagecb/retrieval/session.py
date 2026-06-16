@@ -1,8 +1,11 @@
 """Multi-turn session state.
 
 Tracks chat history, the last QuerySpec, and the last ranked results for
-follow-up query parsing context. Each search runs parse_query -> hybrid -> rerank
+follow-up query parsing context. Each search runs parse_query -> hybrid -> rank
 over the full active corpus.
+
+Ranking uses 2-lane RRF fused score (visual dense + caption-text dense).
+BM25 is retrieved but excluded from fusion (sparse_weight=0.0 in hybrid.py).
 """
 
 from __future__ import annotations
@@ -10,16 +13,17 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import List, Optional, Tuple
 
-from imagecb.retrieval.hybrid import search
-from imagecb.retrieval.query_build import rerank_query_text, resolve_rerank_top_n
+from imagecb.retrieval.hybrid import Candidate, normalize_rrf_score, search
 from imagecb.retrieval.query_parser import (
     QuerySpec,
     build_session_context,
     parse_query,
     summarize_history,
 )
+from imagecb.config import SETTINGS
 from imagecb.formatting.match_display import meets_min_match_percent
-from imagecb.retrieval.rerank import RankedResult, rerank
+from imagecb.retrieval.rerank import RankedResult, _format_provenance
+from imagecb.storage import metadata_db
 
 
 @dataclass
@@ -31,6 +35,8 @@ class AskResult:
     relaxed_min_score: bool = False
     dense_failed: bool = False
     sparse_failed: bool = False
+    visual_fallback: bool = False
+    low_confidence_visual: bool = False
     indexed_count: int = 0
 
 
@@ -64,33 +70,12 @@ class ChatSession:
 
         outcome = search(spec)
         candidates = outcome.candidates
-        query_for_rerank = rerank_query_text(spec, text)
-        rerank_top_n = resolve_rerank_top_n(spec, spec.top_k)
 
-        results = rerank(
-            query_for_rerank,
-            candidates,
-            top_k=spec.top_k,
-            top_n=rerank_top_n,
-            min_match_percent=min_match_percent,
-            spec=spec,
-        )
         relaxed_min_score = False
-        if min_match_percent > 0 and results:
-            relaxed_min_score = any(
-                not meets_min_match_percent(r.score, r.score_kind, min_match_percent)
-                for r in results
-            )
-        elif min_match_percent > 0 and not results and candidates:
-            results = rerank(
-                query_for_rerank,
-                candidates,
-                top_k=spec.top_k,
-                top_n=rerank_top_n,
-                min_match_percent=0,
-                spec=spec,
-            )
-            relaxed_min_score = bool(results)
+
+        # Rank by 2-lane RRF fused score (visual dense + caption-text dense).
+        ranked = _rank_by_fused_score(candidates, spec.top_k)
+        results, relaxed_min_score = _apply_min_match(ranked, candidates, spec.top_k, min_match_percent)
 
         from imagecb.retrieval.sort import resolve_sort, sort_ranked_results
 
@@ -111,6 +96,8 @@ class ChatSession:
             relaxed_min_score=relaxed_min_score,
             dense_failed=outcome.dense_failed,
             sparse_failed=outcome.sparse_failed,
+            visual_fallback=False,
+            low_confidence_visual=False,
         )
 
     def record_turn(self, user_text: str, assistant_message: str) -> None:
@@ -143,6 +130,50 @@ class ChatSession:
             is_refinement=False,
         )
         self.last_spec = merged
+
+
+def _rank_by_fused_score(candidates: List[Candidate], top_k: int) -> List[RankedResult]:
+    """Rank candidates by 2-lane RRF fused score (visual + caption-text dense)."""
+    from imagecb.retrieval.dedupe import dedupe_results
+
+    ids = [c.image_id for c in candidates]
+    records = {r.image_id: r for r in metadata_db.get_records(ids)}
+    built = [
+        RankedResult(
+            image_id=c.image_id,
+            score=normalize_rrf_score(c.fused_score, SETTINGS.rrf_k, weight_sum=2.0),
+            record=records[c.image_id],
+            provenance_line=_format_provenance(records[c.image_id]),
+            score_kind="fusion",
+        )
+        for c in candidates
+        if c.image_id in records
+    ]
+    built.sort(key=lambda r: r.score, reverse=True)
+    return dedupe_results(built, top_k=top_k)
+
+
+def _apply_min_match(
+    results: List[RankedResult],
+    candidates: List[Candidate],
+    top_k: int,
+    min_match_percent: int,
+) -> Tuple[List[RankedResult], bool]:
+    """Filter results by min-match %, relaxing when nothing qualifies.
+
+    Returns ``(results, relaxed_min_score)``: the kept results when any meet the
+    threshold, otherwise the full unfiltered list with ``relaxed_min_score=True``.
+    """
+    if min_match_percent <= 0:
+        return results, False
+    kept = [
+        r
+        for r in results
+        if meets_min_match_percent(r.score, r.score_kind, min_match_percent)
+    ]
+    if kept:
+        return kept, False
+    return results, True
 
 
 def _summarize_results(results: List[RankedResult]) -> str:

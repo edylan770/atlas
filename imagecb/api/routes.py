@@ -338,6 +338,8 @@ def chat(
         relaxed_min_score=ask_result.relaxed_min_score,
         dense_failed=ask_result.dense_failed,
         sparse_failed=ask_result.sparse_failed,
+        visual_fallback=ask_result.visual_fallback,
+        low_confidence_visual=ask_result.low_confidence_visual,
     )
     try:
         indexed_count = vector_store.count()
@@ -411,6 +413,8 @@ def chat_stream(
         relaxed_min_score=ask_result.relaxed_min_score,
         dense_failed=ask_result.dense_failed,
         sparse_failed=ask_result.sparse_failed,
+        visual_fallback=ask_result.visual_fallback,
+        low_confidence_visual=ask_result.low_confidence_visual,
     )
     try:
         indexed_count = vector_store.count()

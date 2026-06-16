@@ -391,6 +391,12 @@ def _finalize_ingest(*, rebuild_bm25: bool, refresh_vocab: bool) -> None:
     if rebuild_bm25:
         records = get_all_records()
         bm25_index.rebuild_from_records(records)
+        try:
+            from imagecb.retrieval import hubness
+
+            hubness.rebuild_from_embeddings()
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("Hubness stats rebuild failed: %s", exc)
     if SETTINGS.index_reconcile_after_ingest:
         reconcile_index_safe()
 

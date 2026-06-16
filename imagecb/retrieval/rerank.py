@@ -153,6 +153,81 @@ def _fusion_tail_results(
     return built
 
 
+def visual_only_rank(
+    candidates: Sequence[Candidate],
+    *,
+    top_k: int,
+) -> List[RankedResult]:
+    """Rank candidates purely by the visual (Titan multimodal) cosine score.
+
+    ``Candidate.dense_score`` holds the visual-lane cosine similarity in [0, 1]
+    (``vector_store.query`` returns ``1.0 - cosine_distance``). Results are
+    tagged ``score_kind="dense"`` so they display via the calibrated dense
+    anchors, giving honest percentages without the RRF score inflation.
+
+    Candidates that were only text/sparse hits keep ``dense_score=0.0`` and
+    naturally sink to the bottom. Used by both the proactive short-query route
+    and the reactive weak-rerank fallback in the chat path.
+    """
+    if not candidates:
+        return []
+
+    from imagecb.retrieval.dedupe import dedupe_results
+
+    ids = [c.image_id for c in candidates]
+    records = {r.image_id: r for r in metadata_db.get_records(ids)}
+    adjust = _hubness_adjuster()
+    built = [
+        RankedResult(
+            image_id=c.image_id,
+            score=adjust(c.image_id, float(c.dense_score)),
+            record=records[c.image_id],
+            provenance_line=_format_provenance(records[c.image_id]),
+            score_kind="dense",
+        )
+        for c in candidates
+        if c.image_id in records
+    ]
+    built.sort(key=lambda r: r.score, reverse=True)
+    return dedupe_results(built, top_k=top_k)
+
+
+def _hubness_adjuster():
+    """Return a fn mapping (image_id, raw_cosine) -> CSLS-adjusted cosine.
+
+    The penalty is mean-centred so it stays on the cosine scale (display anchors
+    and relevance sort remain valid): average-hubness images are unchanged, hubs
+    are demoted, and atypical images are slightly boosted::
+
+        adjusted = clamp(cosine - weight * (r_img - mean_r_img), 0, 1)
+
+    Returns an identity adjuster when correction is disabled or stats are
+    unavailable.
+    """
+    if not SETTINGS.hubness_correction_enabled:
+        return lambda _image_id, score: score
+
+    try:
+        from imagecb.retrieval import hubness
+
+        stats = hubness.get_hubness_stats()
+    except Exception:  # noqa: BLE001
+        return lambda _image_id, score: score
+
+    if not stats or not stats.r_img:
+        return lambda _image_id, score: score
+
+    weight = SETTINGS.hubness_penalty_weight
+    mean_r = stats.mean_r_img
+    r_img = stats.r_img
+
+    def adjust(image_id: str, score: float) -> float:
+        penalty = weight * (r_img.get(image_id, mean_r) - mean_r)
+        return max(0.0, min(1.0, score - penalty))
+
+    return adjust
+
+
 def rerank(
     query: str,
     candidates: Sequence[Candidate],

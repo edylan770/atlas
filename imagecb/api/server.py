@@ -55,6 +55,12 @@ def create_app() -> FastAPI:
     app.include_router(router)
     app.include_router(admin_router)
 
+    # --- Pipeline Lab (experimental, remove this block + imagecb/experiments to uninstall) ---
+    from imagecb.experiments.routes import lab_router
+
+    app.include_router(lab_router)
+    # --- end Pipeline Lab ---
+
     static, _kind = resolve_static_dir()
     if static is not None:
         app.mount("/", StaticFiles(directory=str(static), html=True), name="static")

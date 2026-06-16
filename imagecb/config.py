@@ -90,6 +90,7 @@ class Settings:
         )
     )
     bm25_path: Path = field(default_factory=lambda: _abspath(_env("BM25_PATH", "./data/bm25.pkl") or "./data/bm25.pkl"))
+    hubness_path: Path = field(default_factory=lambda: _abspath(_env("HUBNESS_PATH", "./data/hubness.pkl") or "./data/hubness.pkl"))
 
     # OCR
     tesseract_cmd: Optional[str] = field(default_factory=lambda: _env("TESSERACT_CMD"))
@@ -191,6 +192,55 @@ class Settings:
     admin_api_key: str = field(default_factory=lambda: _env("ADMIN_API_KEY", "") or "")
     weak_result_score_threshold: float = field(
         default_factory=lambda: float(_env("WEAK_RESULT_SCORE_THRESHOLD", "0.25") or "0.25")
+    )
+
+    # Visual fallback: when Cohere rerank's top result is weak, re-rank the
+    # chat turn's candidates by pure Titan visual similarity (Candidate.dense_score).
+    visual_fallback_enabled: bool = field(
+        default_factory=lambda: (_env("VISUAL_FALLBACK_ENABLED", "true") or "true").lower()
+        in ("1", "true", "yes", "on")
+    )
+    visual_fallback_max_display_percent: int = field(
+        default_factory=lambda: int(_env("VISUAL_FALLBACK_MAX_DISPLAY_PERCENT", "20") or "20")
+    )
+    # Proactive short-query visual route: for 1-2 word visual queries, skip the
+    # Cohere rerank entirely and rank by pure Titan visual similarity.
+    visual_short_query_enabled: bool = field(
+        default_factory=lambda: (_env("VISUAL_SHORT_QUERY_ENABLED", "true") or "true").lower()
+        in ("1", "true", "yes", "on")
+    )
+
+    # CSLS-style hubness correction for the visual lane. Demotes images that are
+    # universally close to any query (embedding hubs) so short-query ranking
+    # responds to the actual query instead of vector-space centrality.
+    hubness_correction_enabled: bool = field(
+        default_factory=lambda: (_env("HUBNESS_CORRECTION_ENABLED", "true") or "true").lower()
+        in ("1", "true", "yes", "on")
+    )
+    hubness_knn: int = field(
+        default_factory=lambda: int(_env("HUBNESS_KNN", "10") or "10")
+    )
+    hubness_penalty_weight: float = field(
+        default_factory=lambda: float(_env("HUBNESS_PENALTY_WEIGHT", "0.5") or "0.5")
+    )
+
+    # Soft confidence gating for visual-only results: when the top adjusted score
+    # is below the floor or barely separated from the rest, the matches are flagged
+    # as weak (results are still returned).
+    visual_confidence_floor: float = field(
+        default_factory=lambda: float(_env("VISUAL_CONFIDENCE_FLOOR", "0.5") or "0.5")
+    )
+    visual_confidence_margin: float = field(
+        default_factory=lambda: float(_env("VISUAL_CONFIDENCE_MARGIN", "0.03") or "0.03")
+    )
+
+    # High-confidence lexical pre-check: fraction of query content tokens that must
+    # literally appear in a candidate's text for it to count as a confident keyword
+    # hit (routes to the fused/rerank path instead of pure visual).
+    lexical_high_confidence_coverage: float = field(
+        default_factory=lambda: float(
+            _env("LEXICAL_HIGH_CONFIDENCE_COVERAGE", "0.9") or "0.9"
+        )
     )
     duplicate_similarity_threshold: float = field(
         default_factory=lambda: float(_env("DUPLICATE_SIMILARITY_THRESHOLD", "0.95") or "0.95")

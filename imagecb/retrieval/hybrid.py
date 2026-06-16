@@ -1,9 +1,11 @@
 """Hybrid retrieval with metadata pre-filtering.
 
-Three lanes fused with Reciprocal Rank Fusion:
+Two lanes fused with Reciprocal Rank Fusion:
 - visual dense: query text -> multimodal embedding -> image vectors
 - caption-text dense: query text -> text embedding -> caption-document vectors
-- sparse: BM25 over the same caption documents
+
+BM25 sparse scores are still retrieved and stored on each Candidate for
+diagnostic use (pipeline lab), but contribute sparse_weight=0.0 to fusion.
 """
 
 from __future__ import annotations
@@ -105,12 +107,16 @@ def rrf_merge_lanes(
     text: List[tuple[str, float]],
     sparse: List[tuple[str, float]],
     k: int,
+    *,
+    dense_weight: float = 1.0,
+    text_weight: float = 1.0,
+    sparse_weight: float = 1.0,
 ) -> List[Candidate]:
-    """Three-lane (visual, caption-text, sparse) RRF with equal weights."""
+    """Three-lane (visual, caption-text, sparse) RRF with configurable per-lane weights."""
     cands: Dict[str, Candidate] = {}
-    _rrf_accumulate(cands, dense, k, 1.0, "dense_score")
-    _rrf_accumulate(cands, text, k, 1.0, "text_score")
-    _rrf_accumulate(cands, sparse, k, 1.0, "sparse_score")
+    _rrf_accumulate(cands, dense, k, dense_weight, "dense_score")
+    _rrf_accumulate(cands, text, k, text_weight, "text_score")
+    _rrf_accumulate(cands, sparse, k, sparse_weight, "sparse_score")
     return sorted(cands.values(), key=lambda c: c.fused_score, reverse=True)
 
 
@@ -194,7 +200,7 @@ def search(
         text_failed or not SETTINGS.caption_text_lane_enabled
     )
 
-    merged = rrf_merge_lanes(dense_hits, text_hits, sparse_hits, rrf)
+    merged = rrf_merge_lanes(dense_hits, text_hits, sparse_hits, rrf, sparse_weight=0.0)
 
     # must_avoid_keywords post-filter: drop any candidate whose text contains
     # an avoided keyword. We look it up from SQLite to keep memory bounded.

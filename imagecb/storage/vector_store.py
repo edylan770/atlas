@@ -220,8 +220,10 @@ def get_all_embeddings(*, batch_size: int = 500) -> List[tuple[str, np.ndarray]]
     out: List[tuple[str, np.ndarray]] = []
 
     def _consume(res: dict) -> None:
-        ids = res.get("ids") or []
-        embs = res.get("embeddings") or []
+        ids = res.get("ids")
+        ids = list(ids) if ids is not None else []
+        raw_embs = res.get("embeddings")
+        embs = [] if raw_embs is None else list(raw_embs)
         for i, emb in zip(ids, embs):
             if emb is None:
                 continue

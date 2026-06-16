@@ -3,11 +3,13 @@
 from __future__ import annotations
 
 from datetime import datetime
+from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 
 from imagecb.formatting.match_display import display_match_percent
+from imagecb.retrieval.hubness import HubnessStats
 from imagecb.retrieval.hybrid import Candidate
-from imagecb.retrieval.rerank import RankedResult, _candidate_text, rerank
+from imagecb.retrieval.rerank import RankedResult, _candidate_text, rerank, visual_only_rank
 from imagecb.storage.metadata_db import serialize_list
 from imagecb.storage.metadata_db import ImageRecord
 
@@ -149,6 +151,52 @@ def test_rerank_fills_from_fusion_tail(mock_get_records, mock_get_reranker, _moc
 
     assert len(results) == 4
     assert {r.image_id for r in results} == {"id0", "id1", "id2", "id3"}
+
+
+@patch("imagecb.retrieval.dedupe.vector_store.get_embeddings", return_value={})
+@patch("imagecb.retrieval.hubness.get_hubness_stats")
+@patch("imagecb.retrieval.rerank.metadata_db.get_records")
+def test_visual_only_rank_demotes_hub(mock_get_records, mock_stats, _mock_embed):
+    # A: higher raw cosine but a hub; B: lower raw cosine but atypical.
+    mock_get_records.return_value = [_record("hub"), _record("specific")]
+    mock_stats.return_value = HubnessStats(
+        r_img={"hub": 0.7, "specific": 0.2}, mean_r_img=0.4, count=2
+    )
+
+    candidates = [
+        Candidate(image_id="hub", dense_score=0.6),
+        Candidate(image_id="specific", dense_score=0.55),
+    ]
+
+    results = visual_only_rank(candidates, top_k=2)
+
+    # After the mean-centred penalty (weight 0.5): hub 0.6-0.15=0.45,
+    # specific 0.55+0.10=0.65 -> the specific match wins.
+    assert [r.image_id for r in results] == ["specific", "hub"]
+    assert results[0].score > results[1].score
+    assert results[0].score_kind == "dense"
+
+
+@patch("imagecb.retrieval.dedupe.vector_store.get_embeddings", return_value={})
+@patch("imagecb.retrieval.rerank.metadata_db.get_records")
+def test_visual_only_rank_disabled_keeps_raw_order(mock_get_records, _mock_embed):
+    mock_get_records.return_value = [_record("hub"), _record("specific")]
+    candidates = [
+        Candidate(image_id="hub", dense_score=0.6),
+        Candidate(image_id="specific", dense_score=0.55),
+    ]
+
+    # SETTINGS is a frozen dataclass; swap the module reference for a stand-in
+    # with hubness correction disabled.
+    disabled = SimpleNamespace(
+        hubness_correction_enabled=False,
+        result_deduplicate_enabled=False,
+    )
+    with patch("imagecb.retrieval.rerank.SETTINGS", disabled):
+        results = visual_only_rank(candidates, top_k=2)
+
+    assert [r.image_id for r in results] == ["hub", "specific"]
+    assert results[0].score == 0.6
 
 
 def test_candidate_text_includes_theme_and_aliases():
