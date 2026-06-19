@@ -32,4 +32,3 @@ ENV TESSERACT_CMD=/usr/bin/tesseract
 EXPOSE 8080
 
 CMD ["python", "-m", "imagecb.cli", "serve-web", "--host", "0.0.0.0", "--port", "8080"]
-
