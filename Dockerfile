@@ -38,3 +38,5 @@ ENV BOOTSTRAP_CORPUS_DIR=/app/corpus/smoke
 EXPOSE 8080
 
 CMD ["python", "-m", "imagecb.cli", "serve-web", "--host", "0.0.0.0", "--port", "8080"]
+
+
