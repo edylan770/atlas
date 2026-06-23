@@ -3,7 +3,9 @@
 from __future__ import annotations
 
 import logging
+import threading
 from contextlib import asynccontextmanager
+from pathlib import Path
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
@@ -16,6 +18,39 @@ from imagecb.config import SETTINGS
 from imagecb.telemetry.schema import ensure_telemetry_schema
 
 logger = logging.getLogger(__name__)
+
+
+def _bootstrap_corpus_ingest(corpus_dir: "Path") -> None:
+    """Ingest a seed corpus in a background thread (best-effort)."""
+    from imagecb.ingest import ingest_root
+
+    try:
+        logger.info("Bootstrap corpus ingest starting: %s", corpus_dir)
+        stats = ingest_root(corpus_dir)
+        logger.info("Bootstrap corpus ingest complete: %s", stats)
+    except Exception:  # noqa: BLE001
+        logger.exception("Bootstrap corpus ingest failed")
+
+
+def _maybe_start_bootstrap_ingest(total_records: int) -> None:
+    raw = (SETTINGS.bootstrap_corpus_dir or "").strip()
+    if not raw:
+        return
+    if total_records > 0:
+        logger.info("Bootstrap corpus ingest skipped: index already has %s record(s)", total_records)
+        return
+    corpus_dir = Path(raw).expanduser()
+    if not corpus_dir.is_dir():
+        logger.warning("Bootstrap corpus dir not found, skipping: %s", corpus_dir)
+        return
+    thread = threading.Thread(
+        target=_bootstrap_corpus_ingest,
+        args=(corpus_dir,),
+        name="bootstrap-corpus-ingest",
+        daemon=True,
+    )
+    thread.start()
+    logger.info("Bootstrap corpus ingest dispatched in background: %s", corpus_dir)
 
 
 @asynccontextmanager
@@ -32,6 +67,7 @@ async def _lifespan(_app: FastAPI):
     if SETTINGS.index_reconcile_on_startup:
         stats = reconcile_index_safe()
         logger.info("Startup index reconcile: %s", stats)
+    _maybe_start_bootstrap_ingest(report.total_records)
     yield
 
 

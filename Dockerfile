@@ -27,7 +27,13 @@ COPY imagecb/ ./imagecb/
 
 COPY --from=frontend /app/frontend/dist ./imagecb/web/frontend_dist/
 
+# Smoke-test corpus: a few small images auto-ingested on boot when the index
+# is empty (see _lifespan in imagecb/api/server.py). Safe to remove once a real
+# S3-backed corpus pipeline is in place.
+COPY corpus/ ./corpus/
+
 ENV TESSERACT_CMD=/usr/bin/tesseract
+ENV BOOTSTRAP_CORPUS_DIR=/app/corpus/smoke
 
 EXPOSE 8080
 

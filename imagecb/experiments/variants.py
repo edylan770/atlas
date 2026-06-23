@@ -13,6 +13,7 @@ core behavior. Safe to delete with the rest of ``imagecb/experiments``.
 from __future__ import annotations
 
 import logging
+from dataclasses import replace
 from typing import Callable, Dict, Iterator, List, Sequence
 
 from imagecb.config import SETTINGS
@@ -32,7 +33,7 @@ from imagecb.retrieval.rerank import (
     rerank,
     visual_only_rank,
 )
-from imagecb.retrieval.session import ChatSession
+from imagecb.retrieval.session import ChatSession, _rank_by_fused_score
 from imagecb.storage import metadata_db
 from imagecb.storage.metadata_db import ImageRecord
 
@@ -46,6 +47,11 @@ VARIANTS: List[tuple[str, str, str]] = [
         "baseline",
         "Baseline (production)",
         "3-lane RRF then Cohere rerank, with the short-query / weak-rerank visual fallbacks. This is exactly what the live chat returns.",
+    ),
+    (
+        "no_keyword_filters",
+        "No keyword filters",
+        "Re-runs retrieval with must-have and must-avoid keywords cleared; same semantic query and other filters. Compare pool size and ranking vs the parsed query.",
     ),
     (
         "visual_text",
@@ -117,6 +123,10 @@ VARIANTS: List[tuple[str, str, str]] = [
 
 def variant_catalog() -> List[Dict[str, str]]:
     return [{"key": k, "label": label, "description": desc} for k, label, desc in VARIANTS]
+
+
+def _spec_without_keywords(spec: QuerySpec) -> QuerySpec:
+    return replace(spec, must_have_keywords=[], must_avoid_keywords=[])
 
 
 def _records_for(candidates: Sequence[Candidate]) -> Dict[str, ImageRecord]:
@@ -268,6 +278,14 @@ def _v_baseline(query: str, spec, candidates, records, top_k) -> List[RankedResu
     return list(result.results)
 
 
+def _v_no_keyword_filters(
+    query: str, spec, candidates, records, top_k
+) -> List[RankedResult]:
+    cleared = _spec_without_keywords(spec)
+    outcome = search(cleared)
+    return _rank_by_fused_score(outcome.candidates, top_k)
+
+
 def _v_visual_text(query, spec, candidates, records, top_k) -> List[RankedResult]:
     return _visual_text_fuse(candidates, records, top_k)
 
@@ -328,6 +346,7 @@ def _v_cohere_filter_visual_text(query, spec, candidates, records, top_k) -> Lis
 
 _BUILDERS: Dict[str, Callable[..., List[RankedResult]]] = {
     "baseline": _v_baseline,
+    "no_keyword_filters": _v_no_keyword_filters,
     "visual_text": _v_visual_text,
     "rrf_fusion": _v_rrf_fusion,
     "visual_raw": _v_visual_raw,

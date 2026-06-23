@@ -150,6 +150,13 @@ class Settings:
         default_factory=lambda: int(_env("INGEST_IMAGE_TIMEOUT_SEC", "300") or "300")
     )
 
+    # Optional bootstrap corpus: directory ingested in a background thread on
+    # startup when the index is empty. Used to seed a small smoke-test set on a
+    # fresh deploy (e.g. ECS). Empty disables the feature.
+    bootstrap_corpus_dir: Optional[str] = field(
+        default_factory=lambda: _env("BOOTSTRAP_CORPUS_DIR")
+    )
+
     # Post-ingest index repair
     post_ingest_repair_enabled: bool = field(
         default_factory=lambda: (_env("POST_INGEST_REPAIR_ENABLED", "true") or "true").lower()
