@@ -12,16 +12,18 @@ services:
       IMAGE_CACHE_DIR: /app/data/images
       UPLOADS_DIR: /app/data/uploads
       BM25_PATH: /app/data/bm25.pkl
+      HUBNESS_PATH: /app/data/hubness.pkl
       DECK_CACHE_DIR: /app/data/deck_cache
       ACRONYM_CACHE_PATH: /app/data/acronym_cache.json
       TESSERACT_CMD: /usr/bin/tesseract
     volumes:
-      - ./data:/app/data
-      # Host corpus for CLI ingest at a stable path inside the container (comment out if unused):
-      - ./corpus:/corpus:ro
+      - imagecb-data:/app/data
     healthcheck:
       test: ["CMD", "curl", "-f", "http://127.0.0.1:8080/api/health"]
       interval: 30s
       timeout: 5s
       retries: 3
       start_period: 15s
+
+volumes:
+  imagecb-data:

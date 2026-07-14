@@ -1,7 +1,6 @@
 .git/
 .venv/
 venv/
-data/
 .env
 .aws/
 __pycache__/

@@ -134,8 +134,9 @@ the provider are
 
 ## Docker
 
-Run Imagecb in a container with the React UI, Tesseract OCR, and persisted
-index data under `./data`. No local Python or Node install is required.
+Run Imagecb in a container with the React UI, Tesseract OCR, and a snapshot
+of the repository's current indexed corpus. No local Python or Node install
+is required.
 
 ### Prerequisites
 
@@ -150,28 +151,27 @@ index data under `./data`. No local Python or Node install is required.
 docker compose up --build
 ```
 
-Open http://localhost:8080. The image builds `frontend/dist/` during
-`docker compose build` and serves it via FastAPI.
+Open http://localhost:8080. The image builds `frontend/dist/`, converts
+the corpus's Windows paths to container paths, and serves the UI via FastAPI.
 
-Index state is stored in `./data` on the host (bind-mounted to
-`/app/data` in the container). A fresh `./data` directory is empty until
-you ingest files or use **Add to corpus** in the UI.
+On first start, Docker initializes the `imagecb-data` named volume from the
+corpus baked into `/app/data`. Uploads and later index changes persist in that
+volume across container recreation.
 
-### Ingest a host corpus
+### Refresh the baked-in corpus
 
-To index files from your machine via the CLI inside the container:
+The named volume is intentionally not overwritten by later image rebuilds.
+To replace it with a newly built snapshot of the repository's current
+`./data`, remove the old volume and rebuild:
 
-1. Create a `corpus` folder next to the project and add files to index
-   (Docker creates an empty `corpus/` folder on first start if missing).
-2. Run ingest:
+```powershell
+docker compose down -v
+docker compose up --build
+```
 
-   ```powershell
-   docker compose run --rm imagecb python -m imagecb.cli ingest /corpus
-   ```
-
-SQLite stores absolute `source_file` paths. Corpus files must stay at
-the **same path inside the container** for **Open source** downloads to
-work (hence the fixed `/corpus` mount).
+Warning: `down -v` deletes uploads and other changes made only inside the
+existing Docker volume. Back those up first if they need to be retained.
+To add files without replacing the snapshot, use **Add to corpus** in the UI.
 
 ### Other CLI commands
 
