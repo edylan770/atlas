@@ -154,24 +154,21 @@ docker compose up --build
 Open http://localhost:8080. The image builds `frontend/dist/`, converts
 the corpus's Windows paths to container paths, and serves the UI via FastAPI.
 
-On first start, Docker initializes the `imagecb-data` named volume from the
-corpus baked into `/app/data`. Uploads and later index changes persist in that
-volume across container recreation.
+The indexed corpus under `./data` is baked into the image at build time and
+served from `/app/data` in the container (no named volume). Each
+`docker compose up --build` (or redeploy) picks up the corpus from the
+current image. Uploads and index changes made only inside a running
+container are lost when that container is replaced — rebuild with an
+updated `./data`, or use **Add to corpus** again after redeploy.
 
 ### Refresh the baked-in corpus
 
-The named volume is intentionally not overwritten by later image rebuilds.
-To replace it with a newly built snapshot of the repository's current
-`./data`, remove the old volume and rebuild:
-
 ```powershell
-docker compose down -v
 docker compose up --build
 ```
 
-Warning: `down -v` deletes uploads and other changes made only inside the
-existing Docker volume. Back those up first if they need to be retained.
-To add files without replacing the snapshot, use **Add to corpus** in the UI.
+Commit and push an updated `./data` first if the destination rebuilds from
+GitHub (for example AWS CodeBuild).
 
 ### Other CLI commands
 
