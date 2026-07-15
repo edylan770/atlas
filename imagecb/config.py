@@ -91,6 +91,18 @@ class Settings:
     )
     bm25_path: Path = field(default_factory=lambda: _abspath(_env("BM25_PATH", "./data/bm25.pkl") or "./data/bm25.pkl"))
     hubness_path: Path = field(default_factory=lambda: _abspath(_env("HUBNESS_PATH", "./data/hubness.pkl") or "./data/hubness.pkl"))
+    blob_storage_backend: str = field(
+        default_factory=lambda: (_env("BLOB_STORAGE_BACKEND", "local") or "local").lower()
+    )
+    s3_bucket: Optional[str] = field(default_factory=lambda: _env("S3_BUCKET"))
+    s3_prefix: str = field(
+        default_factory=lambda: (_env("S3_PREFIX", "imagecb") or "imagecb").strip("/")
+    )
+    s3_region: str = field(
+        default_factory=lambda: _env("S3_REGION")
+        or _env("AWS_REGION", "us-east-1")
+        or "us-east-1"
+    )
 
     # OCR
     tesseract_cmd: Optional[str] = field(default_factory=lambda: _env("TESSERACT_CMD"))
@@ -295,6 +307,13 @@ class Settings:
         self.bm25_path.parent.mkdir(parents=True, exist_ok=True)
         self.deck_cache_dir.mkdir(parents=True, exist_ok=True)
 
+    def validate_blob_storage(self) -> None:
+        if self.blob_storage_backend not in {"local", "s3"}:
+            raise ValueError("BLOB_STORAGE_BACKEND must be 'local' or 's3'")
+        if self.blob_storage_backend == "s3" and not self.s3_bucket:
+            raise ValueError("S3_BUCKET is required when BLOB_STORAGE_BACKEND=s3")
+
 
 SETTINGS = Settings()
+SETTINGS.validate_blob_storage()
 SETTINGS.ensure_dirs()

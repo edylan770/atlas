@@ -7,6 +7,7 @@ import sys
 import threading
 import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
+from contextlib import ExitStack
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Dict, List, Literal, Optional, Sequence, Set, Tuple
@@ -32,7 +33,13 @@ from imagecb.ingest import _chroma_metadata, _flush_chroma_batch, embed_caption_
 from imagecb.ingest_context import embed_context_from_record
 from imagecb.models.embedder import get_embedder
 from imagecb.models.vlm import CaptionJSON, get_captioner
-from imagecb.paths import resolve_source_file
+from imagecb.paths import (
+    image_exists,
+    materialize_source,
+    open_record_image,
+    resolve_source_file,
+    source_exists,
+)
 from imagecb.storage import bm25_index, metadata_db, vector_store
 from imagecb.storage.metadata_db import ImageRecord, get_all_records, get_records, session_scope
 
@@ -114,7 +121,7 @@ class IndexHealthReport:
 
 
 def _cache_missing(record: ImageRecord) -> bool:
-    return not Path(record.image_path).expanduser().is_file()
+    return not image_exists(record)
 
 
 def _caption_failed(record: ImageRecord) -> bool:
@@ -166,9 +173,11 @@ def assess_index_health(*, include_weak: bool = False) -> IndexHealthReport:
     unrecoverable_records: List[ImageRecord] = []
     recoverable_source_files: Set[str] = set()
     for r in missing_cache_records:
-        src = resolve_source_file(r)
-        if src is not None:
-            recoverable_source_files.add(str(src))
+        local_source = resolve_source_file(r)
+        if local_source is not None:
+            recoverable_source_files.add(str(local_source))
+        elif source_exists(r):
+            recoverable_source_files.add(r.source_file)
         else:
             unrecoverable_records.append(r)
 
@@ -355,15 +364,10 @@ def reconcile_index_safe(*, dry_run: bool = False) -> dict:
 
 
 def _load_cached_image(record: ImageRecord) -> Optional[Image.Image]:
-    path = Path(record.image_path).expanduser()
-    if not path.is_file():
-        return None
     try:
-        img = Image.open(path)
-        img.load()
-        return img
+        return open_record_image(record)
     except Exception as exc:  # noqa: BLE001
-        logger.warning("Could not load %s: %s", path, exc)
+        logger.warning("Could not load %s: %s", record.image_path, exc)
         return None
 
 
@@ -843,12 +847,15 @@ def repair_missing_cache(
         report = assess_index_health()
         records = report.missing_cache_records
 
-    repair_queue: Set[Path] = set()
+    repair_records: dict[str, ImageRecord] = {}
+    local_repair_queue: set[Path] = set()
     unrecoverable = 0
     for record in records:
-        src = resolve_source_file(record)
-        if src is not None:
-            repair_queue.add(src)
+        local_source = resolve_source_file(record)
+        if local_source is not None:
+            local_repair_queue.add(local_source)
+        elif source_exists(record):
+            repair_records.setdefault(record.source_file, record)
         else:
             unrecoverable += 1
             logger.warning(
@@ -858,26 +865,32 @@ def repair_missing_cache(
             )
 
     stats = {
-        "source_files_attempted": len(repair_queue),
+        "source_files_attempted": len(repair_records) + len(local_repair_queue),
         "source_files_repaired": 0,
         "images_updated": 0,
         "errors": 0,
         "unrecoverable": unrecoverable,
     }
-    if not repair_queue:
+    if not repair_records and not local_repair_queue:
         stats["elapsed_sec"] = round(time.perf_counter() - t0, 1)
         return stats
 
     from imagecb.ingest import ingest_paths
 
-    ingest_stats = ingest_paths(
-        sorted(repair_queue, key=str),
-        force=True,
-        auto_repair=False,
-        rebuild_bm25=False,
-        refresh_vocab=False,
-        workers=workers,
-    )
+    with ExitStack() as stack:
+        repair_queue: list[Path] = list(local_repair_queue)
+        for record in repair_records.values():
+            source = stack.enter_context(materialize_source(record))
+            if source is not None:
+                repair_queue.append(source)
+        ingest_stats = ingest_paths(
+            sorted(repair_queue, key=str),
+            force=True,
+            auto_repair=False,
+            rebuild_bm25=False,
+            refresh_vocab=False,
+            workers=workers,
+        )
     stats["source_files_repaired"] = ingest_stats.get("files", 0)
     stats["images_updated"] = ingest_stats.get("images_updated", 0) + ingest_stats.get("images_added", 0)
     stats["errors"] = ingest_stats.get("errors", 0)

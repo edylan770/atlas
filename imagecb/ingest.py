@@ -42,6 +42,7 @@ from imagecb.models.embedder import BedrockEmbedder, get_embedder, get_text_embe
 from imagecb.models.ocr import extract_text as ocr_extract
 from imagecb.models.vlm import CaptionJSON, VLMCaptioner, get_captioner
 from imagecb.storage import bm25_index, vector_store
+from imagecb.storage.blob_store import persist_image_png, persist_source
 from imagecb.storage.metadata_db import (
     ImageRecord,
     existing_hashes,
@@ -139,10 +140,10 @@ def _hash_image(img: Image.Image) -> str:
     return hashlib.sha256(buf.getvalue()).hexdigest()
 
 
-def _cache_image(img: Image.Image, image_id: str) -> Path:
-    out_path = SETTINGS.image_cache_dir / f"{image_id}.png"
-    img.convert("RGB").save(out_path, format="PNG")
-    return out_path
+def _cache_image(img: Image.Image, image_id: str) -> str:
+    buf = io.BytesIO()
+    img.convert("RGB").save(buf, format="PNG")
+    return persist_image_png(image_id, buf.getvalue())
 
 
 def _default_image_name(extracted: ExtractedImage) -> str:
@@ -176,7 +177,7 @@ def _record_for(
     *,
     image_id: str,
     extracted: ExtractedImage,
-    image_path: Path,
+    image_path: str | Path,
     content_hash: str,
     ocr_text: str,
     caption: CaptionJSON,
@@ -312,7 +313,9 @@ def _collect_work_items(paths: Iterable[Path]) -> Tuple[List[_IngestWorkItem], i
     errors = 0
     for file_path in paths:
         try:
+            source_ref = persist_source(file_path)
             for extracted in extract_path(file_path):
+                extracted.provenance.source_file = source_ref
                 items.append(_IngestWorkItem(file_path=file_path, extracted=extracted))
         except Exception as exc:  # noqa: BLE001
             logger.warning("Extractor failed for %s: %s", file_path, exc)
@@ -325,7 +328,9 @@ def _iter_work_items(paths: Iterable[Path]) -> Iterator[Tuple[Optional[_IngestWo
     errors = 0
     for file_path in paths:
         try:
+            source_ref = persist_source(file_path)
             for extracted in extract_path(file_path):
+                extracted.provenance.source_file = source_ref
                 yield _IngestWorkItem(file_path=file_path, extracted=extracted), errors
         except Exception as exc:  # noqa: BLE001
             logger.warning("Extractor failed for %s: %s", file_path, exc)

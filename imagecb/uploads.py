@@ -92,6 +92,20 @@ def save_uploads(
     return saved, errors
 
 
+def cleanup_staged_uploads(paths: Sequence[Path]) -> None:
+    """Remove temporary upload staging files after S3-backed ingest."""
+    if SETTINGS.blob_storage_backend != "s3":
+        return
+    root = SETTINGS.uploads_dir.resolve()
+    for path in paths:
+        try:
+            resolved = path.resolve()
+            if resolved.parent == root:
+                resolved.unlink(missing_ok=True)
+        except OSError as exc:
+            logger.warning("Could not remove staged upload %s: %s", path, exc)
+
+
 async def save_uploads_from_files(
     files: Sequence["UploadFile"],
     *,

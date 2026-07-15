@@ -92,6 +92,34 @@ def ingest(
     )
 
 
+@app.command(name="migrate-blobs-to-s3")
+def migrate_blobs_to_s3(
+    apply: bool = typer.Option(
+        False,
+        "--apply",
+        help="Perform uploads and database rewrites. Without this flag, only report candidates.",
+    ),
+    verbose: bool = typer.Option(False, "--verbose", "-v"),
+) -> None:
+    """Move legacy local uploads and cached images to configured private S3."""
+    _configure_logging(verbose)
+    from imagecb.storage.blob_migration import migrate_local_blobs_to_s3
+
+    stats = migrate_local_blobs_to_s3(dry_run=not apply)
+    mode = "DRY RUN" if not apply else "APPLIED"
+    typer.echo(
+        f"{mode}: records={stats['records_scanned']} "
+        f"image_candidates={stats['image_candidates']} "
+        f"source_candidates={stats['source_candidates']} "
+        f"images_migrated={stats['images_migrated']} "
+        f"sources_migrated={stats['sources_migrated']} "
+        f"already_migrated={stats['already_migrated']} "
+        f"missing_local={stats['missing_local']} errors={stats['errors']}"
+    )
+    if stats["errors"]:
+        raise typer.Exit(code=1)
+
+
 @app.command(name="serve-web")
 def serve_web(
     host: str = typer.Option("127.0.0.1", help="Bind host."),

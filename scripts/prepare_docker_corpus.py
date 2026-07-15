@@ -13,6 +13,8 @@ def _container_path(
     target_data_dir: PurePosixPath,
     subdir: str,
 ) -> str:
+    if raw.lower().startswith("s3://"):
+        return raw
     normalized = raw.replace("\\", "/")
     marker = f"/data/{subdir}/"
     if marker in normalized:

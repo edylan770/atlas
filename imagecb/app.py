@@ -20,7 +20,7 @@ from imagecb.formatting.assistant_reply import build_assistant_reply
 from imagecb.retrieval.rerank import RankedResult
 from imagecb.retrieval.session import ChatSession
 from imagecb.storage import metadata_db, vector_store
-from imagecb.uploads import save_uploads
+from imagecb.uploads import cleanup_staged_uploads, save_uploads
 
 logger = logging.getLogger(__name__)
 
@@ -231,6 +231,8 @@ def build_ui() -> gr.Blocks:
             except Exception as exc:  # noqa: BLE001
                 logger.exception("Ingest failed")
                 return f"**Ingest failed:** {exc}", _status_line()
+            finally:
+                cleanup_staged_uploads(saved)
             progress(1.0, desc="Done")
             summary = _format_ingest_summary(stats, staged=len(saved), stage_errors=stage_errors)
             return summary, _status_line()
@@ -308,10 +310,11 @@ def _gradio_allowed_paths() -> List[str]:
         str(SETTINGS.data_dir.resolve()),
         str(SETTINGS.image_cache_dir.resolve()),
     }
-    for record in metadata_db.get_all_records():
-        resolved = resolve_image_file(record)
-        if resolved is not None:
-            paths.add(str(resolved.parent.resolve()))
+    if SETTINGS.blob_storage_backend == "local":
+        for record in metadata_db.get_all_records():
+            resolved = resolve_image_file(record)
+            if resolved is not None:
+                paths.add(str(resolved.parent.resolve()))
     return sorted(paths)
 
 

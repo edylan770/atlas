@@ -6,7 +6,9 @@ import io
 import json
 import logging
 from concurrent.futures import ThreadPoolExecutor
+from pathlib import Path
 from typing import Iterator, List, Optional
+from urllib.parse import quote
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Request, UploadFile
 from fastapi.responses import FileResponse, StreamingResponse
@@ -55,16 +57,16 @@ from imagecb.formatting.conversational_reply import (
 )
 from imagecb.deck.pipeline import DeckSuggestResult, SlideSuggestion, force_slide_image, process_deck_upload
 from imagecb.ingest import IngestInProgressError, ingest_paths
-from imagecb.paths import resolve_image_file, resolve_source_file
+from imagecb.paths import image_fallbacks, source_fallbacks
 from imagecb.retrieval.image_query import SimilarityAxis, axis_label
 from imagecb.retrieval.query_parser import QuerySpec
 from imagecb.retrieval.session import AskResult
 from imagecb.retrieval.similar import search_similar
 from imagecb.retrieval.sort import InvalidSortError, ResultSort, resolve_sort
-from imagecb.storage import metadata_db, vector_store
+from imagecb.storage import blob_store, metadata_db, vector_store
 from imagecb.suggestions import generate_follow_up_suggestions, generate_suggestions
 from imagecb.suggestions.corpus_summary import build_corpus_context
-from imagecb.uploads import save_uploads_from_files
+from imagecb.uploads import cleanup_staged_uploads, save_uploads_from_files
 
 logger = logging.getLogger(__name__)
 
@@ -664,27 +666,59 @@ def session_reset(body: SessionResetRequest) -> SessionResetResponse:
 
 
 @router.get("/images/{image_id}")
-def get_image(image_id: str) -> FileResponse:
+def get_image(image_id: str) -> StreamingResponse:
     record = metadata_db.get_record(image_id)
     if record is None:
         raise HTTPException(status_code=404, detail="image not found")
-    path = resolve_image_file(record)
-    if path is None or not path.is_file():
-        raise HTTPException(status_code=404, detail="image file not on disk")
-    media = "image/png" if path.suffix.lower() == ".png" else "image/jpeg"
-    return FileResponse(path, media_type=media, filename=path.name)
+    ref = record.image_path
+    info = None
+    last_error: Optional[Exception] = None
+    for candidate in (record.image_path, record.source_file):
+        if not candidate:
+            continue
+        try:
+            info = blob_store.describe(candidate, fallbacks=image_fallbacks(record))
+            ref = candidate
+            break
+        except Exception as exc:
+            last_error = exc
+    if info is None:
+        raise HTTPException(status_code=404, detail="image blob not found") from last_error
+    headers = {
+        "Content-Disposition": f"inline; filename*=UTF-8''{quote(info.filename)}",
+    }
+    if info.content_length is not None:
+        headers["Content-Length"] = str(info.content_length)
+    return StreamingResponse(
+        blob_store.iter_bytes(ref, fallbacks=image_fallbacks(record)),
+        media_type=info.content_type,
+        headers=headers,
+    )
 
 
 @router.get("/sources/{image_id}")
-def get_source(image_id: str) -> FileResponse:
+def get_source(image_id: str) -> StreamingResponse:
     record = metadata_db.get_record(image_id)
     if record is None:
         raise HTTPException(status_code=404, detail="image not found")
-    path = resolve_source_file(record)
-    if path is None or not path.is_file():
-        raise HTTPException(status_code=404, detail="source file not on disk")
-    media = _SOURCE_MEDIA.get(path.suffix.lower(), "application/octet-stream")
-    return FileResponse(path, media_type=media, filename=path.name)
+    try:
+        info = blob_store.describe(record.source_file, fallbacks=source_fallbacks(record))
+    except Exception as exc:
+        raise HTTPException(status_code=404, detail="source blob not found") from exc
+    media = _SOURCE_MEDIA.get(
+        Path(info.filename).suffix.lower(),
+        info.content_type,
+    )
+    headers = {
+        "Content-Disposition": f"attachment; filename*=UTF-8''{quote(info.filename)}",
+    }
+    if info.content_length is not None:
+        headers["Content-Length"] = str(info.content_length)
+    return StreamingResponse(
+        blob_store.iter_bytes(record.source_file, fallbacks=source_fallbacks(record)),
+        media_type=media,
+        headers=headers,
+    )
 
 
 @router.get("/corpus/catalog", response_model=CorpusCatalogResponse)
@@ -763,6 +797,8 @@ async def ingest(
     except Exception as exc:  # noqa: BLE001
         logger.exception("Ingest failed")
         raise HTTPException(status_code=500, detail=f"Ingest failed: {exc}") from exc
+    finally:
+        cleanup_staged_uploads(saved)
 
     lines: list[str] = []
     if stage_errors:
@@ -775,7 +811,8 @@ async def ingest(
     if elapsed > 0 and processed > 0:
         rate = f" ({processed / elapsed:.2f} images/s)"
     lines.append(
-        f"Ingest complete in {elapsed}s{rate}: "
+        f"Ingest complete in {elapsed}s{rate}"
+        f"{' (corpus blobs stored in S3)' if SETTINGS.blob_storage_backend == 's3' else ''}: "
         f"files={stats.get('files', 0)}, "
         f"images_seen={stats.get('images_seen', 0)}, "
         f"added={stats.get('images_added', 0)}, "

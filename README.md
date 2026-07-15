@@ -154,21 +154,58 @@ docker compose up --build
 Open http://localhost:8080. The image builds `frontend/dist/`, converts
 the corpus's Windows paths to container paths, and serves the UI via FastAPI.
 
-The indexed corpus under `./data` is baked into the image at build time and
-served from `/app/data` in the container (no named volume). Each
-`docker compose up --build` (or redeploy) picks up the corpus from the
-current image. Uploads and index changes made only inside a running
-container are lost when that container is replaced — rebuild with an
-updated `./data`, or use **Add to corpus** again after redeploy.
+The live search state under `/app/data` uses the `imagecb_data` named volume,
+so SQLite, Chroma, BM25, hubness, and deck caches survive container
+replacement. On EC2, place Docker's data root on EBS or replace the named
+volume with an EBS bind mount if the state must also survive instance
+replacement.
 
-### Refresh the baked-in corpus
+### Reset the local Docker search state
 
 ```powershell
+docker compose down
+docker volume rm atlas-image-search_imagecb_data
 docker compose up --build
 ```
 
-Commit and push an updated `./data` first if the destination rebuilds from
-GitHub (for example AWS CodeBuild).
+This deletes the local Docker search brain. It does not delete private S3
+objects.
+
+### Private S3 corpus storage on EC2
+
+S3 stores original uploads and generated display PNGs. The search indexes
+remain on the persistent `/app/data` volume because SQLite and Chroma must
+not run directly against S3.
+
+Configure the container:
+
+```dotenv
+BLOB_STORAGE_BACKEND=s3
+S3_BUCKET=your-private-corpus-bucket
+S3_PREFIX=imagecb
+S3_REGION=us-east-1
+BOOTSTRAP_CORPUS_DIR=
+```
+
+Attach an EC2 instance role granting `s3:GetObject` and `s3:PutObject` for
+`arn:aws:s3:::your-private-corpus-bucket/imagecb/*`, plus
+`s3:ListBucket` scoped to the `imagecb/*` prefix. Boto3 uses that role
+automatically; do not add static AWS keys to `.env`.
+
+Existing local blobs can be migrated safely:
+
+```powershell
+# Preview only
+python -m imagecb.cli migrate-blobs-to-s3
+
+# Upload objects and rewrite SQLite rows after each successful upload
+python -m imagecb.cli migrate-blobs-to-s3 --apply
+```
+
+The command preserves local files for rollback. Legacy local paths remain
+readable during cutover. To roll back new writes, set
+`BLOB_STORAGE_BACKEND=local`; records already rewritten to `s3://` continue
+to require S3 or must be restored from their retained local copies.
 
 ### Other CLI commands
 
@@ -363,11 +400,13 @@ CI verifies `frontend_dist` stays in sync when `frontend/` changes.
 #### Upload from the UI
 
 Click **Add to corpus**, choose one or more supported files (images,
-`.pdf`, or `.pptx`), and ingest. Files are copied to `data/uploads/`
-(or `UPLOADS_DIR` if set) and indexed with the same pipeline as CLI
-ingest. Optional checkboxes mirror CLI flags: skip captions, skip OCR,
-and force re-ingest. Large decks can take several minutes (~2 Bedrock
-calls per extracted image).
+`.pdf`, or `.pptx`), and ingest. In local mode files are retained under
+`data/uploads/`. In S3 mode they are temporarily staged, stored under the
+configured private `uploads/` prefix, and removed from local staging after
+ingest. Generated PNGs are stored under the S3 `images/` prefix while the
+search index remains local. Optional checkboxes mirror CLI flags: skip
+captions, skip OCR, and force re-ingest. Large decks can take several
+minutes (~2 Bedrock calls per extracted image).
 
 #### Deck suggest (slide-aware image suggestions)
 
@@ -488,6 +527,10 @@ the full list. Highlights:
 | `AWS_BEARER_TOKEN_BEDROCK`  | Short-lived Bedrock API key (optional; otherwise use standard AWS credentials)       |
 | `DATA_DIR`                  | Root for all persisted state                                                         |
 | `UPLOADS_DIR`               | Staging dir for UI uploads (default `<DATA_DIR>/uploads`)                            |
+| `BLOB_STORAGE_BACKEND`      | Corpus blob backend: `local` (default) or `s3`                                       |
+| `S3_BUCKET`                 | Private corpus bucket; required when the blob backend is `s3`                        |
+| `S3_PREFIX`                 | Object key prefix for `uploads/` and `images/` (default `imagecb`)                   |
+| `S3_REGION`                 | S3 client region; defaults to `AWS_REGION`                                           |
 | `TESSERACT_CMD`             | Path to `tesseract.exe`                                                              |
 | `INGEST_WORKERS`            | Parallel ingest workers (default `4`; use `2` for large re-ingest)                   |
 | `INGEST_MAX_IMAGE_SIDE`     | Max longest edge for VLM caption input (default `1024`)                              |

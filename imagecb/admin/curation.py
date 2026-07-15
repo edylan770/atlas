@@ -8,14 +8,13 @@ from pathlib import Path
 from typing import List, Optional
 
 import numpy as np
-from PIL import Image
 from sqlalchemy import select
 
 from imagecb.config import SETTINGS
 from imagecb.ingest import _chroma_metadata
 from imagecb.models.embedder import get_embedder
 from imagecb.images import resize_for_model
-from imagecb.paths import resolve_image_file
+from imagecb.paths import open_record_image
 from imagecb.storage import bm25_index, metadata_db, vector_store
 from imagecb.storage.metadata_db import ImageRecord, get_all_records, session_scope
 from imagecb.telemetry.models import InteractionEvent, SearchEvent
@@ -65,17 +64,13 @@ def restore_image(*, image_id: str, actor: str) -> None:
             raise ValueError("image not found")
         if row.deleted_at is None:
             raise ValueError("image is not deleted")
-        row.deleted_at = None
-        row.deleted_by = None
         record = row
         s.expunge(record)
 
-    path = resolve_image_file(record)
-    if path is None or not path.is_file():
+    img = open_record_image(record)
+    if img is None:
         raise ValueError("cached image file missing; cannot restore embedding")
 
-    img = Image.open(path)
-    img.load()
     img = resize_for_model(img, SETTINGS.ingest_max_image_side)
     embedder = get_embedder()
     emb = embedder.embed_image(img)
@@ -90,6 +85,12 @@ def restore_image(*, image_id: str, actor: str) -> None:
     from imagecb.repair import refresh_text_vector
 
     refresh_text_vector(record)
+    with session_scope() as s:
+        row = s.execute(
+            select(ImageRecord).where(ImageRecord.image_id == image_id)
+        ).scalar_one()
+        row.deleted_at = None
+        row.deleted_by = None
     rebuild_bm25_active()
     append_audit(
         actor=actor,

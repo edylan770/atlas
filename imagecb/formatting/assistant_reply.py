@@ -10,7 +10,12 @@ from typing import List, Optional, Sequence
 
 from imagecb.caption.asset_type import format_asset_type_label
 from imagecb.formatting.match_display import display_match_percent
-from imagecb.paths import resolve_image_file, resolve_source_file
+from imagecb.paths import (
+    image_exists,
+    resolve_image_file,
+    resolve_source_file,
+    source_exists,
+)
 from imagecb.retrieval.query_parser import QuerySpec
 from imagecb.retrieval.rerank import RankedResult
 from imagecb.caption.quality import needs_regeneration
@@ -164,6 +169,7 @@ def build_result_cards(
         prov = provenance_from_record(r.record)
         cap = _display_caption(r.record)
         src_path = resolve_source_file(r.record)
+        has_source = src_path is not None or source_exists(r.record)
         image_name, use_case, tags, recommended, theme, aliases = catalog_fields_from_record(
             r.record
         )
@@ -180,14 +186,15 @@ def build_result_cards(
                 caption=cap,
                 match_hint=_short_match_hint(r),
                 match_percent=display_match_percent(r.score, r.score_kind),
-                has_image_file=resolve_image_file(r.record) is not None,
+                has_image_file=resolve_image_file(r.record) is not None
+                or image_exists(r.record),
                 image_name=image_name,
                 use_case=use_case,
                 tags=tags,
                 recommended_cases=recommended,
                 theme=theme,
                 aliases=aliases,
-                source_url=f"{source_url_prefix}/{r.image_id}" if src_path else None,
+                source_url=f"{source_url_prefix}/{r.image_id}" if has_source else None,
                 source_location=source_location_label(r.record),
                 source_path=str(src_path) if src_path else (r.record.source_file or None),
                 caption_quality=caption_quality,
@@ -265,12 +272,16 @@ def _highlight_line(r: RankedResult, *, multi_source: bool) -> str:
 
 
 def _missing_files_footer(results: Sequence[RankedResult]) -> str:
-    missing = sum(1 for r in results if resolve_image_file(r.record) is None)
+    missing = sum(
+        1
+        for r in results
+        if resolve_image_file(r.record) is None and not image_exists(r.record)
+    )
     if not missing:
         return ""
     noun = "result" if missing == 1 else "results"
     return (
-        f"\n\n({missing} {noun} missing image files on disk — "
+        f"\n\n({missing} {noun} missing image files or blobs — "
         "re-ingest your source folder with `--force`.)"
     )
 

@@ -12,7 +12,7 @@ from imagecb.config import SETTINGS
 from imagecb.formatting.match_display import meets_min_match_percent
 from imagecb.models.embedder import get_embedder
 from imagecb.models.vlm import ImageQueryJSON, get_captioner
-from imagecb.paths import resolve_image_file
+from imagecb.paths import open_record_image
 from imagecb.retrieval.hybrid import normalize_rrf_score, rrf_merge
 from imagecb.retrieval.image_query import (
     SimilarityAxis,
@@ -37,15 +37,10 @@ class SimilarSearchOutcome:
 
 
 def _load_image_for_record(record: ImageRecord) -> Optional[Image.Image]:
-    path = resolve_image_file(record)
-    if path is None:
-        return None
     try:
-        img = Image.open(path)
-        img.load()
-        return img
+        return open_record_image(record)
     except Exception as exc:  # noqa: BLE001
-        logger.warning("Could not load image %s: %s", path, exc)
+        logger.warning("Could not load image %s: %s", record.image_path, exc)
         return None
 
 
