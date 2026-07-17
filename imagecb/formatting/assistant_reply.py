@@ -221,9 +221,11 @@ def _source_summary(groups: dict[str, List[RankedResult]]) -> str:
         if n == 1 and items[0].record.source_type in ("pptx", "pdf"):
             prov = provenance_from_record(items[0].record)
             loc = prov.location_label()
-            parts.append(f"1 from **{name}** ({loc.lower()})")
+            image_name, *_ = catalog_fields_from_record(items[0].record)
+            parts.append(f"1 from **{image_name}** ({loc.lower()})")
         elif n == 1:
-            parts.append(f"1 standalone image (**{name}**)")
+            image_name, *_ = catalog_fields_from_record(items[0].record)
+            parts.append(f"1 standalone image (**{image_name}**)")
         else:
             slides = sorted(
                 {
@@ -239,6 +241,7 @@ def _source_summary(groups: dict[str, List[RankedResult]]) -> str:
                     if items[i].record.page_index is not None
                 }
             )
+            # Multiple hits from one source file: keep the shared filename for grouping.
             if slides:
                 if len(slides) <= 4:
                     loc = ", ".join(str(s) for s in slides)
@@ -260,15 +263,36 @@ def _source_summary(groups: dict[str, List[RankedResult]]) -> str:
     return ", ".join(parts[:-1]) + f", and {parts[-1]}"
 
 
-def _highlight_line(r: RankedResult, *, multi_source: bool) -> str:
+def _highlight_line(r: RankedResult, *, multi_source: bool = False) -> str:
+    _ = multi_source  # kept for call-site compatibility
     prov = provenance_from_record(r.record)
+    image_name, *_ = catalog_fields_from_record(r.record)
     cap = _display_caption(r.record)
     cap_part = _truncate(cap, _HIGHLIGHT_CAPTION_TRUNC) if cap else "No caption"
-    if multi_source:
-        return f"• **{prov.location_label()}** ({prov.source_name}) — {cap_part}"
     if prov.source_type in ("pptx", "pdf"):
-        return f"• **{prov.location_label()}** — {cap_part}"
-    return f"• {cap_part}"
+        return f"• **{image_name}** ({prov.location_label()}) — {cap_part}"
+    return f"• **{image_name}** — {cap_part}"
+
+
+def _use_cases_footer(results: Sequence[RankedResult], *, limit: int = 5) -> str:
+    seen: set[str] = set()
+    cases: List[str] = []
+    for r in results:
+        _, use_case, *_ = catalog_fields_from_record(r.record)
+        if not use_case:
+            continue
+        key = use_case.casefold()
+        if key in seen:
+            continue
+        seen.add(key)
+        cases.append(use_case)
+        if len(cases) >= limit:
+            break
+    if not cases:
+        return ""
+    lines = ["", "**Use cases:**"]
+    lines.extend(f"- {c}" for c in cases)
+    return "\n".join(lines)
 
 
 def _missing_files_footer(results: Sequence[RankedResult]) -> str:
@@ -317,6 +341,7 @@ def format_assistant_message(
 
     n = len(results)
     missing_footer = _missing_files_footer(results)
+    use_cases_footer = _use_cases_footer(results)
 
     if n <= 3:
         groups = _group_by_source(results)
@@ -334,7 +359,7 @@ def format_assistant_message(
         close = _closing_hint(spec, count=n)
         if close:
             body = f"{body} {close}"
-        return (prefix + body + missing_footer).strip()
+        return (prefix + body + use_cases_footer + missing_footer).strip()
 
     groups = _group_by_source(results)
     summary = _source_summary(groups)
@@ -352,7 +377,7 @@ def format_assistant_message(
     if close:
         lines.append("")
         lines.append(close)
-    return ("\n".join(lines) + missing_footer).strip()
+    return ("\n".join(lines) + use_cases_footer + missing_footer).strip()
 
 
 def build_assistant_reply(

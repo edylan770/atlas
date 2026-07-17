@@ -6,6 +6,8 @@ from datetime import datetime
 from unittest.mock import MagicMock, patch
 
 from imagecb.formatting.conversational_reply import (
+    _build_llm_payload,
+    _results_block,
     build_conversational_reply,
     iter_conversational_reply_text,
 )
@@ -15,35 +17,46 @@ from imagecb.retrieval.session import AskResult
 from imagecb.storage.metadata_db import ImageRecord
 
 
-def _record(image_id: str = "id-1") -> ImageRecord:
+def _record(
+    image_id: str = "id-1",
+    *,
+    source_file: str = "/docs/Q3.pptx",
+    source_type: str = "pptx",
+    slide_index: int | None = 1,
+    caption_short: str = "Chart",
+    image_name: str | None = "Quarterly Revenue Chart",
+    use_case: str | None = "Board decks and earnings reviews",
+) -> ImageRecord:
     return ImageRecord(
         image_id=image_id,
         content_hash=f"hash-{image_id}",
         image_path=f"data/images/{image_id}.png",
-        source_file="/docs/Q3.pptx",
-        source_type="pptx",
+        source_file=source_file,
+        source_type=source_type,
         source_modified_at=datetime(2024, 9, 15),
         source_created_at=None,
         author=None,
-        slide_index=1,
+        slide_index=slide_index,
         page_index=None,
         slide_title=None,
         slide_notes=None,
         ocr_text=None,
-        caption_short="Chart",
+        caption_short=caption_short,
         caption_detailed=None,
         objects_json=None,
         tags_json=None,
         scene=None,
         text_overlay_summary=None,
         created_at=datetime.utcnow(),
+        image_name=image_name,
+        use_case=use_case,
     )
 
 
-def _ranked() -> RankedResult:
+def _ranked(record: ImageRecord | None = None) -> RankedResult:
     from imagecb.retrieval.rerank import _format_provenance
 
-    rec = _record()
+    rec = record or _record()
     return RankedResult(
         image_id=rec.image_id,
         score=0.87,
@@ -125,3 +138,46 @@ def test_iter_falls_back_on_llm_failure(mock_get_llm, mock_settings):
     chunks = list(iter_conversational_reply_text("find charts", _ask_result(), []))
     assert len(chunks) == 1
     assert len(chunks[0]) > 0
+
+
+def test_results_block_uses_image_name_and_use_case():
+    block = _results_block(
+        [
+            _ranked(
+                _record(
+                    source_file="/docs/AdobeStock_1025891723.jpeg",
+                    source_type="image",
+                    slide_index=None,
+                    image_name="Healthcare Digital Innovation Concept",
+                    use_case="Digital health marketing and product explainers",
+                    caption_short="medical symbols with technology",
+                )
+            )
+        ]
+    )
+    assert "Healthcare Digital Innovation Concept" in block
+    assert "Use case: Digital health marketing and product explainers" in block
+    assert "AdobeStock_1025891723.jpeg" not in block
+
+
+def test_llm_payload_includes_titles_not_filenames():
+    payload = _build_llm_payload(
+        "digital healthcare concept",
+        QuerySpec(semantic_query="digital healthcare", raw_text="digital healthcare concept"),
+        [
+            _ranked(
+                _record(
+                    source_file="/docs/AdobeStock_1025891723.jpeg",
+                    source_type="image",
+                    slide_index=None,
+                    image_name="Healthcare Digital Innovation Concept",
+                    use_case="Campaign visuals for telehealth launches",
+                )
+            )
+        ],
+        interpretation_notes=[],
+        indexed_count=10,
+    )
+    assert "Healthcare Digital Innovation Concept" in payload
+    assert "Campaign visuals for telehealth launches" in payload
+    assert "AdobeStock_1025891723.jpeg" not in payload

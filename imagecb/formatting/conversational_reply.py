@@ -11,7 +11,7 @@ from imagecb.formatting.assistant_reply import (
     AssistantReply,
     build_assistant_reply,
     build_result_cards,
-    provenance_from_record,
+    catalog_fields_from_record,
 )
 from imagecb.models.conversation_llm import get_conversation_llm
 from imagecb.retrieval.query_parser import QuerySpec
@@ -36,15 +36,16 @@ def _results_block(results: Sequence[RankedResult]) -> str:
         return "(no results)"
     lines: List[str] = []
     for i, r in enumerate(results[:_RESULT_LINES], start=1):
-        prov = provenance_from_record(r.record)
+        image_name, use_case, *_ = catalog_fields_from_record(r.record)
         cap = _truncate(
             (r.record.caption_short or r.record.caption_detailed or "").strip(),
             _CAPTION_TRUNC,
         )
         pct = display_match_percent(r.score, r.score_kind)
-        lines.append(
-            f"{i}. {prov.location_label()} ({prov.source_name}) — {pct}% match — {cap or 'no caption'}"
-        )
+        line = f"{i}. {image_name} — {pct}% match — {cap or 'no caption'}"
+        if use_case:
+            line += f"\n   Use case: {use_case}"
+        lines.append(line)
     if len(results) > _RESULT_LINES:
         lines.append(f"... and {len(results) - _RESULT_LINES} more")
     return "\n".join(lines)

@@ -8,12 +8,17 @@ from imagecb.config import SETTINGS
 
 CONVERSATION_SYSTEM_PROMPT = """You are the assistant for an image search app over \
 ingested slides, PDFs, and standalone images. After each search, write a short reply in \
-Markdown (1–3 short paragraphs):
+Markdown (1–3 short paragraphs), then an optional Use cases section:
 
 1. Summarize in plain language what was found, or say plainly that nothing matched well.
+2. Refer to assets by their generated titles from the context (the name before the match \
+percent). Do not quote source filenames unless the user asks for them.
+3. End with a short **Use cases** section listing distinct use cases taken only from the \
+`Use case:` fields in the context. Deduplicate similar wording. Skip this section if none \
+are present. Do not invent use cases.
 
 Rules:
-- Never invent filenames, authors, or images not present in the context.
+- Never invent titles, authors, use cases, or images not present in the context.
 - If the interpretation notes say matches are weak, be honest about it.
 - Keep tone friendly and concise. No JSON. No code blocks."""
 
@@ -43,7 +48,7 @@ class ConversationLLM:
             modelId=self.model,
             system=[{"text": CONVERSATION_SYSTEM_PROMPT}],
             messages=[{"role": "user", "content": [{"text": user_payload}]}],
-            inferenceConfig={"temperature": 0.4, "maxTokens": 800},
+            inferenceConfig={"temperature": 0.4, "maxTokens": 1000},
         )
         for event in response.get("stream", []):
             delta = event.get("contentBlockDelta")
@@ -79,7 +84,7 @@ class ConversationLLM:
         client = anthropic.Anthropic(api_key=SETTINGS.anthropic_api_key)
         with client.messages.stream(
             model=self.model,
-            max_tokens=800,
+            max_tokens=1000,
             system=CONVERSATION_SYSTEM_PROMPT,
             messages=[{"role": "user", "content": user_payload}],
         ) as stream:

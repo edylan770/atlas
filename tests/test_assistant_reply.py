@@ -26,6 +26,8 @@ def _record(
     page_index: int | None = None,
     caption_short: str = "Bar chart of quarterly revenue",
     author: str | None = "Alice",
+    image_name: str | None = None,
+    use_case: str | None = None,
 ) -> ImageRecord:
     return ImageRecord(
         image_id=image_id,
@@ -48,6 +50,8 @@ def _record(
         scene=None,
         text_overlay_summary=None,
         created_at=datetime.utcnow(),
+        image_name=image_name,
+        use_case=use_case,
     )
 
 
@@ -71,10 +75,10 @@ def test_zero_results(_mock_resolve):
 
 @patch("imagecb.formatting.assistant_reply.resolve_image_file", return_value="/tmp/x.png")
 def test_single_pptx_result(_mock_resolve):
-    r = _ranked(_record())
+    r = _ranked(_record(image_name="Quarterly Revenue Chart"))
     msg = format_assistant_message([r], None)
     assert "1 image" in msg.lower() or "1 images" not in msg.lower()
-    assert "Q3_Review" in msg
+    assert "Quarterly Revenue Chart" in msg
     assert "Bar chart" in msg
     assert "Found 10" not in msg
 
@@ -82,9 +86,23 @@ def test_single_pptx_result(_mock_resolve):
 @patch("imagecb.formatting.assistant_reply.resolve_image_file", return_value="/tmp/x.png")
 def test_multi_source_batch(_mock_resolve):
     results = [
-        _ranked(_record(image_id="a", slide_index=3)),
-        _ranked(_record(image_id="b", slide_index=7, caption_short="KPI dashboard")),
-        _ranked(_record(image_id="c", slide_index=12, caption_short="Executive summary")),
+        _ranked(_record(image_id="a", slide_index=3, image_name="Revenue Slide")),
+        _ranked(
+            _record(
+                image_id="b",
+                slide_index=7,
+                caption_short="KPI dashboard",
+                image_name="KPI Dashboard",
+            )
+        ),
+        _ranked(
+            _record(
+                image_id="c",
+                slide_index=12,
+                caption_short="Executive summary",
+                image_name="Executive Summary",
+            )
+        ),
         _ranked(
             _record(
                 image_id="d",
@@ -92,14 +110,79 @@ def test_multi_source_batch(_mock_resolve):
                 source_type="image",
                 slide_index=None,
                 caption_short="Company logo",
+                image_name="Company Logo",
             )
         ),
     ]
     msg = format_assistant_message(results, None)
     assert "4" in msg
     assert "Highlights" in msg
+    assert "Revenue Slide" in msg
     assert "Slide 3" in msg
     assert "results panel" in msg.lower()
+
+
+@patch("imagecb.formatting.assistant_reply.resolve_image_file", return_value="/tmp/x.png")
+def test_template_prefers_image_name_and_appends_use_cases(_mock_resolve):
+    r = _ranked(
+        _record(
+            source_file="/docs/AdobeStock_1025891723.jpeg",
+            source_type="image",
+            slide_index=None,
+            caption_short="medical symbols with technology",
+            image_name="Healthcare Digital Innovation Concept",
+            use_case="Digital health marketing and product explainers",
+        )
+    )
+    msg = format_assistant_message([r], None)
+    assert "Healthcare Digital Innovation Concept" in msg
+    assert "AdobeStock_1025891723.jpeg" not in msg
+    assert "**Use cases:**" in msg
+    assert "Digital health marketing and product explainers" in msg
+
+
+@patch("imagecb.formatting.assistant_reply.resolve_image_file", return_value="/tmp/x.png")
+def test_use_cases_footer_dedupes(_mock_resolve):
+    results = [
+        _ranked(
+            _record(
+                image_id="a",
+                image_name="Title A",
+                use_case="Board decks",
+                caption_short="A",
+            )
+        ),
+        _ranked(
+            _record(
+                image_id="b",
+                slide_index=4,
+                image_name="Title B",
+                use_case="Board decks",
+                caption_short="B",
+            )
+        ),
+        _ranked(
+            _record(
+                image_id="c",
+                slide_index=5,
+                image_name="Title C",
+                use_case="Training materials",
+                caption_short="C",
+            )
+        ),
+        _ranked(
+            _record(
+                image_id="d",
+                slide_index=6,
+                image_name="Title D",
+                use_case="Training materials",
+                caption_short="D",
+            )
+        ),
+    ]
+    msg = format_assistant_message(results, None)
+    assert msg.count("Board decks") == 1
+    assert msg.count("Training materials") == 1
 
 
 @patch("imagecb.formatting.assistant_reply.resolve_image_file", return_value="/tmp/x.png")
