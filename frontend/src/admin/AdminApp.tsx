@@ -326,23 +326,42 @@ function CorpusPage() {
   };
 
   const handlePurgeUnrecoverable = async () => {
-    const count = corpusHealth?.unrecoverable_source_missing_count ?? 0;
-    if (count === 0) return;
-    if (
-      !window.confirm(
-        `Soft-delete ${count} images with missing files? They will leave search results.`,
-      )
-    ) {
-      return;
-    }
     setIndexActionError(null);
     setIndexActionResult(null);
     setIndexAction("purge");
     try {
+      const freshHealth = await fetchCorpusHealth();
+      setCorpusHealth(freshHealth);
+      const count = freshHealth.unrecoverable_source_missing_count ?? 0;
+      if (count === 0) {
+        setIndexActionResult(
+          "Nothing currently unrecoverable; no images were purged.",
+        );
+        return;
+      }
+      if (
+        !window.confirm(
+          `Soft-delete ${count} image(s) missing both their cached image and recoverable source? They will leave search results.`,
+        )
+      ) {
+        return;
+      }
+
       const result = await purgeUnrecoverable();
-      setIndexActionResult(
-        `Purged ${result.deleted} unrecoverable image(s) from search.`,
-      );
+      if (result.deleted === 0) {
+        setIndexActionResult(
+          result.candidates === 0
+            ? "Nothing currently unrecoverable; no images were purged."
+            : `No images were purged; ${result.skipped} candidate(s) changed state before deletion.`,
+        );
+      } else {
+        setIndexActionResult(
+          `Purged ${result.deleted} of ${result.candidates} unrecoverable image(s) from search.` +
+            (result.skipped > 0
+              ? ` ${result.skipped} candidate(s) were skipped because their state changed.`
+              : ""),
+        );
+      }
       reloadAll();
     } catch (e) {
       setIndexActionError(e instanceof Error ? e.message : String(e));

@@ -60,38 +60,49 @@ def soft_delete_unrecoverable(*, actor: str) -> dict:
 
     ensure_telemetry_schema()
     report = assess_index_health(include_weak=False)
-    image_ids = [r.image_id for r in report.unrecoverable_records]
-    if not image_ids:
-        return {"deleted": 0, "image_ids": []}
+    candidate_ids = list(dict.fromkeys(
+        r.image_id for r in report.unrecoverable_records
+    ))
+    deleted_ids: list[str] = []
 
-    now = datetime.utcnow()
-    id_set = set(image_ids)
-    with session_scope() as s:
-        rows = s.execute(
-            select(ImageRecord).where(ImageRecord.image_id.in_(image_ids))
-        ).scalars().all()
-        for row in rows:
-            if row.deleted_at is not None:
-                continue
-            if row.image_id not in id_set:
-                continue
-            row.deleted_at = now
-            row.deleted_by = actor
+    if candidate_ids:
+        now = datetime.utcnow()
+        with session_scope() as s:
+            rows = s.execute(
+                select(ImageRecord).where(
+                    ImageRecord.image_id.in_(candidate_ids),
+                    ImageRecord.deleted_at.is_(None),
+                )
+            ).scalars().all()
+            for row in rows:
+                row.deleted_at = now
+                row.deleted_by = actor
+                deleted_ids.append(row.image_id)
 
-    vector_store.delete(image_ids)
-    vector_store.delete_text(image_ids)
-    rebuild_bm25_active()
+    if deleted_ids:
+        vector_store.delete(deleted_ids)
+        vector_store.delete_text(deleted_ids)
+        rebuild_bm25_active()
+
+    stats = {
+        "candidates": len(candidate_ids),
+        "deleted": len(deleted_ids),
+        "skipped": len(candidate_ids) - len(deleted_ids),
+        "image_ids": deleted_ids,
+    }
     append_audit(
         actor=actor,
         action="purge_unrecoverable",
         target_type="corpus",
         target_id="unrecoverable",
         details={
-            "deleted": len(image_ids),
-            "image_ids_sample": image_ids[:20],
+            "candidates": stats["candidates"],
+            "deleted": stats["deleted"],
+            "skipped": stats["skipped"],
+            "image_ids_sample": deleted_ids[:20],
         },
     )
-    return {"deleted": len(image_ids), "image_ids": image_ids}
+    return stats
 
 
 def restore_image(*, image_id: str, actor: str) -> None:

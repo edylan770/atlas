@@ -166,12 +166,18 @@ def test_corpus_health_endpoint(mock_assess, admin_client):
     assert body["weak_caption_count"] == 3
     assert body["needs_regeneration_count"] == 5
     assert body["is_healthy"] is False
+    assert res.headers["cache-control"] == "no-store"
     mock_assess.assert_called_once_with(include_weak=True)
 
 
 @patch("imagecb.admin.curation.soft_delete_unrecoverable")
 def test_purge_unrecoverable_endpoint(mock_purge, admin_client):
-    mock_purge.return_value = {"deleted": 2, "image_ids": ["a", "b"]}
+    mock_purge.return_value = {
+        "candidates": 3,
+        "deleted": 2,
+        "skipped": 1,
+        "image_ids": ["a", "b"],
+    }
     res = admin_client.post(
         "/api/admin/corpus/purge-unrecoverable",
         headers={"X-Admin-Api-Key": "test-admin-secret"},
@@ -179,7 +185,9 @@ def test_purge_unrecoverable_endpoint(mock_purge, admin_client):
     assert res.status_code == 200
     body = res.json()
     assert body["ok"] is True
+    assert body["candidates"] == 3
     assert body["deleted"] == 2
+    assert body["skipped"] == 1
     assert body["image_ids"] == ["a", "b"]
     mock_purge.assert_called_once()
     assert mock_purge.call_args.kwargs["actor"]

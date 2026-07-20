@@ -5,6 +5,8 @@ from dataclasses import replace
 from datetime import datetime
 from unittest.mock import patch
 
+import pytest
+
 from imagecb.config import SETTINGS
 from imagecb.storage import blob_store
 
@@ -31,6 +33,12 @@ class FakeS3:
     def get_object(self, *, Bucket, Key):
         data, content_type = self.objects[(Bucket, Key)]
         return {"Body": _Body(data), "ContentType": content_type}
+
+
+class FakeS3Error(Exception):
+    def __init__(self, code: str):
+        super().__init__(code)
+        self.response = {"Error": {"Code": code}}
 
 
 def test_s3_uri_round_trip_and_filename_safety():
@@ -84,3 +92,28 @@ def test_private_s3_put_describe_read_and_stream(tmp_path):
 
     assert info.filename == "deck.pptx"
     assert info.content_length == len(b"deck-bytes")
+
+
+def test_s3_exists_returns_false_for_true_not_found():
+    fake = FakeS3()
+    with patch("imagecb.storage.blob_store.get_s3_client", return_value=fake), patch.object(
+        fake,
+        "head_object",
+        side_effect=FakeS3Error("404"),
+    ):
+        assert blob_store.exists("s3://private-corpus/missing.png") is False
+
+
+@pytest.mark.parametrize("code", ["AccessDenied", "ExpiredToken", "SlowDown"])
+def test_s3_exists_surfaces_operational_failures(code):
+    fake = FakeS3()
+    error = FakeS3Error(code)
+    with patch("imagecb.storage.blob_store.get_s3_client", return_value=fake), patch.object(
+        fake,
+        "head_object",
+        side_effect=error,
+    ):
+        with pytest.raises(FakeS3Error) as exc_info:
+            blob_store.exists("s3://private-corpus/image.png")
+
+    assert exc_info.value is error

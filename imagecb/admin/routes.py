@@ -5,7 +5,7 @@ from __future__ import annotations
 import logging
 from typing import Literal, Optional
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query, Response
 
 from imagecb.admin import analytics, audit, curation, duplicates
 from imagecb.api.auth import require_admin
@@ -60,8 +60,10 @@ def admin_audit_log(
 
 @router.get("/corpus/health")
 def admin_corpus_health(
+    response: Response,
     _: str = Depends(require_admin),
 ):
+    response.headers["Cache-Control"] = "no-store"
     return curation.corpus_health_summary()
 
 

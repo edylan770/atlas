@@ -194,15 +194,13 @@ def exists(ref: str | Path | None, *, fallbacks: Sequence[Path] = ()) -> bool:
     try:
         get_s3_client().head_object(Bucket=bucket, Key=key)
         return True
-    except get_s3_client().exceptions.NoSuchKey:
-        return False
-    except Exception as exc:  # botocore maps HEAD 404 to ClientError
+    except Exception as exc:  # botocore maps HEAD failures to ClientError
         response = getattr(exc, "response", {})
         code = str(response.get("Error", {}).get("Code", ""))
         if code in {"404", "NoSuchKey", "NotFound"}:
             return False
-        logger.warning("Could not check blob %s: %s", ref, exc)
-        return False
+        logger.error("Could not check blob %s: %s", ref, exc)
+        raise
 
 
 def read_bytes(ref: str | Path, *, fallbacks: Sequence[Path] = ()) -> bytes:

@@ -23,7 +23,7 @@ async function adminRequest<T>(path: string, init?: RequestInit): Promise<T> {
     "X-Admin-Api-Key": key,
     ...(init?.headers as Record<string, string> | undefined),
   };
-  const res = await fetch(path, { ...init, headers });
+  const res = await fetch(path, { ...init, headers, cache: "no-store" });
   if (!res.ok) {
     let detail = res.statusText;
     try {
@@ -137,7 +137,9 @@ export interface RepairCaptionsResult {
 
 export interface PurgeUnrecoverableResult {
   ok: boolean;
+  candidates: number;
   deleted: number;
+  skipped: number;
   image_ids: string[];
 }
 
