@@ -5,6 +5,7 @@ import type {
   ChatStreamCallbacks,
   ChatStreamMetadata,
   CorpusCatalogResponse,
+  IngestJob,
   IngestResponse,
   ParsedQuery,
   ResultSort,
@@ -245,6 +246,39 @@ export async function ingestFiles(
     method: "POST",
     headers: { "X-Admin-Api-Key": key },
     body: form,
+  });
+}
+
+export async function createIngestJob(
+  files: File[],
+  flags: IngestFlags,
+): Promise<IngestJob> {
+  const supported = filterSupportedFiles(files);
+  if (supported.length === 0) {
+    throw new Error("No supported files selected.");
+  }
+  const form = new FormData();
+  for (const file of supported) form.append("files", file);
+  form.append("skip_caption", String(flags.skipCaption));
+  form.append("skip_ocr", String(flags.skipOcr));
+  form.append("force", String(flags.force));
+  if (flags.workers != null) form.append("workers", String(flags.workers));
+  const key = getAdminApiKey();
+  if (!key) {
+    throw new Error("Admin API key required for ingest (set in Admin settings)");
+  }
+  return request<IngestJob>("/api/ingest/jobs", {
+    method: "POST",
+    headers: { "X-Admin-Api-Key": key },
+    body: form,
+  });
+}
+
+export async function fetchIngestJob(jobId: string): Promise<IngestJob> {
+  const key = getAdminApiKey();
+  if (!key) throw new Error("Admin API key required");
+  return request<IngestJob>(`/api/ingest/jobs/${encodeURIComponent(jobId)}`, {
+    headers: { "X-Admin-Api-Key": key },
   });
 }
 

@@ -9,16 +9,7 @@ RUN npm ci
 COPY frontend/ ./
 RUN npm run build
 
-# Stage 2: make the current Windows corpus portable for Linux.
-FROM python:3.11-slim AS corpus
-
-WORKDIR /seed
-
-COPY scripts/prepare_docker_corpus.py ./
-COPY data/ ./data/
-RUN python prepare_docker_corpus.py /seed/data --target-data-dir /app/data
-
-# Stage 3: Python runtime
+# Stage 2: Python runtime
 FROM python:3.11-slim AS runtime
 
 RUN apt-get update \
@@ -37,11 +28,14 @@ RUN pip install --no-cache-dir -r requirements.txt
 COPY imagecb/ ./imagecb/
 
 COPY --from=frontend /app/frontend/dist ./imagecb/web/frontend_dist/
-COPY --from=corpus --chown=imagecb:imagecb /seed/data/ ./data/
 
 # Smoke-test corpus for standalone image runs. Production Compose disables
 # bootstrap because private S3 is the durable corpus source.
+# Runtime indexes/blobs come from the Compose bind-mount (./data) or an empty volume.
 COPY corpus/ ./corpus/
+
+RUN mkdir -p /app/data \
+    && chown imagecb:imagecb /app/data
 
 ENV TESSERACT_CMD=/usr/bin/tesseract
 ENV BOOTSTRAP_CORPUS_DIR=/app/corpus/smoke

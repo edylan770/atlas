@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import List, Optional
+from typing import Any, Dict, List, Optional
 
 from pydantic import BaseModel, Field
 
@@ -179,6 +179,30 @@ class IngestResponse(BaseModel):
     message: str
     indexed_count: int
     stats: dict = Field(default_factory=dict)
+
+
+class IngestJobOut(BaseModel):
+    job_id: str
+    status: str
+    files: List[str] = Field(default_factory=list)
+    files_total: int = 0
+    files_done: int = 0
+    images_seen: int = 0
+    images_processed: int = 0
+    options: Dict[str, Any] = Field(default_factory=dict)
+    stats: Dict[str, Any] = Field(default_factory=dict)
+    stage_errors: List[str] = Field(default_factory=list)
+    error: Optional[str] = None
+    created_at: Optional[str] = None
+    started_at: Optional[str] = None
+    finished_at: Optional[str] = None
+    heartbeat_at: Optional[str] = None
+    cancel_requested_at: Optional[str] = None
+    cancellable: bool = False
+
+
+class IngestJobListResponse(BaseModel):
+    jobs: List[IngestJobOut] = Field(default_factory=list)
 
 
 class SlideSuggestionOut(BaseModel):

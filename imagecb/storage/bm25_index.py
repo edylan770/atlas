@@ -141,12 +141,16 @@ def rebuild_from_records(records) -> None:
     """Rebuild and persist the index from current SQLite records."""
     from imagecb.caption.document import caption_document_text
 
+    global _index
     ids: List[str] = []
     texts: List[str] = []
     for r in records:
         ids.append(r.image_id)
         texts.append(caption_document_text(r))
 
-    idx = get_index()
-    idx.build(ids, texts)
-    idx.save()
+    # Build off to the side so concurrent searches keep using the complete
+    # previous index until the replacement is ready.
+    replacement = BM25Index()
+    replacement.build(ids, texts)
+    replacement.save()
+    _index = replacement

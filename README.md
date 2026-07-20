@@ -154,30 +154,36 @@ docker compose up --build
 Open http://localhost:8080. The image builds `frontend/dist/`, converts
 the corpus's Windows paths to container paths, and serves the UI via FastAPI.
 
-The live search state under `/app/data` uses the `imagecb_data` named volume,
-so SQLite, Chroma, BM25, hubness, and deck caches survive container
-replacement. On EC2, place Docker's data root on EBS or replace the named
-volume with an EBS bind mount if the state must also survive instance
-replacement.
+Local Docker bind-mounts host `./data` to `/app/data` and `./corpus` to
+`/corpus` (read-only), and forces `BLOB_STORAGE_BACKEND=local` so uploads,
+display PNGs, and ingest timing logs stay on disk even if `.env` sets `s3`.
+Put alternate ingest scenarios under `./corpus/` and run:
+
+```powershell
+docker compose run --rm imagecb python -m imagecb.cli ingest /corpus/<scenario>
+```
 
 ### Reset the local Docker search state
 
 ```powershell
 docker compose down
-docker volume rm atlas-image-search_imagecb_data
+# Clear or replace host ./data (indexes + local blobs), then:
 docker compose up --build
 ```
 
-This deletes the local Docker search brain. It does not delete private S3
-objects.
+This resets the local search brain on the host. It does not delete private
+S3 objects. If SQLite still has `s3://` blob URIs from an earlier S3 run,
+clear `./data` (or restore a local-only copy) before timing comparisons.
 
 ### Private S3 corpus storage on EC2
 
-S3 stores original uploads and generated display PNGs. The search indexes
-remain on the persistent `/app/data` volume because SQLite and Chroma must
-not run directly against S3.
+S3 stores original uploads, generated display PNGs, and optional ingest
+timing reports. The search indexes remain on the persistent `/app/data`
+mount because SQLite and Chroma must not run directly against S3.
 
-Configure the container:
+Root `docker-compose.yml` forces `BLOB_STORAGE_BACKEND=local` for local
+dev. On EC2, override that to `s3` in the Compose `environment:` block
+(or remove the local force) and configure:
 
 ```dotenv
 BLOB_STORAGE_BACKEND=s3
@@ -186,6 +192,15 @@ S3_PREFIX=imagecb
 S3_REGION=us-east-1
 BOOTSTRAP_CORPUS_DIR=
 ```
+
+(The MinIO S3 emulator playground under `.local/s3-playground/` is a
+separate stack and is not used by root `docker compose`.)
+
+Object layout under the prefix:
+
+- `uploads/` — original source files
+- `images/` — generated display PNGs
+- `ingest-logs/` — per-run timing `.txt` reports (disable with `INGEST_TIMING_LOG=false`)
 
 Attach an EC2 instance role granting `s3:GetObject` and `s3:PutObject` for
 `arn:aws:s3:::your-private-corpus-bucket/imagecb/*`, plus
@@ -529,7 +544,7 @@ the full list. Highlights:
 | `UPLOADS_DIR`               | Staging dir for UI uploads (default `<DATA_DIR>/uploads`)                            |
 | `BLOB_STORAGE_BACKEND`      | Corpus blob backend: `local` (default) or `s3`                                       |
 | `S3_BUCKET`                 | Private corpus bucket; required when the blob backend is `s3`                        |
-| `S3_PREFIX`                 | Object key prefix for `uploads/` and `images/` (default `imagecb`)                   |
+| `S3_PREFIX`                 | Object key prefix for `uploads/`, `images/`, and `ingest-logs/` (default `imagecb`) |
 | `S3_REGION`                 | S3 client region; defaults to `AWS_REGION`                                           |
 | `TESSERACT_CMD`             | Path to `tesseract.exe`                                                              |
 | `INGEST_WORKERS`            | Parallel ingest workers (default `4`; use `2` for large re-ingest)                   |
@@ -537,6 +552,7 @@ the full list. Highlights:
 | `INGEST_BATCH_UPSERT`       | Chroma vectors per batch upsert (default `16`)                                       |
 | `INGEST_BATCH_SIZE`         | CLI file batch size (default `0` = no batching; use `25` for large corpora)          |
 | `INGEST_IMAGE_TIMEOUT_SEC`  | Per-image ingest timeout in seconds (default `300`)                                  |
+| `INGEST_TIMING_LOG`         | Write per-run timing `.txt` under `ingest-logs/` (default `true`)                    |
 | `BEDROCK_MAX_CONCURRENT`    | Max concurrent Bedrock API calls (default `2`)                                       |
 | `BEDROCK_READ_TIMEOUT`      | Bedrock read timeout in seconds (default `120`)                                      |
 | `BEDROCK_CONNECT_TIMEOUT`   | Bedrock connect timeout in seconds (default `10`)                                    |

@@ -157,6 +157,14 @@ def admin_repair_captions(
     return {"ok": True, **result}
 
 
+@router.post("/corpus/purge-unrecoverable")
+def admin_purge_unrecoverable(
+    actor: str = Depends(require_admin),
+):
+    stats = curation.soft_delete_unrecoverable(actor=actor)
+    return {"ok": True, **stats}
+
+
 @router.get("/corpus/orphans")
 def admin_orphans(
     never_interacted: bool = Query(False),

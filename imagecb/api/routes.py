@@ -28,6 +28,8 @@ from imagecb.api.schemas import (
     HealthResponse,
     ReadyResponse,
     IngestResponse,
+    IngestJobListResponse,
+    IngestJobOut,
     InteractionRequest,
     InteractionResponse,
     ProvenanceOut,
@@ -57,6 +59,14 @@ from imagecb.formatting.conversational_reply import (
 )
 from imagecb.deck.pipeline import DeckSuggestResult, SlideSuggestion, force_slide_image, process_deck_upload
 from imagecb.ingest import IngestInProgressError, ingest_paths
+from imagecb.ingest_jobs import (
+    create_job,
+    get_job,
+    job_stage_dir,
+    list_jobs,
+    new_job_id,
+    request_cancel,
+)
 from imagecb.paths import image_fallbacks, source_fallbacks
 from imagecb.retrieval.image_query import SimilarityAxis, axis_label
 from imagecb.retrieval.query_parser import QuerySpec
@@ -830,6 +840,76 @@ async def ingest(
     except Exception:  # noqa: BLE001
         n = 0
     return IngestResponse(message="\n".join(lines), indexed_count=n, stats=stats)
+
+
+@router.post("/ingest/jobs", response_model=IngestJobOut, status_code=202)
+async def create_ingest_job(
+    files: List[UploadFile] = File(...),
+    skip_caption: bool = Form(False),
+    skip_ocr: bool = Form(False),
+    force: bool = Form(False),
+    workers: Optional[int] = Form(None),
+    _: str = Depends(require_admin),
+) -> IngestJobOut:
+    if not files:
+        raise HTTPException(status_code=400, detail="at least one file is required")
+
+    job_id = new_job_id()
+    stage_dir = job_stage_dir(job_id)
+    saved, stage_errors = await save_uploads_from_files(files, dest_dir=stage_dir)
+    if not saved:
+        try:
+            stage_dir.rmdir()
+        except OSError:
+            pass
+        detail = "No supported files could be staged."
+        if stage_errors:
+            detail += " " + "; ".join(stage_errors)
+        raise HTTPException(status_code=400, detail=detail)
+
+    ingest_workers = workers if workers is not None else SETTINGS.ingest_workers
+    options = {
+        "skip_caption": skip_caption,
+        "skip_ocr": skip_ocr,
+        "force": force,
+        "workers": max(1, min(int(ingest_workers), 32)),
+        "batch_size": 25,
+    }
+    return IngestJobOut.model_validate(
+        create_job(job_id, saved, options, stage_errors=stage_errors)
+    )
+
+
+@router.get("/ingest/jobs", response_model=IngestJobListResponse)
+def get_ingest_jobs(
+    limit: int = 100,
+    _: str = Depends(require_admin),
+) -> IngestJobListResponse:
+    return IngestJobListResponse(
+        jobs=[IngestJobOut.model_validate(job) for job in list_jobs(limit=limit)]
+    )
+
+
+@router.get("/ingest/jobs/{job_id}", response_model=IngestJobOut)
+def get_ingest_job(
+    job_id: str,
+    _: str = Depends(require_admin),
+) -> IngestJobOut:
+    job = get_job(job_id)
+    if job is None:
+        raise HTTPException(status_code=404, detail="ingest job not found")
+    return IngestJobOut.model_validate(job)
+
+
+@router.post("/ingest/jobs/{job_id}/cancel", response_model=IngestJobOut)
+def cancel_ingest_job(
+    job_id: str,
+    _: str = Depends(require_admin),
+) -> IngestJobOut:
+    job = request_cancel(job_id)
+    if job is None:
+        raise HTTPException(status_code=404, detail="ingest job not found")
+    return IngestJobOut.model_validate(job)
 
 
 @router.post("/deck/suggest", response_model=DeckSuggestResponse)

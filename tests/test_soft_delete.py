@@ -54,6 +54,47 @@ def test_soft_delete_marks_record_and_calls_vector_delete(
         assert row.deleted_at is not None
 
 
+@patch("imagecb.admin.curation.vector_store")
+@patch("imagecb.admin.curation.rebuild_bm25_active")
+@patch("imagecb.repair.assess_index_health")
+def test_soft_delete_unrecoverable_only_targets_broken(
+    mock_assess, mock_bm25, mock_vs
+):
+    get_engine()
+    ensure_telemetry_schema()
+    bad_id = f"bad-{uuid.uuid4().hex[:8]}"
+    good_id = f"good-{uuid.uuid4().hex[:8]}"
+    bad = _record(bad_id)
+    good = _record(good_id)
+    upsert_image(bad)
+    upsert_image(good)
+
+    mock_report = MagicMock()
+    mock_report.unrecoverable_records = [bad]
+    mock_assess.return_value = mock_report
+
+    stats = curation.soft_delete_unrecoverable(actor="admin-test")
+    assert stats["deleted"] == 1
+    assert stats["image_ids"] == [bad_id]
+    mock_vs.delete.assert_called_once_with([bad_id])
+    mock_vs.delete_text.assert_called_once_with([bad_id])
+    mock_bm25.assert_called_once()
+
+    assert get_record(bad_id) is None
+    assert get_record(good_id) is not None
+    with session_scope() as s:
+        from sqlalchemy import select
+
+        bad_row = s.execute(
+            select(ImageRecord).where(ImageRecord.image_id == bad_id)
+        ).scalar_one()
+        good_row = s.execute(
+            select(ImageRecord).where(ImageRecord.image_id == good_id)
+        ).scalar_one()
+        assert bad_row.deleted_at is not None
+        assert good_row.deleted_at is None
+
+
 @patch("imagecb.retrieval.hybrid.metadata_db.get_active_image_ids", return_value=["active-1"])
 @patch("imagecb.retrieval.hybrid.vector_store")
 @patch("imagecb.retrieval.hybrid.bm25_index")

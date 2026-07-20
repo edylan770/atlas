@@ -54,6 +54,46 @@ def soft_delete_image(*, image_id: str, actor: str) -> None:
     )
 
 
+def soft_delete_unrecoverable(*, actor: str) -> dict:
+    """Bulk soft-delete rows with missing cache PNG and missing source file."""
+    from imagecb.repair import assess_index_health
+
+    ensure_telemetry_schema()
+    report = assess_index_health(include_weak=False)
+    image_ids = [r.image_id for r in report.unrecoverable_records]
+    if not image_ids:
+        return {"deleted": 0, "image_ids": []}
+
+    now = datetime.utcnow()
+    id_set = set(image_ids)
+    with session_scope() as s:
+        rows = s.execute(
+            select(ImageRecord).where(ImageRecord.image_id.in_(image_ids))
+        ).scalars().all()
+        for row in rows:
+            if row.deleted_at is not None:
+                continue
+            if row.image_id not in id_set:
+                continue
+            row.deleted_at = now
+            row.deleted_by = actor
+
+    vector_store.delete(image_ids)
+    vector_store.delete_text(image_ids)
+    rebuild_bm25_active()
+    append_audit(
+        actor=actor,
+        action="purge_unrecoverable",
+        target_type="corpus",
+        target_id="unrecoverable",
+        details={
+            "deleted": len(image_ids),
+            "image_ids_sample": image_ids[:20],
+        },
+    )
+    return {"deleted": len(image_ids), "image_ids": image_ids}
+
+
 def restore_image(*, image_id: str, actor: str) -> None:
     ensure_telemetry_schema()
     with session_scope() as s:

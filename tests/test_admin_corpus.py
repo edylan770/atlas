@@ -169,6 +169,22 @@ def test_corpus_health_endpoint(mock_assess, admin_client):
     mock_assess.assert_called_once_with(include_weak=True)
 
 
+@patch("imagecb.admin.curation.soft_delete_unrecoverable")
+def test_purge_unrecoverable_endpoint(mock_purge, admin_client):
+    mock_purge.return_value = {"deleted": 2, "image_ids": ["a", "b"]}
+    res = admin_client.post(
+        "/api/admin/corpus/purge-unrecoverable",
+        headers={"X-Admin-Api-Key": "test-admin-secret"},
+    )
+    assert res.status_code == 200
+    body = res.json()
+    assert body["ok"] is True
+    assert body["deleted"] == 2
+    assert body["image_ids"] == ["a", "b"]
+    mock_purge.assert_called_once()
+    assert mock_purge.call_args.kwargs["actor"]
+
+
 def test_corpus_images_filter_weak(admin_client):
     ok_id = f"ok-{uuid.uuid4().hex[:8]}"
     weak_id = f"weak-{uuid.uuid4().hex[:8]}"

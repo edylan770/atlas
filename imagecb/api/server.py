@@ -55,6 +55,7 @@ def _maybe_start_bootstrap_ingest(total_records: int) -> None:
 
 @asynccontextmanager
 async def _lifespan(_app: FastAPI):
+    from imagecb.ingest_jobs import start_job_runner, stop_job_runner
     from imagecb.repair import assess_index_health, reconcile_index_safe
 
     report = assess_index_health(include_weak=True)
@@ -68,7 +69,11 @@ async def _lifespan(_app: FastAPI):
         stats = reconcile_index_safe()
         logger.info("Startup index reconcile: %s", stats)
     _maybe_start_bootstrap_ingest(report.total_records)
-    yield
+    start_job_runner()
+    try:
+        yield
+    finally:
+        stop_job_runner()
 
 
 def create_app() -> FastAPI:

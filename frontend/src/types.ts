@@ -145,6 +145,34 @@ export interface IngestResponse {
   stats: Record<string, number>;
 }
 
+export type IngestJobStatus =
+  | "queued"
+  | "running"
+  | "cancel_requested"
+  | "cancelled"
+  | "succeeded"
+  | "failed";
+
+export interface IngestJob {
+  job_id: string;
+  status: IngestJobStatus;
+  files: string[];
+  files_total: number;
+  files_done: number;
+  images_seen: number;
+  images_processed: number;
+  options: Record<string, unknown>;
+  stats: Record<string, unknown>;
+  stage_errors: string[];
+  error?: string | null;
+  created_at?: string | null;
+  started_at?: string | null;
+  finished_at?: string | null;
+  heartbeat_at?: string | null;
+  cancel_requested_at?: string | null;
+  cancellable: boolean;
+}
+
 export interface SlideSuggestion {
   slide_index: number;
   title?: string | null;

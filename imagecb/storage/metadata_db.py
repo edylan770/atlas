@@ -33,6 +33,10 @@ class Base(DeclarativeBase):
     pass
 
 
+class IngestJobBase(DeclarativeBase):
+    """Separate metadata so ordinary image-store tests do not migrate jobs."""
+
+
 class ImageRecord(Base):
     __tablename__ = "images"
 
@@ -74,6 +78,27 @@ class ImageRecord(Base):
 
     deleted_at = Column(DateTime, nullable=True, index=True)
     deleted_by = Column(String, nullable=True)
+
+
+class IngestJob(IngestJobBase):
+    __tablename__ = "ingest_jobs"
+
+    job_id = Column(String, primary_key=True)
+    status = Column(String, nullable=False, index=True)
+    files_json = Column(Text, nullable=False)
+    options_json = Column(Text, nullable=False)
+    stats_json = Column(Text, nullable=True)
+    stage_errors_json = Column(Text, nullable=True)
+    error = Column(Text, nullable=True)
+    files_total = Column(Integer, nullable=False, default=0)
+    files_done = Column(Integer, nullable=False, default=0)
+    images_seen = Column(Integer, nullable=False, default=0)
+    images_processed = Column(Integer, nullable=False, default=0)
+    created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+    started_at = Column(DateTime, nullable=True)
+    finished_at = Column(DateTime, nullable=True)
+    heartbeat_at = Column(DateTime, nullable=True)
+    cancel_requested_at = Column(DateTime, nullable=True)
 
 
 _engine = None

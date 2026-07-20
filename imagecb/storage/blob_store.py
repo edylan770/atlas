@@ -11,6 +11,7 @@ import tempfile
 import uuid
 from contextlib import contextmanager
 from dataclasses import dataclass
+from datetime import datetime, timezone
 from functools import lru_cache
 from pathlib import Path, PurePosixPath
 from typing import Any, Iterator, Optional, Sequence
@@ -64,6 +65,12 @@ def source_key(filename: str, content_hash: Optional[str] = None) -> str:
 
 def image_key(image_id: str) -> str:
     return _key(SETTINGS.s3_prefix, "images", f"{image_id}.png")
+
+
+def ingest_log_key(run_id: str, when: Optional[datetime] = None) -> str:
+    stamp = (when or datetime.now(timezone.utc)).strftime("%Y%m%d_%H%M%S")
+    safe_id = safe_filename(run_id).replace(" ", "_")
+    return _key(SETTINGS.s3_prefix, "ingest-logs", f"{stamp}_{safe_id}.txt")
 
 
 def s3_uri(key: str) -> str:

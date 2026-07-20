@@ -1,4 +1,4 @@
-import type { ResultSort } from "../types";
+import type { IngestJob, ResultSort } from "../types";
 
 const ADMIN_KEY_STORAGE = "imagecb.adminApiKey";
 
@@ -102,6 +102,8 @@ export interface CorpusHealth {
   orphan_chroma_count?: number;
   orphan_text_vector_count?: number;
   bm25_stale?: boolean;
+  missing_cache_count?: number;
+  unrecoverable_source_missing_count?: number;
 }
 
 export interface IndexReconcileResult {
@@ -131,6 +133,12 @@ export interface RepairCaptionsResult {
   errors: number;
   elapsed_sec?: number;
   scope?: string;
+}
+
+export interface PurgeUnrecoverableResult {
+  ok: boolean;
+  deleted: number;
+  image_ids: string[];
 }
 
 export interface RegenerateCaptionResult {
@@ -207,6 +215,12 @@ export function repairCaptions(
   );
 }
 
+export function purgeUnrecoverable(): Promise<PurgeUnrecoverableResult> {
+  return adminRequest("/api/admin/corpus/purge-unrecoverable", {
+    method: "POST",
+  });
+}
+
 export function fetchOrphans(neverInteracted = false): Promise<{ orphans: unknown[] }> {
   return adminRequest(
     `/api/admin/corpus/orphans?never_interacted=${neverInteracted}`,
@@ -246,4 +260,15 @@ export function reindexImage(imageId: string): Promise<ReindexImageResult> {
   return adminRequest(`/api/admin/images/${imageId}/reindex`, {
     method: "POST",
   });
+}
+
+export function fetchIngestJobs(limit = 100): Promise<{ jobs: IngestJob[] }> {
+  return adminRequest(`/api/ingest/jobs?limit=${limit}`);
+}
+
+export function cancelIngestJob(jobId: string): Promise<IngestJob> {
+  return adminRequest(
+    `/api/ingest/jobs/${encodeURIComponent(jobId)}/cancel`,
+    { method: "POST" },
+  );
 }

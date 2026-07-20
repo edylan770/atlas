@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import io
 from dataclasses import replace
+from datetime import datetime
 from unittest.mock import patch
 
 from imagecb.config import SETTINGS
@@ -35,6 +36,14 @@ class FakeS3:
 def test_s3_uri_round_trip_and_filename_safety():
     assert blob_store.parse_s3_uri("s3://bucket/a/b.png") == ("bucket", "a/b.png")
     assert blob_store.safe_filename("../../bad:name?.png") == "bad_name_.png"
+
+
+def test_ingest_log_key_under_prefix():
+    settings = replace(SETTINGS, s3_prefix="atlas")
+    when = datetime(2026, 1, 2, 3, 4, 5)
+    with patch("imagecb.storage.blob_store.SETTINGS", settings):
+        key = blob_store.ingest_log_key("run99", when=when)
+    assert key == "atlas/ingest-logs/20260102_030405_run99.txt"
 
 
 def test_local_image_persistence(tmp_path):

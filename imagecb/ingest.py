@@ -25,7 +25,7 @@ from concurrent.futures import Future, ThreadPoolExecutor, TimeoutError as Futur
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
-from typing import Deque, Iterable, Iterator, List, Optional, Set, Tuple
+from typing import Callable, Deque, Iterable, Iterator, List, Optional, Set, Tuple
 
 import numpy as np
 from PIL import Image
@@ -38,6 +38,7 @@ from imagecb.caption.context import slide_body_from_provenance
 from imagecb.caption.document import caption_document_text
 from imagecb.caption.pipeline import generate_caption, refresh_vocab_cache
 from imagecb.ingest_context import embed_context_from_caption_and_provenance
+from imagecb.ingest_timing import ImageTimingDetail, IngestTimingSession
 from imagecb.models.embedder import BedrockEmbedder, get_embedder, get_text_embedder
 from imagecb.models.ocr import extract_text as ocr_extract
 from imagecb.models.vlm import CaptionJSON, VLMCaptioner, get_captioner
@@ -60,6 +61,10 @@ _ingest_lock = threading.Lock()
 
 class IngestInProgressError(Exception):
     """Raised when a second ingest starts while one is already running."""
+
+
+class _IngestCancelled(Exception):
+    """Internal cooperative-cancellation signal for one image."""
 
 
 def ingest_in_progress() -> bool:
@@ -95,6 +100,7 @@ class _IngestOutcome:
     embedding: Optional[np.ndarray] = None
     text_embedding: Optional[np.ndarray] = None
     error: Optional[str] = None
+    cancelled: bool = False
 
 
 def embed_caption_document(record: ImageRecord) -> Optional[np.ndarray]:
@@ -221,18 +227,22 @@ def _caption_and_embed(
     captioner: Optional[VLMCaptioner],
     embedder: BedrockEmbedder,
     max_image_side: int,
+    step_times: Optional[dict] = None,
 ) -> Tuple[CaptionJSON, np.ndarray]:
     """Caption first (with context), then embed with interpretive context."""
+    times = step_times if step_times is not None else {}
 
+    t0 = time.perf_counter()
     if captioner is None:
         caption = CaptionJSON.empty()
-        ctx = embed_context_from_caption_and_provenance(caption, extracted.provenance)
-        emb = embedder.embed_image_with_context(extracted.image, ctx or None)
-        return caption, emb
+    else:
+        caption = generate_caption(extracted, captioner, max_side=max_image_side)
+    times["caption_vlm"] = time.perf_counter() - t0
 
-    caption = generate_caption(extracted, captioner, max_side=max_image_side)
+    t0 = time.perf_counter()
     ctx = embed_context_from_caption_and_provenance(caption, extracted.provenance)
     emb = embedder.embed_image_with_context(extracted.image, ctx or None)
+    times["embed_image"] = time.perf_counter() - t0
     return caption, emb
 
 
@@ -247,13 +257,33 @@ def _ingest_one_image(
     captioner: Optional[VLMCaptioner],
     embedder: BedrockEmbedder,
     max_image_side: int,
+    timing: Optional[IngestTimingSession] = None,
+    should_cancel: Optional[Callable[[], bool]] = None,
 ) -> _IngestOutcome:
     extracted = item.extracted
+    source_label = str(extracted.provenance.source_file or item.file_path)
+    steps: dict = {}
+    image_id = "-"
+    t_image = time.perf_counter()
     try:
+        if should_cancel and should_cancel():
+            raise _IngestCancelled()
+        t0 = time.perf_counter()
         content_hash = _hash_image(extracted.image)
+        steps["hash_image"] = time.perf_counter() - t0
         with known_lock:
             existing = get_record_by_hash(content_hash) if content_hash in known else None
             if existing is not None and not force:
+                if timing is not None:
+                    timing.add_image_detail(
+                        ImageTimingDetail(
+                            image_id=existing.image_id,
+                            source_file=source_label,
+                            outcome="skipped_duplicate",
+                            steps=steps,
+                            total_sec=time.perf_counter() - t_image,
+                        )
+                    )
                 return _IngestOutcome(skipped_duplicate=True)
             if existing is not None:
                 image_id = existing.image_id
@@ -262,13 +292,24 @@ def _ingest_one_image(
                 image_id = new_image_id()
                 outcome = _IngestOutcome(added=True)
 
+        t0 = time.perf_counter()
         cached_path = _cache_image(extracted.image, image_id)
+        steps["cache_image"] = time.perf_counter() - t0
+
+        if should_cancel and should_cancel():
+            raise _IngestCancelled()
+        t0 = time.perf_counter()
         ocr_text = "" if skip_ocr else ocr_extract(extracted.image)
+        steps["ocr"] = time.perf_counter() - t0
+
+        if should_cancel and should_cancel():
+            raise _IngestCancelled()
         caption, emb = _caption_and_embed(
             extracted,
             captioner=captioner,
             embedder=embedder,
             max_image_side=max_image_side,
+            step_times=steps,
         )
         record = _record_for(
             image_id=image_id,
@@ -278,34 +319,79 @@ def _ingest_one_image(
             ocr_text=ocr_text,
             caption=caption,
         )
+        if should_cancel and should_cancel():
+            raise _IngestCancelled()
+        t0 = time.perf_counter()
         with session_scope() as s:
             s.merge(record)
+        steps["sqlite_write"] = time.perf_counter() - t0
         with known_lock:
             known.add(content_hash)
         outcome.record = record
         outcome.embedding = emb
+        t0 = time.perf_counter()
         outcome.text_embedding = embed_caption_document(record)
+        steps["embed_text"] = time.perf_counter() - t0
+        if timing is not None:
+            timing.add_image_detail(
+                ImageTimingDetail(
+                    image_id=image_id,
+                    source_file=source_label,
+                    outcome="updated" if outcome.updated else "added",
+                    steps=steps,
+                    total_sec=time.perf_counter() - t_image,
+                )
+            )
         return outcome
+    except _IngestCancelled:
+        return _IngestOutcome(cancelled=True)
     except Exception as exc:  # noqa: BLE001
         logger.warning("Failed to ingest an image from %s: %s", item.file_path, exc)
+        if timing is not None:
+            timing.add_image_detail(
+                ImageTimingDetail(
+                    image_id=image_id,
+                    source_file=source_label,
+                    outcome="error",
+                    steps=steps,
+                    total_sec=time.perf_counter() - t_image,
+                    error=str(exc),
+                )
+            )
         return _IngestOutcome(error=str(exc))
 
 
-def _flush_chroma_batch(batch: List[Tuple[str, np.ndarray, dict]]) -> None:
+def _flush_chroma_batch(
+    batch: List[Tuple[str, np.ndarray, dict]],
+    *,
+    timing: Optional[IngestTimingSession] = None,
+) -> None:
     if not batch:
         return
     ids = [b[0] for b in batch]
     embeddings = np.stack([b[1] for b in batch])
     metadatas = [b[2] for b in batch]
-    vector_store.upsert(image_ids=ids, embeddings=embeddings, metadatas=metadatas)
+    if timing is None:
+        vector_store.upsert(image_ids=ids, embeddings=embeddings, metadatas=metadatas)
+        return
+    with timing.timed("chroma_flush"):
+        vector_store.upsert(image_ids=ids, embeddings=embeddings, metadatas=metadatas)
 
 
-def _flush_text_batch(batch: List[Tuple[str, np.ndarray]]) -> None:
+def _flush_text_batch(
+    batch: List[Tuple[str, np.ndarray]],
+    *,
+    timing: Optional[IngestTimingSession] = None,
+) -> None:
     if not batch:
         return
     ids = [b[0] for b in batch]
     embeddings = np.stack([b[1] for b in batch])
-    vector_store.upsert_text(image_ids=ids, embeddings=embeddings)
+    if timing is None:
+        vector_store.upsert_text(image_ids=ids, embeddings=embeddings)
+        return
+    with timing.timed("chroma_flush"):
+        vector_store.upsert_text(image_ids=ids, embeddings=embeddings)
 
 
 def _collect_work_items(paths: Iterable[Path]) -> Tuple[List[_IngestWorkItem], int]:
@@ -323,13 +409,24 @@ def _collect_work_items(paths: Iterable[Path]) -> Tuple[List[_IngestWorkItem], i
     return items, errors
 
 
-def _iter_work_items(paths: Iterable[Path]) -> Iterator[Tuple[Optional[_IngestWorkItem], int]]:
+def _iter_work_items(
+    paths: Iterable[Path],
+    *,
+    timing: Optional[IngestTimingSession] = None,
+) -> Iterator[Tuple[Optional[_IngestWorkItem], int]]:
     """Stream work items file-by-file. Yields (item, extract_errors_so_far)."""
     errors = 0
     for file_path in paths:
         try:
-            source_ref = persist_source(file_path)
-            for extracted in extract_path(file_path):
+            if timing is None:
+                source_ref = persist_source(file_path)
+                extracted_images = list(extract_path(file_path))
+            else:
+                with timing.timed("persist_source"):
+                    source_ref = persist_source(file_path)
+                with timing.timed("extract"):
+                    extracted_images = list(extract_path(file_path))
+            for extracted in extracted_images:
                 extracted.provenance.source_file = source_ref
                 yield _IngestWorkItem(file_path=file_path, extracted=extracted), errors
         except Exception as exc:  # noqa: BLE001
@@ -346,7 +443,10 @@ def _apply_outcome(
     text_batch: List[Tuple[str, np.ndarray]],
     chroma_lock: threading.Lock,
     batch_upsert: int,
+    timing: Optional[IngestTimingSession] = None,
 ) -> None:
+    if outcome.cancelled:
+        return
     if outcome.skipped_duplicate:
         stats["skipped_duplicates"] += 1
         return
@@ -382,9 +482,9 @@ def _apply_outcome(
                 pending_text = list(text_batch)
                 text_batch.clear()
         if pending:
-            _flush_chroma_batch(pending)
+            _flush_chroma_batch(pending, timing=timing)
         if pending_text:
-            _flush_text_batch(pending_text)
+            _flush_text_batch(pending_text, timing=timing)
 
 
 def _finalize_ingest(*, rebuild_bm25: bool, refresh_vocab: bool) -> None:
@@ -416,6 +516,7 @@ def _drain_future(
     chroma_lock: threading.Lock,
     batch_upsert: int,
     image_timeout_sec: int,
+    timing: Optional[IngestTimingSession] = None,
 ) -> None:
     try:
         outcome = future.result(timeout=image_timeout_sec)
@@ -435,6 +536,7 @@ def _drain_future(
         text_batch=text_batch,
         chroma_lock=chroma_lock,
         batch_upsert=batch_upsert,
+        timing=timing,
     )
 
 
@@ -454,7 +556,10 @@ def _run_ingest_pool(
     image_timeout_sec: int,
     stats: dict,
     total_images: Optional[int] = None,
-) -> None:
+    timing: Optional[IngestTimingSession] = None,
+    should_cancel: Optional[Callable[[], bool]] = None,
+    progress_callback: Optional[Callable[[dict], None]] = None,
+) -> bool:
     chroma_batch: List[Tuple[str, np.ndarray, dict]] = []
     text_batch: List[Tuple[str, np.ndarray]] = []
     chroma_lock = threading.Lock()
@@ -470,10 +575,30 @@ def _run_ingest_pool(
             captioner=captioner,
             embedder=embedder,
             max_image_side=max_image_side,
+            timing=timing,
+            should_cancel=should_cancel,
+        )
+
+    def _report_progress() -> None:
+        if progress_callback is None:
+            return
+        processed = (
+            stats["images_added"]
+            + stats["images_updated"]
+            + stats["skipped_duplicates"]
+            + stats["errors"]
+        )
+        progress_callback(
+            {
+                "images_seen": stats.get("images_seen", 0),
+                "images_processed": processed,
+                "stats": dict(stats),
+            }
         )
 
     max_in_flight = max(workers * 2, workers)
     pending: Deque[Tuple[Future[_IngestOutcome], _IngestWorkItem]] = deque()
+    cancelled = False
 
     with ThreadPoolExecutor(max_workers=workers) as pool:
         pbar = tqdm(
@@ -484,6 +609,9 @@ def _run_ingest_pool(
         )
         try:
             for item in work_items:
+                if should_cancel and should_cancel():
+                    cancelled = True
+                    break
                 pending.append((pool.submit(_submit, item), item))
                 if len(pending) >= max_in_flight:
                     future, queued_item = pending.popleft()
@@ -497,11 +625,19 @@ def _run_ingest_pool(
                         chroma_lock=chroma_lock,
                         batch_upsert=batch_upsert,
                         image_timeout_sec=image_timeout_sec,
+                        timing=timing,
                     )
                     pbar.update(1)
+                    _report_progress()
+
+            if cancelled:
+                for future, _queued_item in pending:
+                    future.cancel()
 
             while pending:
                 future, queued_item = pending.popleft()
+                if future.cancelled():
+                    continue
                 pbar.set_postfix_str(queued_item.file_path.name)
                 _drain_future(
                     future,
@@ -512,18 +648,23 @@ def _run_ingest_pool(
                     chroma_lock=chroma_lock,
                     batch_upsert=batch_upsert,
                     image_timeout_sec=image_timeout_sec,
+                    timing=timing,
                 )
                 pbar.update(1)
+                _report_progress()
+                if should_cancel and should_cancel():
+                    cancelled = True
         finally:
             pbar.close()
 
     with chroma_lock:
         if chroma_batch:
-            _flush_chroma_batch(list(chroma_batch))
+            _flush_chroma_batch(list(chroma_batch), timing=timing)
             chroma_batch.clear()
         if text_batch:
-            _flush_text_batch(list(text_batch))
+            _flush_text_batch(list(text_batch), timing=timing)
             text_batch.clear()
+    return cancelled or bool(should_cancel and should_cancel())
 
 
 def ingest_paths(
@@ -539,6 +680,8 @@ def ingest_paths(
     refresh_vocab: bool = True,
     image_timeout_sec: Optional[int] = None,
     auto_repair: bool = True,
+    should_cancel: Optional[Callable[[], bool]] = None,
+    progress_callback: Optional[Callable[[dict], None]] = None,
     _hold_ingest_lock: bool = True,
 ) -> dict:
     """Ingest a list of source files. Returns a stats dict."""
@@ -561,6 +704,8 @@ def ingest_paths(
             refresh_vocab=refresh_vocab,
             image_timeout_sec=image_timeout_sec,
             auto_repair=auto_repair,
+            should_cancel=should_cancel,
+            progress_callback=progress_callback,
         )
     finally:
         if acquired:
@@ -580,6 +725,8 @@ def _ingest_paths_locked(
     refresh_vocab: bool = True,
     image_timeout_sec: Optional[int] = None,
     auto_repair: bool = True,
+    should_cancel: Optional[Callable[[], bool]] = None,
+    progress_callback: Optional[Callable[[dict], None]] = None,
 ) -> dict:
     paths = list(paths)
     workers = workers if workers is not None else SETTINGS.ingest_workers
@@ -599,16 +746,27 @@ def _ingest_paths_locked(
     if not paths:
         return stats
 
+    timing = IngestTimingSession(
+        mode="ingest",
+        meta={
+            "workers": workers,
+            "skip_caption": skip_caption,
+            "skip_ocr": skip_ocr,
+            "force": force,
+        },
+    )
+
     t0 = time.perf_counter()
     extract_errors = 0
     images_seen = 0
 
     def _stream_items() -> Iterator[_IngestWorkItem]:
         nonlocal extract_errors, images_seen
-        for item, err_count in _iter_work_items(paths):
+        for item, err_count in _iter_work_items(paths, timing=timing):
             extract_errors = err_count
             if item is not None:
                 images_seen += 1
+                stats["images_seen"] = images_seen
                 yield item
 
     known = existing_hashes()
@@ -616,7 +774,7 @@ def _ingest_paths_locked(
     embedder = get_embedder()
     captioner = None if skip_caption else get_captioner()
 
-    _run_ingest_pool(
+    cancelled = _run_ingest_pool(
         _stream_items(),
         known=known,
         known_lock=known_lock,
@@ -631,14 +789,20 @@ def _ingest_paths_locked(
         image_timeout_sec=image_timeout_sec,
         stats=stats,
         total_images=None,
-    )
+        timing=timing,
+        should_cancel=should_cancel,
+        progress_callback=progress_callback,
+    ) is True
 
     stats["errors"] += extract_errors
     stats["images_seen"] = images_seen
 
     if images_seen > 0:
-        _finalize_ingest(rebuild_bm25=rebuild_bm25, refresh_vocab=refresh_vocab)
+        with timing.timed("finalize"):
+            _finalize_ingest(rebuild_bm25=rebuild_bm25, refresh_vocab=refresh_vocab)
 
+    cancelled = cancelled or bool(should_cancel and should_cancel())
+    stats["cancelled"] = cancelled
     stats["elapsed_sec"] = round(time.perf_counter() - t0, 1)
     if stats["captions_weak"] or stats["captions_failed"]:
         logger.info(
@@ -647,15 +811,33 @@ def _ingest_paths_locked(
             stats["captions_failed"],
         )
 
-    if auto_repair and SETTINGS.post_ingest_repair_enabled:
+    if auto_repair and SETTINGS.post_ingest_repair_enabled and not cancelled:
         from imagecb.repair import repair_index_issues
 
-        repair_stats = repair_index_issues(
-            workers=workers,
-            skip_caption_phases=skip_caption,
-        )
+        with timing.timed("post_repair"):
+            repair_stats = repair_index_issues(
+                workers=workers,
+                skip_caption_phases=skip_caption,
+            )
         stats["post_repair"] = repair_stats
 
+    timing_ref = timing.persist_report(stats)
+    if timing_ref:
+        stats["timing_log"] = timing_ref
+
+    if progress_callback is not None:
+        progress_callback(
+            {
+                "images_seen": stats["images_seen"],
+                "images_processed": (
+                    stats["images_added"]
+                    + stats["images_updated"]
+                    + stats["skipped_duplicates"]
+                    + stats["errors"]
+                ),
+                "stats": dict(stats),
+            }
+        )
     return stats
 
 
@@ -672,6 +854,8 @@ def ingest_paths_batched(
     defer_bm25: bool = True,
     image_timeout_sec: Optional[int] = None,
     auto_repair: bool = True,
+    should_cancel: Optional[Callable[[], bool]] = None,
+    progress_callback: Optional[Callable[[dict], None]] = None,
 ) -> dict:
     """Ingest source files in file batches; rebuild BM25 once at the end."""
     if not _ingest_lock.acquire(blocking=False):
@@ -690,24 +874,72 @@ def ingest_paths_batched(
         batches = [paths[i : i + batch_size] for i in range(0, len(paths), batch_size)]
         total["batches"] = len(batches)
         t0 = time.perf_counter()
+        summary = IngestTimingSession(
+            mode="batched_summary",
+            meta={
+                "workers": workers,
+                "skip_caption": skip_caption,
+                "skip_ocr": skip_ocr,
+                "force": force,
+                "batch_size": batch_size,
+                "batches": len(batches),
+            },
+        )
 
+        completed_files = 0
         for idx, chunk in enumerate(batches, start=1):
+            if should_cancel and should_cancel():
+                total["cancelled"] = True
+                break
             logger.info("Ingest batch %s/%s (%s files)", idx, len(batches), len(chunk))
-            batch_stats = ingest_paths(
-                chunk,
-                skip_caption=skip_caption,
-                skip_ocr=skip_ocr,
-                force=force,
-                workers=workers,
-                max_image_side=max_image_side,
-                batch_upsert=batch_upsert,
-                rebuild_bm25=not defer_bm25,
-                refresh_vocab=False,
-                image_timeout_sec=image_timeout_sec,
-                auto_repair=False,
-                _hold_ingest_lock=False,
-            )
+
+            def _batch_progress(progress: dict) -> None:
+                if progress_callback is None:
+                    return
+                progress_callback(
+                    {
+                        **progress,
+                        "files_done": completed_files,
+                        "stats": {**total, **progress.get("stats", {})},
+                    }
+                )
+
+            with summary.timed(f"batch_{idx}"):
+                batch_stats = ingest_paths(
+                    chunk,
+                    skip_caption=skip_caption,
+                    skip_ocr=skip_ocr,
+                    force=force,
+                    workers=workers,
+                    max_image_side=max_image_side,
+                    batch_upsert=batch_upsert,
+                    rebuild_bm25=not defer_bm25,
+                    refresh_vocab=False,
+                    image_timeout_sec=image_timeout_sec,
+                    auto_repair=False,
+                    should_cancel=should_cancel,
+                    progress_callback=_batch_progress,
+                    _hold_ingest_lock=False,
+                )
             _merge_stats(total, batch_stats)
+            completed_files += len(chunk)
+            if progress_callback is not None:
+                progress_callback(
+                    {
+                        "files_done": completed_files,
+                        "images_seen": total["images_seen"],
+                        "images_processed": (
+                            total["images_added"]
+                            + total["images_updated"]
+                            + total["skipped_duplicates"]
+                            + total["errors"]
+                        ),
+                        "stats": dict(total),
+                    }
+                )
+            if batch_stats.get("cancelled"):
+                total["cancelled"] = True
+                break
             logger.info(
                 "Batch %s/%s done: added=%s updated=%s duplicates=%s errors=%s",
                 idx,
@@ -718,19 +950,28 @@ def ingest_paths_batched(
                 batch_stats.get("errors", 0),
             )
 
-        if defer_bm25:
-            _finalize_ingest(rebuild_bm25=True, refresh_vocab=True)
+        if defer_bm25 and total["images_seen"] > 0:
+            with summary.timed("finalize"):
+                _finalize_ingest(rebuild_bm25=True, refresh_vocab=True)
 
-        if auto_repair and SETTINGS.post_ingest_repair_enabled:
+        if (
+            auto_repair
+            and SETTINGS.post_ingest_repair_enabled
+            and not total.get("cancelled")
+        ):
             from imagecb.repair import repair_index_issues
 
-            repair_stats = repair_index_issues(
-                workers=workers,
-                skip_caption_phases=skip_caption,
-            )
+            with summary.timed("post_repair"):
+                repair_stats = repair_index_issues(
+                    workers=workers,
+                    skip_caption_phases=skip_caption,
+                )
             total["post_repair"] = repair_stats
 
         total["elapsed_sec"] = round(time.perf_counter() - t0, 1)
+        timing_ref = summary.persist_report(total)
+        if timing_ref:
+            total["timing_log"] = timing_ref
         return total
     finally:
         _ingest_lock.release()

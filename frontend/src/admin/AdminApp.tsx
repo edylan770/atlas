@@ -4,8 +4,10 @@ import {
   fetchAnalyticsSummary,
   fetchAudit,
   fetchCorpusHealth,
+  fetchIngestJobs,
   reconcileIndex,
   repairIndex,
+  purgeUnrecoverable,
   fetchCorpusImages,
   fetchDeleted,
   fetchDuplicateClusters,
@@ -16,6 +18,7 @@ import {
   repairCaptions,
   restoreImage,
   softDeleteImage,
+  cancelIngestJob,
   type AnalyticsSummary,
   type CaptionQualityFilter,
   type CorpusHealth,
@@ -26,6 +29,7 @@ import {
 import { SortSelect } from "../components/SortSelect";
 import { defaultCatalogSort } from "../sortResults";
 import type { ResultSort } from "../types";
+import type { IngestJob } from "../types";
 import { AdminLayout } from "./AdminShell";
 
 function queryTooltip(row: SearchQualityItem): string {
@@ -212,9 +216,9 @@ function CorpusPage() {
   );
   const [bulkRepairResult, setBulkRepairResult] = useState<string | null>(null);
   const [bulkRepairError, setBulkRepairError] = useState<string | null>(null);
-  const [indexAction, setIndexAction] = useState<"reconcile" | "repair" | null>(
-    null,
-  );
+  const [indexAction, setIndexAction] = useState<
+    "reconcile" | "repair" | "purge" | null
+  >(null);
   const [indexActionResult, setIndexActionResult] = useState<string | null>(null);
   const [indexActionError, setIndexActionError] = useState<string | null>(null);
 
@@ -313,6 +317,32 @@ function CorpusPage() {
           `Repair complete in ${result.elapsed_sec ?? "?"}s. Healthy: ${result.is_healthy ?? false}`,
         );
       }
+      reloadAll();
+    } catch (e) {
+      setIndexActionError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setIndexAction(null);
+    }
+  };
+
+  const handlePurgeUnrecoverable = async () => {
+    const count = corpusHealth?.unrecoverable_source_missing_count ?? 0;
+    if (count === 0) return;
+    if (
+      !window.confirm(
+        `Soft-delete ${count} images with missing files? They will leave search results.`,
+      )
+    ) {
+      return;
+    }
+    setIndexActionError(null);
+    setIndexActionResult(null);
+    setIndexAction("purge");
+    try {
+      const result = await purgeUnrecoverable();
+      setIndexActionResult(
+        `Purged ${result.deleted} unrecoverable image(s) from search.`,
+      );
       reloadAll();
     } catch (e) {
       setIndexActionError(e instanceof Error ? e.message : String(e));
@@ -442,6 +472,14 @@ function CorpusPage() {
             {(corpusHealth.orphan_chroma_count ?? 0) > 0 && (
               <span>Orphans: {corpusHealth.orphan_chroma_count}</span>
             )}
+            {(corpusHealth.missing_cache_count ?? 0) > 0 && (
+              <span>Missing cache: {corpusHealth.missing_cache_count}</span>
+            )}
+            {(corpusHealth.unrecoverable_source_missing_count ?? 0) > 0 && (
+              <span>
+                Unrecoverable: {corpusHealth.unrecoverable_source_missing_count}
+              </span>
+            )}
           </div>
         ) : (
           <p className="mt-2 text-xs text-navy-500">Loading health…</p>
@@ -462,6 +500,18 @@ function CorpusPage() {
             onClick={() => void handleFullRepair()}
           >
             {indexAction === "repair" ? "Repairing…" : "Full repair"}
+          </button>
+          <button
+            type="button"
+            className="rounded-md border border-amber-400 bg-amber-50 px-3 py-1.5 text-xs font-medium text-amber-950 hover:bg-amber-100 disabled:opacity-50"
+            disabled={
+              indexAction !== null ||
+              bulkRepairScope !== null ||
+              (corpusHealth?.unrecoverable_source_missing_count ?? 0) === 0
+            }
+            onClick={() => void handlePurgeUnrecoverable()}
+          >
+            {indexAction === "purge" ? "Purging…" : "Purge unrecoverable"}
           </button>
           {indexActionResult && (
             <p className="text-xs text-navy-600">{indexActionResult}</p>
@@ -728,6 +778,140 @@ function AuditPage() {
   );
 }
 
+function IngestionsPage() {
+  const [jobs, setJobs] = useState<IngestJob[]>([]);
+  const [error, setError] = useState<string | null>(null);
+  const [cancelling, setCancelling] = useState<string | null>(null);
+
+  const load = useCallback(() => {
+    fetchIngestJobs()
+      .then((result) => {
+        setJobs(result.jobs);
+        setError(null);
+      })
+      .catch((e) => setError(e instanceof Error ? e.message : String(e)));
+  }, []);
+
+  useEffect(() => {
+    load();
+    const timer = window.setInterval(load, 2000);
+    return () => window.clearInterval(timer);
+  }, [load]);
+
+  const handleCancel = async (job: IngestJob) => {
+    if (
+      !window.confirm(
+        `Cancel ingest ${job.job_id.slice(0, 8)}? Images already completed will be kept.`,
+      )
+    ) {
+      return;
+    }
+    setCancelling(job.job_id);
+    try {
+      await cancelIngestJob(job.job_id);
+      load();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setCancelling(null);
+    }
+  };
+
+  const active = jobs.filter((job) =>
+    ["queued", "running", "cancel_requested"].includes(job.status),
+  );
+  const recent = jobs.filter(
+    (job) => !["queued", "running", "cancel_requested"].includes(job.status),
+  );
+
+  const table = (items: IngestJob[]) => (
+    <div className="overflow-x-auto rounded-lg bg-white ring-1 ring-navy-200">
+      <table className="min-w-full text-left text-xs">
+        <thead className="bg-navy-50 text-navy-600">
+          <tr>
+            <th className="px-3 py-2">Job</th>
+            <th className="px-3 py-2">Status</th>
+            <th className="px-3 py-2">Files</th>
+            <th className="px-3 py-2">Images</th>
+            <th className="px-3 py-2">Started</th>
+            <th className="px-3 py-2">Options</th>
+            <th className="px-3 py-2">Action</th>
+          </tr>
+        </thead>
+        <tbody>
+          {items.map((job) => (
+            <tr key={job.job_id} className="border-t border-navy-100 align-top">
+              <td className="px-3 py-2 font-mono text-navy-800" title={job.job_id}>
+                {job.job_id.slice(0, 8)}…
+              </td>
+              <td className="px-3 py-2">
+                <span className="rounded bg-navy-100 px-2 py-0.5 font-medium text-navy-800">
+                  {job.status.replace("_", " ")}
+                </span>
+                {job.error && <p className="mt-1 max-w-xs text-red-600">{job.error}</p>}
+              </td>
+              <td className="px-3 py-2 text-navy-700">
+                {job.files_done}/{job.files_total}
+                <p className="max-w-xs truncate text-navy-500" title={job.files.join(", ")}>
+                  {job.files.join(", ")}
+                </p>
+              </td>
+              <td className="px-3 py-2 text-navy-700">
+                {job.images_processed}/{job.images_seen || "?"}
+              </td>
+              <td className="whitespace-nowrap px-3 py-2 text-navy-600">
+                {job.started_at ? new Date(job.started_at).toLocaleString() : "—"}
+              </td>
+              <td className="px-3 py-2 text-navy-600">
+                workers={String(job.options.workers ?? "—")}
+                {job.options.force ? ", force" : ""}
+                {job.options.skip_caption ? ", no captions" : ""}
+                {job.options.skip_ocr ? ", no OCR" : ""}
+              </td>
+              <td className="px-3 py-2">
+                {job.cancellable ? (
+                  <button
+                    type="button"
+                    className="font-medium text-red-600 hover:underline disabled:opacity-50"
+                    disabled={cancelling === job.job_id || job.status === "cancel_requested"}
+                    onClick={() => void handleCancel(job)}
+                  >
+                    {cancelling === job.job_id || job.status === "cancel_requested"
+                      ? "Cancelling…"
+                      : "Cancel"}
+                  </button>
+                ) : (
+                  <span className="text-navy-400">—</span>
+                )}
+              </td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  );
+
+  return (
+    <div className="space-y-8">
+      <div>
+        <h2 className="text-lg font-semibold text-navy-900">Ingestions</h2>
+        <p className="text-xs text-navy-500">
+          Durable ingest jobs continue when browser tabs close.
+        </p>
+      </div>
+      {error && <p className="text-sm text-red-600">{error}</p>}
+      <section className="space-y-2">
+        <h3 className="font-medium text-navy-800">Current ({active.length})</h3>
+        {active.length ? table(active) : <p className="text-sm text-navy-500">No active ingests.</p>}
+      </section>
+      <section className="space-y-2">
+        <h3 className="font-medium text-navy-800">Recent ({recent.length})</h3>
+        {recent.length ? table(recent) : <p className="text-sm text-navy-500">No ingest history.</p>}
+      </section>
+    </div>
+  );
+}
+
 export default function AdminApp() {
   return (
     <AdminLayout>
@@ -735,6 +919,7 @@ export default function AdminApp() {
         <Route path="/" element={<DashboardPage />} />
         <Route path="/quality" element={<QualityPage />} />
         <Route path="/corpus" element={<CorpusPage />} />
+        <Route path="/ingestions" element={<IngestionsPage />} />
         <Route path="/audit" element={<AuditPage />} />
       </Routes>
     </AdminLayout>

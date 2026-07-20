@@ -1,9 +1,10 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   fetchCorpusCatalog,
+  fetchIngestJob,
   fetchStatus,
   fetchSuggestions,
-  ingestFilesBatched,
+  createIngestJob,
   searchSimilarByImage,
   searchSimilarByImageId,
   sendChatStream,
@@ -34,6 +35,8 @@ import type {
   ResultCard,
   ResultSort,
 } from "./types";
+
+const ACTIVE_INGEST_JOB_KEY = "atlas.activeIngestJobId";
 
 function applyTurnToPanel(
   turn: ConversationTurn | null,
@@ -67,6 +70,9 @@ export default function App() {
   const [force, setForce] = useState(false);
   const [ingestWorkers, setIngestWorkers] = useState(4);
   const [ingesting, setIngesting] = useState(false);
+  const [activeIngestJobId, setActiveIngestJobId] = useState<string | null>(() =>
+    window.localStorage.getItem(ACTIVE_INGEST_JOB_KEY),
+  );
   const [ingestMessage, setIngestMessage] = useState<string | null>(null);
   const [ingestProgress, setIngestProgress] = useState<{
     filesDone: number;
@@ -185,6 +191,64 @@ export default function App() {
       setCatalogLoading(false);
     }
   }, [catalogSortBy]);
+
+  useEffect(() => {
+    if (!activeIngestJobId) return;
+    let stopped = false;
+    let timer: ReturnType<typeof setTimeout> | null = null;
+
+    const poll = async () => {
+      try {
+        const job = await fetchIngestJob(activeIngestJobId);
+        if (stopped) return;
+        const active = ["queued", "running", "cancel_requested"].includes(job.status);
+        setIngesting(active);
+        setIngestProgress(
+          active
+            ? {
+                filesDone: job.files_done,
+                filesTotal: job.files_total,
+                batchLabel:
+                  job.status === "cancel_requested"
+                    ? "Cancelling…"
+                    : job.status === "queued"
+                      ? "Queued"
+                      : "Ingesting",
+              }
+            : null,
+        );
+        if (!active) {
+          const processed =
+            Number(job.stats.images_added ?? 0) +
+            Number(job.stats.images_updated ?? 0);
+          setIngestMessage(
+            job.status === "succeeded"
+              ? `Ingest complete: ${processed} image(s) added or updated.`
+              : job.status === "cancelled"
+                ? `Ingest cancelled. ${processed} completed image(s) were kept.`
+                : `Ingest failed: ${job.error ?? "Unknown error"}`,
+          );
+          window.localStorage.removeItem(ACTIVE_INGEST_JOB_KEY);
+          setActiveIngestJobId(null);
+          await refreshStatus();
+          void refreshCatalog();
+          return;
+        }
+        timer = window.setTimeout(() => void poll(), 1000);
+      } catch (e) {
+        if (stopped) return;
+        setIngestMessage(e instanceof Error ? e.message : String(e));
+        timer = window.setTimeout(() => void poll(), 3000);
+      }
+    };
+
+    setIngesting(true);
+    void poll();
+    return () => {
+      stopped = true;
+      if (timer) window.clearTimeout(timer);
+    };
+  }, [activeIngestJobId, refreshCatalog, refreshStatus]);
 
   useEffect(() => {
     if (corpusOpen) {
@@ -583,31 +647,17 @@ export default function App() {
     setIngestMessage(null);
     setIngestProgress({ filesDone: 0, filesTotal: files.length, batchLabel: "Starting…" });
     try {
-      const res = await ingestFilesBatched(
-        files,
-        {
-          skipCaption,
-          skipOcr,
-          force,
-          workers: ingestWorkers,
-        },
-        {
-          batchSize: 25,
-          onProgress: (p) => {
-            setIngestProgress({
-              filesDone: p.filesDone,
-              filesTotal: p.filesTotal,
-              batchLabel: `Batch ${p.batchIndex} of ${p.batchCount}`,
-            });
-          },
-        },
-      );
-      setIngestMessage(res.message);
-      setIndexedCount(res.indexed_count);
-      void refreshCatalog();
+      const job = await createIngestJob(files, {
+        skipCaption,
+        skipOcr,
+        force,
+        workers: ingestWorkers,
+      });
+      window.localStorage.setItem(ACTIVE_INGEST_JOB_KEY, job.job_id);
+      setActiveIngestJobId(job.job_id);
+      setIngestMessage(`Ingest queued (${job.files_total} file(s)). You may close this tab.`);
     } catch (e) {
       setIngestMessage(e instanceof Error ? e.message : String(e));
-    } finally {
       setIngesting(false);
       setIngestProgress(null);
     }

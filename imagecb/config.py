@@ -161,6 +161,10 @@ class Settings:
     ingest_image_timeout_sec: int = field(
         default_factory=lambda: int(_env("INGEST_IMAGE_TIMEOUT_SEC", "300") or "300")
     )
+    ingest_timing_log: bool = field(
+        default_factory=lambda: (_env("INGEST_TIMING_LOG", "true") or "true").lower()
+        in ("1", "true", "yes", "on")
+    )
 
     # Optional bootstrap corpus: directory ingested in a background thread on
     # startup when the index is empty. Used to seed a small smoke-test set on a

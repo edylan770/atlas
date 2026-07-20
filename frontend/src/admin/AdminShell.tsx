@@ -87,6 +87,9 @@ function AdminHeader() {
             <NavLink to="/admin/corpus" className={navLinkClass}>
               Corpus
             </NavLink>
+            <NavLink to="/admin/ingestions" className={navLinkClass}>
+              Ingestions
+            </NavLink>
             <NavLink to="/admin/audit" className={navLinkClass}>
               Audit log
             </NavLink>

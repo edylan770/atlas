@@ -104,6 +104,52 @@ def test_ingest_paths_batched_defers_bm25_once(tmp_path):
     assert finalize_calls[0] == {"rebuild_bm25": True, "refresh_vocab": True}
 
 
+def test_ingest_paths_batched_can_cancel_before_work(tmp_path):
+    path = tmp_path / "file.png"
+    path.touch()
+
+    with patch("imagecb.ingest.ingest_paths") as ingest_mock, patch(
+        "imagecb.ingest._finalize_ingest"
+    ) as finalize_mock:
+        stats = ingest_paths_batched(
+            [path],
+            batch_size=1,
+            should_cancel=lambda: True,
+        )
+
+    assert stats["cancelled"] is True
+    ingest_mock.assert_not_called()
+    finalize_mock.assert_not_called()
+
+
+def test_ingest_paths_batched_keeps_partial_stats_on_cancel(tmp_path):
+    paths = [tmp_path / "one.png", tmp_path / "two.png"]
+    for path in paths:
+        path.touch()
+
+    partial = {
+        "files": 1,
+        "images_seen": 2,
+        "images_added": 1,
+        "images_updated": 0,
+        "skipped_duplicates": 0,
+        "errors": 0,
+        "captions_weak": 0,
+        "captions_failed": 0,
+        "workers": 1,
+        "elapsed_sec": 1.0,
+        "cancelled": True,
+    }
+    with patch("imagecb.ingest.ingest_paths", return_value=partial), patch(
+        "imagecb.ingest._finalize_ingest"
+    ) as finalize_mock:
+        stats = ingest_paths_batched(paths, batch_size=1, workers=1)
+
+    assert stats["cancelled"] is True
+    assert stats["images_added"] == 1
+    finalize_mock.assert_called_once_with(rebuild_bm25=True, refresh_vocab=True)
+
+
 def test_bedrock_gate_limits_concurrency(monkeypatch):
     import imagecb.models.bedrock_client as bc
 
