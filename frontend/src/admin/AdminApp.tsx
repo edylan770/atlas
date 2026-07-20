@@ -332,7 +332,9 @@ function CorpusPage() {
     try {
       const freshHealth = await fetchCorpusHealth();
       setCorpusHealth(freshHealth);
-      const count = freshHealth.unrecoverable_source_missing_count ?? 0;
+      const ids = freshHealth.unrecoverable_image_ids ?? [];
+      const count =
+        ids.length || (freshHealth.unrecoverable_source_missing_count ?? 0);
       if (count === 0) {
         setIndexActionResult(
           "Nothing currently unrecoverable; no images were purged.",
@@ -341,13 +343,14 @@ function CorpusPage() {
       }
       if (
         !window.confirm(
-          `Soft-delete ${count} image(s) missing both their cached image and recoverable source? They will leave search results.`,
+          `Permanently delete ${count} image(s) missing both their cached image and recoverable source? ` +
+            "Rows leave search, and residual files are removed when safe.",
         )
       ) {
         return;
       }
 
-      const result = await purgeUnrecoverable();
+      const result = await purgeUnrecoverable(ids.length ? ids : undefined);
       if (result.deleted === 0) {
         setIndexActionResult(
           result.candidates === 0
@@ -356,7 +359,11 @@ function CorpusPage() {
         );
       } else {
         setIndexActionResult(
-          `Purged ${result.deleted} of ${result.candidates} unrecoverable image(s) from search.` +
+          `Permanently deleted ${result.deleted} of ${result.candidates} unrecoverable image(s)` +
+            (result.files_deleted > 0
+              ? ` and removed ${result.files_deleted} residual file(s)`
+              : "") +
+            "." +
             (result.skipped > 0
               ? ` ${result.skipped} candidate(s) were skipped because their state changed.`
               : ""),

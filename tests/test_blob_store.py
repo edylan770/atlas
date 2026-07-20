@@ -34,6 +34,9 @@ class FakeS3:
         data, content_type = self.objects[(Bucket, Key)]
         return {"Body": _Body(data), "ContentType": content_type}
 
+    def delete_object(self, *, Bucket, Key):
+        self.objects.pop((Bucket, Key), None)
+
 
 class FakeS3Error(Exception):
     def __init__(self, code: str):
@@ -115,5 +118,56 @@ def test_s3_exists_surfaces_operational_failures(code):
     ):
         with pytest.raises(FakeS3Error) as exc_info:
             blob_store.exists("s3://private-corpus/image.png")
+
+    assert exc_info.value is error
+
+
+def test_local_delete_removes_file_and_fallbacks(tmp_path):
+    primary = tmp_path / "primary.png"
+    fallback = tmp_path / "fallback.png"
+    primary.write_bytes(b"a")
+    fallback.write_bytes(b"b")
+
+    assert blob_store.delete(primary, fallbacks=(fallback,)) is True
+    assert not primary.exists()
+    assert not fallback.exists()
+    assert blob_store.delete(primary, fallbacks=(fallback,)) is False
+
+
+def test_s3_delete_issues_delete_object():
+    fake = FakeS3()
+    fake.objects[("private-corpus", "atlas/images/x.png")] = (b"png", "image/png")
+
+    with patch("imagecb.storage.blob_store.get_s3_client", return_value=fake):
+        assert blob_store.delete("s3://private-corpus/atlas/images/x.png") is True
+
+    assert ("private-corpus", "atlas/images/x.png") not in fake.objects
+
+
+def test_s3_delete_treats_missing_as_success():
+    fake = FakeS3()
+
+    def _missing(*, Bucket, Key):
+        raise FakeS3Error("404")
+
+    with patch("imagecb.storage.blob_store.get_s3_client", return_value=fake), patch.object(
+        fake,
+        "delete_object",
+        side_effect=_missing,
+    ):
+        assert blob_store.delete("s3://private-corpus/missing.png") is False
+
+
+@pytest.mark.parametrize("code", ["AccessDenied", "ExpiredToken", "SlowDown"])
+def test_s3_delete_surfaces_operational_failures(code):
+    fake = FakeS3()
+    error = FakeS3Error(code)
+    with patch("imagecb.storage.blob_store.get_s3_client", return_value=fake), patch.object(
+        fake,
+        "delete_object",
+        side_effect=error,
+    ):
+        with pytest.raises(FakeS3Error) as exc_info:
+            blob_store.delete("s3://private-corpus/image.png")
 
     assert exc_info.value is error

@@ -104,6 +104,7 @@ export interface CorpusHealth {
   bm25_stale?: boolean;
   missing_cache_count?: number;
   unrecoverable_source_missing_count?: number;
+  unrecoverable_image_ids?: string[];
 }
 
 export interface IndexReconcileResult {
@@ -140,6 +141,8 @@ export interface PurgeUnrecoverableResult {
   candidates: number;
   deleted: number;
   skipped: number;
+  files_deleted: number;
+  files_skipped: number;
   image_ids: string[];
 }
 
@@ -217,9 +220,15 @@ export function repairCaptions(
   );
 }
 
-export function purgeUnrecoverable(): Promise<PurgeUnrecoverableResult> {
+export function purgeUnrecoverable(
+  imageIds?: string[],
+): Promise<PurgeUnrecoverableResult> {
   return adminRequest("/api/admin/corpus/purge-unrecoverable", {
     method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(
+      imageIds && imageIds.length > 0 ? { image_ids: imageIds } : {},
+    ),
   });
 }
 

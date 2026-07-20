@@ -170,17 +170,20 @@ def test_corpus_health_endpoint(mock_assess, admin_client):
     mock_assess.assert_called_once_with(include_weak=True)
 
 
-@patch("imagecb.admin.curation.soft_delete_unrecoverable")
+@patch("imagecb.admin.curation.hard_purge_unrecoverable")
 def test_purge_unrecoverable_endpoint(mock_purge, admin_client):
     mock_purge.return_value = {
         "candidates": 3,
         "deleted": 2,
         "skipped": 1,
+        "files_deleted": 1,
+        "files_skipped": 2,
         "image_ids": ["a", "b"],
     }
     res = admin_client.post(
         "/api/admin/corpus/purge-unrecoverable",
         headers={"X-Admin-Api-Key": "test-admin-secret"},
+        json={"image_ids": ["a", "b", "c"]},
     )
     assert res.status_code == 200
     body = res.json()
@@ -188,10 +191,31 @@ def test_purge_unrecoverable_endpoint(mock_purge, admin_client):
     assert body["candidates"] == 3
     assert body["deleted"] == 2
     assert body["skipped"] == 1
+    assert body["files_deleted"] == 1
+    assert body["files_skipped"] == 2
     assert body["image_ids"] == ["a", "b"]
     mock_purge.assert_called_once()
     assert mock_purge.call_args.kwargs["actor"]
+    assert mock_purge.call_args.kwargs["image_ids"] == ["a", "b", "c"]
 
+
+@patch("imagecb.admin.curation.hard_purge_unrecoverable")
+def test_purge_unrecoverable_endpoint_without_body(mock_purge, admin_client):
+    mock_purge.return_value = {
+        "candidates": 0,
+        "deleted": 0,
+        "skipped": 0,
+        "files_deleted": 0,
+        "files_skipped": 0,
+        "image_ids": [],
+    }
+    res = admin_client.post(
+        "/api/admin/corpus/purge-unrecoverable",
+        headers={"X-Admin-Api-Key": "test-admin-secret"},
+    )
+    assert res.status_code == 200
+    mock_purge.assert_called_once()
+    assert mock_purge.call_args.kwargs["image_ids"] is None
 
 def test_corpus_images_filter_weak(admin_client):
     ok_id = f"ok-{uuid.uuid4().hex[:8]}"

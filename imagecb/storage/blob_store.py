@@ -203,6 +203,42 @@ def exists(ref: str | Path | None, *, fallbacks: Sequence[Path] = ()) -> bool:
         raise
 
 
+def delete(ref: str | Path | None, *, fallbacks: Sequence[Path] = ()) -> bool:
+    """Delete a durable blob. Missing objects are success; operational S3 errors raise.
+
+    Returns True when at least one local file was removed or an S3 delete was issued.
+    """
+    if not ref:
+        return False
+
+    removed = False
+    if not is_s3_uri(ref):
+        path = Path(ref).expanduser()
+        if path.is_file():
+            path.unlink()
+            removed = True
+
+    for candidate in fallbacks:
+        path = Path(candidate).expanduser()
+        if path.is_file():
+            path.unlink()
+            removed = True
+
+    if is_s3_uri(ref):
+        bucket, key = parse_s3_uri(str(ref))
+        try:
+            get_s3_client().delete_object(Bucket=bucket, Key=key)
+            removed = True
+        except Exception as exc:  # botocore maps delete failures to ClientError
+            response = getattr(exc, "response", {})
+            code = str(response.get("Error", {}).get("Code", ""))
+            if code in {"404", "NoSuchKey", "NotFound"}:
+                return removed
+            logger.error("Could not delete blob %s: %s", ref, exc)
+            raise
+    return removed
+
+
 def read_bytes(ref: str | Path, *, fallbacks: Sequence[Path] = ()) -> bytes:
     local = _first_local(ref, fallbacks)
     if local is not None:

@@ -1,4 +1,4 @@
-"""Soft delete evicts from searchable set."""
+"""Soft delete and hard-purge unrecoverable rows."""
 
 from __future__ import annotations
 
@@ -7,6 +7,7 @@ from datetime import datetime
 from unittest.mock import MagicMock, patch
 
 import pytest
+from sqlalchemy import select
 
 from imagecb.admin import curation
 from imagecb import repair
@@ -54,8 +55,6 @@ def test_soft_delete_marks_record_and_calls_vector_delete(
 
     assert get_record(delete_target) is None
     with session_scope() as s:
-        from sqlalchemy import select
-
         row = s.execute(
             select(ImageRecord).where(ImageRecord.image_id == delete_target)
         ).scalar_one()
@@ -64,9 +63,11 @@ def test_soft_delete_marks_record_and_calls_vector_delete(
 
 @patch("imagecb.admin.curation.vector_store")
 @patch("imagecb.admin.curation.rebuild_bm25_active")
+@patch("imagecb.admin.curation.blob_store.delete", return_value=False)
+@patch("imagecb.admin.curation._is_unrecoverable", return_value=True)
 @patch("imagecb.repair.assess_index_health")
-def test_soft_delete_unrecoverable_only_targets_broken(
-    mock_assess, mock_bm25, mock_vs
+def test_hard_purge_unrecoverable_only_targets_broken(
+    mock_assess, _unrec, mock_blob_delete, mock_bm25, mock_vs
 ):
     get_engine()
     ensure_telemetry_schema()
@@ -81,7 +82,7 @@ def test_soft_delete_unrecoverable_only_targets_broken(
     mock_report.unrecoverable_records = [bad]
     mock_assess.return_value = mock_report
 
-    stats = curation.soft_delete_unrecoverable(actor="admin-test")
+    stats = curation.hard_purge_unrecoverable(actor="admin-test")
     assert stats["candidates"] == 1
     assert stats["deleted"] == 1
     assert stats["skipped"] == 0
@@ -93,19 +94,17 @@ def test_soft_delete_unrecoverable_only_targets_broken(
     assert get_record(bad_id) is None
     assert get_record(good_id) is not None
     with session_scope() as s:
-        from sqlalchemy import select
-
         bad_row = s.execute(
             select(ImageRecord).where(ImageRecord.image_id == bad_id)
-        ).scalar_one()
+        ).scalar_one_or_none()
         good_row = s.execute(
             select(ImageRecord).where(ImageRecord.image_id == good_id)
         ).scalar_one()
-        assert bad_row.deleted_at is not None
+        assert bad_row is None
         assert good_row.deleted_at is None
 
 
-def test_soft_delete_unrecoverable_uses_real_health_classification(tmp_path):
+def test_hard_purge_unrecoverable_uses_real_health_classification(tmp_path):
     get_engine()
     ensure_telemetry_schema()
     bad_id = f"missing-{uuid.uuid4().hex[:8]}"
@@ -164,25 +163,16 @@ def test_soft_delete_unrecoverable_uses_real_health_classification(tmp_path):
 
         health = repair.assess_index_health(include_weak=False)
         assert [row.image_id for row in health.unrecoverable_records] == [bad_id]
-        assert recoverable_id not in {
-            row.image_id for row in health.unrecoverable_records
-        }
 
-        first = curation.soft_delete_unrecoverable(actor="admin-test")
-        second = curation.soft_delete_unrecoverable(actor="admin-test")
+        first = curation.hard_purge_unrecoverable(actor="admin-test")
+        second = curation.hard_purge_unrecoverable(actor="admin-test")
 
-    assert first == {
-        "candidates": 1,
-        "deleted": 1,
-        "skipped": 0,
-        "image_ids": [bad_id],
-    }
-    assert second == {
-        "candidates": 0,
-        "deleted": 0,
-        "skipped": 0,
-        "image_ids": [],
-    }
+    assert first["candidates"] == 1
+    assert first["deleted"] == 1
+    assert first["skipped"] == 0
+    assert first["image_ids"] == [bad_id]
+    assert second["candidates"] == 0
+    assert second["deleted"] == 0
     delete_vectors.delete.assert_called_once_with([bad_id])
     delete_vectors.delete_text.assert_called_once_with([bad_id])
     rebuild_bm25.assert_called_once()
@@ -190,13 +180,119 @@ def test_soft_delete_unrecoverable_uses_real_health_classification(tmp_path):
     assert get_record(bad_id) is None
     assert get_record(recoverable_id) is not None
     assert get_record(present_id) is not None
+    assert source.exists()
+
+
+def test_hard_purge_deletes_residual_image_file(tmp_path):
+    get_engine()
+    ensure_telemetry_schema()
+    image_id = f"residual-{uuid.uuid4().hex[:8]}"
+    residual = tmp_path / f"{image_id}.png"
+    residual.write_bytes(b"png")
+    upsert_image(
+        ImageRecord(
+            image_id=image_id,
+            content_hash=f"h-{image_id}",
+            image_path=str(residual),
+            source_file=str(tmp_path / "missing-source.pptx"),
+            source_type="pptx",
+            created_at=datetime.utcnow(),
+        )
+    )
+
+    with patch("imagecb.admin.curation.vector_store"), patch(
+        "imagecb.admin.curation.rebuild_bm25_active"
+    ), patch(
+        "imagecb.admin.curation._is_unrecoverable", return_value=True
+    ), patch("imagecb.admin.curation.append_audit"):
+        stats = curation.hard_purge_unrecoverable(
+            actor="admin-test",
+            image_ids=[image_id],
+        )
+
+    assert stats["deleted"] == 1
+    assert stats["files_deleted"] >= 1
+    assert not residual.exists()
+    assert get_record(image_id) is None
+
+
+def test_hard_purge_keeps_shared_source_and_deletes_orphan_source(tmp_path):
+    get_engine()
+    ensure_telemetry_schema()
+    shared = tmp_path / "shared.pptx"
+    shared.write_bytes(b"deck")
+    orphan = tmp_path / "orphan.pptx"
+    orphan.write_bytes(b"solo")
+
+    keep_id = f"keep-{uuid.uuid4().hex[:8]}"
+    purge_id = f"purge-{uuid.uuid4().hex[:8]}"
+    solo_id = f"solo-{uuid.uuid4().hex[:8]}"
+
+    upsert_image(
+        ImageRecord(
+            image_id=keep_id,
+            content_hash=f"h-{keep_id}",
+            image_path=str(tmp_path / f"{keep_id}.png"),
+            source_file=str(shared),
+            source_type="pptx",
+            created_at=datetime.utcnow(),
+        )
+    )
+    # Present PNG so keep_id is not unrecoverable
+    (tmp_path / f"{keep_id}.png").write_bytes(b"png")
+
+    upsert_image(
+        ImageRecord(
+            image_id=purge_id,
+            content_hash=f"h-{purge_id}",
+            image_path=str(tmp_path / "missing-purge.png"),
+            source_file=str(shared),
+            source_type="pptx",
+            created_at=datetime.utcnow(),
+        )
+    )
+    # Shared source still exists → purge_id is recoverable, not unrecoverable.
+    # Force unrecoverable by using a missing source path that equals shared only
+    # for the shared-source guard test via explicit image_ids + mocked check.
+    upsert_image(
+        ImageRecord(
+            image_id=solo_id,
+            content_hash=f"h-{solo_id}",
+            image_path=str(tmp_path / "missing-solo.png"),
+            source_file=str(orphan),
+            source_type="pptx",
+            created_at=datetime.utcnow(),
+        )
+    )
+
+    # Make solo_id unrecoverable by renaming orphan out of the way after upsert —
+    # then restore path string still points at orphan location for deletion.
+    # Simpler: mock _is_unrecoverable and pass image_ids.
+    with patch("imagecb.admin.curation.vector_store"), patch(
+        "imagecb.admin.curation.rebuild_bm25_active"
+    ), patch(
+        "imagecb.admin.curation._is_unrecoverable",
+        side_effect=lambda r: r.image_id in {purge_id, solo_id},
+    ), patch("imagecb.admin.curation.append_audit"):
+        # Point purge_id source at shared (still on disk) for shared-source guard
+        stats = curation.hard_purge_unrecoverable(
+            actor="admin-test",
+            image_ids=[purge_id, solo_id],
+        )
+
+    assert stats["deleted"] == 2
+    assert shared.exists()
+    assert not orphan.exists()
+    assert get_record(keep_id) is not None
+    assert get_record(purge_id) is None
+    assert get_record(solo_id) is None
 
 
 @patch("imagecb.admin.curation.append_audit")
 @patch("imagecb.admin.curation.vector_store")
 @patch("imagecb.admin.curation.rebuild_bm25_active")
 @patch("imagecb.repair.assess_index_health")
-def test_soft_delete_unrecoverable_reports_stale_candidates_as_skipped(
+def test_hard_purge_unrecoverable_reports_stale_candidates_as_skipped(
     mock_assess, mock_bm25, mock_vs, mock_audit
 ):
     get_engine()
@@ -209,12 +305,14 @@ def test_soft_delete_unrecoverable_reports_stale_candidates_as_skipped(
     mock_report.unrecoverable_records = [record]
     mock_assess.return_value = mock_report
 
-    stats = curation.soft_delete_unrecoverable(actor="admin-test")
+    stats = curation.hard_purge_unrecoverable(actor="admin-test")
 
     assert stats == {
         "candidates": 1,
         "deleted": 0,
         "skipped": 1,
+        "files_deleted": 0,
+        "files_skipped": 0,
         "image_ids": [],
     }
     mock_vs.delete.assert_not_called()
@@ -223,6 +321,36 @@ def test_soft_delete_unrecoverable_reports_stale_candidates_as_skipped(
     assert mock_audit.call_args.kwargs["details"]["candidates"] == 1
     assert mock_audit.call_args.kwargs["details"]["deleted"] == 0
     assert mock_audit.call_args.kwargs["details"]["skipped"] == 1
+
+
+@patch("imagecb.admin.curation.vector_store")
+@patch("imagecb.admin.curation.rebuild_bm25_active")
+@patch("imagecb.admin.curation.blob_store.delete", return_value=False)
+@patch("imagecb.admin.curation._is_unrecoverable", return_value=True)
+def test_hard_purge_honors_explicit_image_ids(
+    _unrec, mock_blob_delete, mock_bm25, mock_vs
+):
+    get_engine()
+    ensure_telemetry_schema()
+    target = f"target-{uuid.uuid4().hex[:8]}"
+    other = f"other-{uuid.uuid4().hex[:8]}"
+    upsert_image(_record(target))
+    upsert_image(_record(other))
+
+    with patch(
+        "imagecb.repair.assess_index_health",
+        side_effect=AssertionError("should not re-assess"),
+    ):
+        stats = curation.hard_purge_unrecoverable(
+            actor="admin-test",
+            image_ids=[target],
+        )
+
+    assert stats["candidates"] == 1
+    assert stats["deleted"] == 1
+    assert stats["image_ids"] == [target]
+    assert get_record(target) is None
+    assert get_record(other) is not None
 
 
 @patch("imagecb.retrieval.hybrid.metadata_db.get_active_image_ids", return_value=["active-1"])

@@ -5,17 +5,24 @@ from __future__ import annotations
 import json
 from datetime import datetime
 from pathlib import Path
-from typing import List, Optional
+from typing import List, Optional, Sequence
 
 import numpy as np
-from sqlalchemy import select
+from sqlalchemy import delete, select
 
 from imagecb.config import SETTINGS
 from imagecb.ingest import _chroma_metadata
 from imagecb.models.embedder import get_embedder
 from imagecb.images import resize_for_model
-from imagecb.paths import open_record_image
-from imagecb.storage import bm25_index, metadata_db, vector_store
+from imagecb.paths import (
+    image_exists,
+    image_fallbacks,
+    open_record_image,
+    resolve_source_file,
+    source_exists,
+    source_fallbacks,
+)
+from imagecb.storage import blob_store, bm25_index, metadata_db, vector_store
 from imagecb.storage.metadata_db import ImageRecord, get_all_records, session_scope
 from imagecb.telemetry.models import InteractionEvent, SearchEvent
 from imagecb.telemetry.schema import ensure_telemetry_schema
@@ -54,40 +61,123 @@ def soft_delete_image(*, image_id: str, actor: str) -> None:
     )
 
 
-def soft_delete_unrecoverable(*, actor: str) -> dict:
-    """Bulk soft-delete rows with missing cache PNG and missing source file."""
+def _is_unrecoverable(record: ImageRecord) -> bool:
+    if image_exists(record):
+        return False
+    if resolve_source_file(record) is not None:
+        return False
+    return not source_exists(record)
+
+
+def _delete_record_blobs(
+    record: ImageRecord,
+    *,
+    purge_source: bool,
+) -> tuple[int, int]:
+    """Delete residual blobs for a purged row. Returns (deleted, skipped)."""
+    deleted = 0
+    skipped = 0
+
+    if blob_store.delete(record.image_path, fallbacks=image_fallbacks(record)):
+        deleted += 1
+    else:
+        skipped += 1
+
+    if purge_source and record.source_file:
+        if blob_store.delete(record.source_file, fallbacks=source_fallbacks(record)):
+            deleted += 1
+        else:
+            skipped += 1
+    elif record.source_file:
+        skipped += 1
+
+    return deleted, skipped
+
+
+def hard_purge_unrecoverable(
+    *,
+    actor: str,
+    image_ids: Optional[Sequence[str]] = None,
+) -> dict:
+    """Permanently remove unrecoverable rows, vectors, and residual blobs."""
     from imagecb.repair import assess_index_health
 
     ensure_telemetry_schema()
-    report = assess_index_health(include_weak=False)
-    candidate_ids = list(dict.fromkeys(
-        r.image_id for r in report.unrecoverable_records
-    ))
+    if image_ids is None:
+        report = assess_index_health(include_weak=False)
+        candidate_ids = list(
+            dict.fromkeys(r.image_id for r in report.unrecoverable_records)
+        )
+    else:
+        candidate_ids = list(dict.fromkeys(str(i) for i in image_ids if i))
+
     deleted_ids: list[str] = []
+    files_deleted = 0
+    files_skipped = 0
+    purge_snapshots: list[tuple[ImageRecord, bool]] = []
 
     if candidate_ids:
-        now = datetime.utcnow()
         with session_scope() as s:
-            rows = s.execute(
-                select(ImageRecord).where(
-                    ImageRecord.image_id.in_(candidate_ids),
-                    ImageRecord.deleted_at.is_(None),
-                )
-            ).scalars().all()
+            rows = list(
+                s.execute(
+                    select(ImageRecord).where(
+                        ImageRecord.image_id.in_(candidate_ids),
+                        ImageRecord.deleted_at.is_(None),
+                    )
+                ).scalars().all()
+            )
             for row in rows:
-                row.deleted_at = now
-                row.deleted_by = actor
-                deleted_ids.append(row.image_id)
+                s.expunge(row)
+
+        eligible = [r for r in rows if _is_unrecoverable(r)]
+        eligible_ids = [r.image_id for r in eligible]
+
+        if eligible:
+            sources = {
+                (r.source_file or "").strip()
+                for r in eligible
+                if (r.source_file or "").strip()
+            }
+            source_counts: dict[str, int] = {}
+            with session_scope() as s:
+                for source in sources:
+                    count = s.execute(
+                        select(ImageRecord.image_id).where(
+                            ImageRecord.source_file == source,
+                            ImageRecord.deleted_at.is_(None),
+                        )
+                    ).all()
+                    source_counts[source] = len(count)
+
+            for record in eligible:
+                source = (record.source_file or "").strip()
+                purge_source = bool(source) and source_counts.get(source, 0) <= 1
+                purge_snapshots.append((record, purge_source))
+
+            with session_scope() as s:
+                s.execute(
+                    delete(ImageRecord).where(
+                        ImageRecord.image_id.in_(eligible_ids)
+                    )
+                )
+            deleted_ids = eligible_ids
 
     if deleted_ids:
         vector_store.delete(deleted_ids)
         vector_store.delete_text(deleted_ids)
         rebuild_bm25_active()
 
+    for record, purge_source in purge_snapshots:
+        d, sk = _delete_record_blobs(record, purge_source=purge_source)
+        files_deleted += d
+        files_skipped += sk
+
     stats = {
         "candidates": len(candidate_ids),
         "deleted": len(deleted_ids),
         "skipped": len(candidate_ids) - len(deleted_ids),
+        "files_deleted": files_deleted,
+        "files_skipped": files_skipped,
         "image_ids": deleted_ids,
     }
     append_audit(
@@ -99,10 +189,16 @@ def soft_delete_unrecoverable(*, actor: str) -> dict:
             "candidates": stats["candidates"],
             "deleted": stats["deleted"],
             "skipped": stats["skipped"],
+            "files_deleted": files_deleted,
+            "files_skipped": files_skipped,
             "image_ids_sample": deleted_ids[:20],
         },
     )
     return stats
+
+
+# Backwards-compatible alias for older callers/tests.
+soft_delete_unrecoverable = hard_purge_unrecoverable
 
 
 def restore_image(*, image_id: str, actor: str) -> None:
@@ -181,6 +277,9 @@ def corpus_health_summary() -> dict:
     report = assess_index_health(include_weak=True)
     payload = report.to_dict()
     payload["total_images"] = report.total_records
+    payload["unrecoverable_image_ids"] = [
+        r.image_id for r in report.unrecoverable_records
+    ]
     return payload
 
 

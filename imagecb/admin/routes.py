@@ -3,9 +3,10 @@
 from __future__ import annotations
 
 import logging
-from typing import Literal, Optional
+from typing import List, Literal, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Response
+from pydantic import BaseModel, Field
 
 from imagecb.admin import analytics, audit, curation, duplicates
 from imagecb.api.auth import require_admin
@@ -13,6 +14,10 @@ from imagecb.api.auth import require_admin
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/admin", tags=["admin"])
+
+
+class PurgeUnrecoverableRequest(BaseModel):
+    image_ids: Optional[List[str]] = Field(default=None)
 
 
 @router.get("/analytics/summary")
@@ -162,8 +167,12 @@ def admin_repair_captions(
 @router.post("/corpus/purge-unrecoverable")
 def admin_purge_unrecoverable(
     actor: str = Depends(require_admin),
+    payload: PurgeUnrecoverableRequest = PurgeUnrecoverableRequest(),
 ):
-    stats = curation.soft_delete_unrecoverable(actor=actor)
+    stats = curation.hard_purge_unrecoverable(
+        actor=actor,
+        image_ids=payload.image_ids,
+    )
     return {"ok": True, **stats}
 
 
