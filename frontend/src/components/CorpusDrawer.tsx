@@ -17,8 +17,10 @@ interface CorpusDrawerProps {
   onForceChange: (v: boolean) => void;
   onIngestWorkersChange: (v: number) => void;
   onIngest: (files: File[]) => void;
+  onCancelIngest: () => void;
   ingestMessage: string | null;
   ingesting: boolean;
+  ingestCancelling: boolean;
   ingestProgress: { filesDone: number; filesTotal: number; batchLabel: string } | null;
   activeIngestJobId: string | null;
   catalog: CatalogItem[];
@@ -39,8 +41,10 @@ export function CorpusDrawer({
   onForceChange,
   onIngestWorkersChange,
   onIngest,
+  onCancelIngest,
   ingestMessage,
   ingesting,
+  ingestCancelling,
   ingestProgress,
   activeIngestJobId,
   catalog,
@@ -233,7 +237,19 @@ export function CorpusDrawer({
                   }}
                 />
               </div>
-              <p className="mt-2 text-sm text-brand-600">Ingesting…</p>
+              <div className="mt-2 flex items-center justify-between gap-3">
+                <p className="text-sm text-brand-600">
+                  {ingestCancelling ? "Cancelling…" : "Ingesting…"}
+                </p>
+                <button
+                  type="button"
+                  onClick={onCancelIngest}
+                  disabled={ingestCancelling}
+                  className="shrink-0 text-xs font-medium text-red-600 hover:underline disabled:cursor-not-allowed disabled:opacity-50"
+                >
+                  {ingestCancelling ? "Cancelling…" : "Cancel"}
+                </button>
+              </div>
             </div>
           )}
 

@@ -9,6 +9,7 @@ import {
   searchSimilarByImageId,
   sendChatStream,
 } from "./api/client";
+import { cancelIngestJob } from "./api/adminClient";
 import {
   createConversation,
   lastTurn,
@@ -71,6 +72,7 @@ export default function App() {
   const [force, setForce] = useState(false);
   const [ingestWorkers, setIngestWorkers] = useState(4);
   const [ingesting, setIngesting] = useState(false);
+  const [ingestCancelling, setIngestCancelling] = useState(false);
   const [activeIngestJobId, setActiveIngestJobId] = useState<string | null>(() =>
     window.localStorage.getItem(ACTIVE_INGEST_JOB_KEY),
   );
@@ -204,6 +206,7 @@ export default function App() {
         if (stopped) return;
         const active = ["queued", "running", "cancel_requested"].includes(job.status);
         setIngesting(active);
+        setIngestCancelling(job.status === "cancel_requested");
         setIngestProgress(
           active
             ? {
@@ -233,6 +236,7 @@ export default function App() {
           );
           window.localStorage.removeItem(ACTIVE_INGEST_JOB_KEY);
           setActiveIngestJobId(null);
+          setIngestCancelling(false);
           await refreshStatus();
           void refreshCatalog();
           return;
@@ -647,6 +651,7 @@ export default function App() {
   const handleIngest = async (files: File[]) => {
     if (!files.length) return;
     setIngesting(true);
+    setIngestCancelling(false);
     setIngestMessage(null);
     setIngestProgress({ filesDone: 0, filesTotal: files.length, batchLabel: "Starting…" });
     try {
@@ -663,6 +668,50 @@ export default function App() {
       setIngestMessage(e instanceof Error ? e.message : String(e));
       setIngesting(false);
       setIngestProgress(null);
+    }
+  };
+
+  const clearActiveIngest = useCallback(() => {
+    window.localStorage.removeItem(ACTIVE_INGEST_JOB_KEY);
+    setActiveIngestJobId(null);
+    setIngesting(false);
+    setIngestCancelling(false);
+    setIngestProgress(null);
+  }, []);
+
+  const handleCancelIngest = async () => {
+    if (!activeIngestJobId || ingestCancelling) return;
+    setIngestCancelling(true);
+    try {
+      const job = await cancelIngestJob(activeIngestJobId);
+      if (["cancelled", "succeeded", "failed"].includes(job.status)) {
+        const processed =
+          Number(job.stats.images_added ?? 0) + Number(job.stats.images_updated ?? 0);
+        setIngestMessage(
+          job.status === "cancelled"
+            ? `Ingest cancelled. ${processed} completed image(s) were kept.`
+            : job.status === "succeeded"
+              ? `Ingest complete: ${processed} image(s) added or updated.`
+              : `Ingest failed: ${job.error ?? "Unknown error"}`,
+        );
+        clearActiveIngest();
+        await refreshStatus();
+        void refreshCatalog();
+        return;
+      }
+      setIngestMessage(
+        job.status_detail ?? "Cancellation requested. Waiting for the worker to stop…",
+      );
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e);
+      // Stuck client-only state (404 / missing job): unlock uploads immediately.
+      if (/not found|404/i.test(msg)) {
+        setIngestMessage("Cleared a stuck ingest that was no longer on the server.");
+        clearActiveIngest();
+        return;
+      }
+      setIngestCancelling(false);
+      setIngestMessage(msg);
     }
   };
 
@@ -806,8 +855,10 @@ export default function App() {
         onForceChange={setForce}
         onIngestWorkersChange={setIngestWorkers}
         onIngest={handleIngest}
+        onCancelIngest={() => void handleCancelIngest()}
         ingestMessage={ingestMessage}
         ingesting={ingesting}
+        ingestCancelling={ingestCancelling}
         ingestProgress={ingestProgress}
         activeIngestJobId={activeIngestJobId}
         catalog={catalog}
