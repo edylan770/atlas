@@ -228,13 +228,16 @@ def _index_status_payload() -> StatusResponse:
     except Exception:  # noqa: BLE001
         logger.exception("Index health assessment failed")
         try:
-            n = vector_store.count()
+            n = len(metadata_db.get_all_records(include_deleted=False))
         except Exception:  # noqa: BLE001
-            n = 0
-        return StatusResponse(indexed_count=n)
+            try:
+                n = vector_store.count()
+            except Exception:  # noqa: BLE001
+                n = 0
+        return StatusResponse(indexed_count=n, total_records=n)
 
     return StatusResponse(
-        indexed_count=report.chroma_vectors,
+        indexed_count=report.total_records,
         total_records=report.total_records,
         chroma_vectors=report.chroma_vectors,
         text_vector_count=report.text_vector_count,

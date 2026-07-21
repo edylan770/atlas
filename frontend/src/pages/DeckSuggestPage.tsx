@@ -25,7 +25,7 @@ export default function DeckSuggestPage() {
 
   useEffect(() => {
     void fetchStatus()
-      .then((s) => setIndexedCount(s.indexed_count))
+      .then((s) => setIndexedCount(s.total_records ?? s.indexed_count))
       .catch(() => setIndexedCount(0));
   }, []);
 

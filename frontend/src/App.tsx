@@ -196,7 +196,7 @@ export default function App() {
   const refreshStatus = useCallback(async () => {
     try {
       const s = await fetchStatus();
-      setIndexedCount(s.indexed_count);
+      setIndexedCount(s.total_records ?? s.indexed_count);
       setStatusError(null);
     } catch (e) {
       setStatusError(e instanceof Error ? e.message : String(e));

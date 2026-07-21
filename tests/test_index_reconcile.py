@@ -75,6 +75,29 @@ def test_status_includes_store_counts(client):
     assert body["stores_in_sync"] is True
 
 
+def test_status_indexed_count_follows_sqlite_when_stores_diverge(client):
+    from imagecb.repair import IndexHealthReport
+
+    report = IndexHealthReport(
+        total_records=12,
+        chroma_vectors=7,
+        text_vector_count=7,
+        bm25_doc_count=12,
+        missing_cache_count=0,
+        missing_chroma_count=5,
+        stores_in_sync=False,
+        is_healthy=False,
+    )
+    with patch("imagecb.repair.assess_index_health", return_value=report):
+        res = client.get("/api/status")
+    assert res.status_code == 200
+    body = res.json()
+    assert body["indexed_count"] == 12
+    assert body["total_records"] == 12
+    assert body["chroma_vectors"] == 7
+    assert body["stores_in_sync"] is False
+
+
 def test_ingest_returns_409_when_already_running():
     from dataclasses import replace
     from pathlib import Path
