@@ -29,3 +29,8 @@ export function isStaleIngestJob(
   const age = heartbeatAgeSeconds(job.heartbeat_at, now);
   return ACTIVE.has(job.status) && age !== null && age > staleAfterSeconds;
 }
+
+export function isMissingIngestJobError(error: unknown): boolean {
+  const msg = error instanceof Error ? error.message : String(error);
+  return /not found|404/i.test(msg);
+}

@@ -247,9 +247,25 @@ export function CorpusDrawer({
                   disabled={ingestCancelling}
                   className="shrink-0 text-xs font-medium text-red-600 hover:underline disabled:cursor-not-allowed disabled:opacity-50"
                 >
-                  {ingestCancelling ? "Cancelling…" : "Cancel"}
+                  {ingestCancelling ? "Cancelling…" : "Cancel / Clear"}
                 </button>
               </div>
+            </div>
+          )}
+
+          {!ingesting && activeIngestJobId && (
+            <div className="mt-4 flex items-center justify-between gap-3">
+              <p className="text-xs text-navy-600">
+                A previous ingest lock is still recorded in this browser.
+              </p>
+              <button
+                type="button"
+                onClick={onCancelIngest}
+                disabled={ingestCancelling}
+                className="shrink-0 text-xs font-medium text-red-600 hover:underline disabled:opacity-50"
+              >
+                Clear stuck ingest
+              </button>
             </div>
           )}
 

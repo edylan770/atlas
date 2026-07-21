@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import {
   formatIngestPhase,
   heartbeatAgeSeconds,
+  isMissingIngestJobError,
   isStaleIngestJob,
 } from "./ingestStatus";
 import type { IngestJob } from "./types";
@@ -42,5 +43,11 @@ describe("ingest status diagnostics", () => {
     expect(heartbeatAgeSeconds(running.heartbeat_at, now)).toBe(30);
     expect(isStaleIngestJob(running, now)).toBe(true);
     expect(isStaleIngestJob({ ...running, status: "failed" }, now)).toBe(false);
+  });
+
+  it("detects a missing ingest job API error", () => {
+    expect(isMissingIngestJobError(new Error("ingest job not found"))).toBe(true);
+    expect(isMissingIngestJobError(new Error("Not Found"))).toBe(true);
+    expect(isMissingIngestJobError(new Error("network timeout"))).toBe(false);
   });
 });

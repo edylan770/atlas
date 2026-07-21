@@ -26,7 +26,7 @@ import { EmptyState } from "./components/EmptyState";
 import { AdminNavLink } from "./components/AdminNavLink";
 import { AtlasLoadingScreen, useMinDurationLoading } from "./components/AtlasLoadingScreen";
 import { Header } from "./components/Header";
-import { formatIngestPhase, heartbeatAgeSeconds } from "./ingestStatus";
+import { formatIngestPhase, heartbeatAgeSeconds, isMissingIngestJobError } from "./ingestStatus";
 import { ResultsGrid } from "./components/ResultsGrid";
 import { SortSelect } from "./components/SortSelect";
 import { defaultCatalogSort, defaultSearchSort, sortResultCards } from "./sortResults";
@@ -195,6 +195,14 @@ export default function App() {
     }
   }, [catalogSortBy]);
 
+  const clearActiveIngest = useCallback(() => {
+    window.localStorage.removeItem(ACTIVE_INGEST_JOB_KEY);
+    setActiveIngestJobId(null);
+    setIngesting(false);
+    setIngestCancelling(false);
+    setIngestProgress(null);
+  }, []);
+
   useEffect(() => {
     if (!activeIngestJobId) return;
     let stopped = false;
@@ -234,9 +242,7 @@ export default function App() {
                 ? `Ingest cancelled. ${processed} completed image(s) were kept.`
                 : `Ingest failed: ${job.error ?? "Unknown error"}`,
           );
-          window.localStorage.removeItem(ACTIVE_INGEST_JOB_KEY);
-          setActiveIngestJobId(null);
-          setIngestCancelling(false);
+          clearActiveIngest();
           await refreshStatus();
           void refreshCatalog();
           return;
@@ -244,18 +250,33 @@ export default function App() {
         timer = window.setTimeout(() => void poll(), 1000);
       } catch (e) {
         if (stopped) return;
+        // Stale localStorage job ID with nothing on the server — unlock uploads.
+        if (isMissingIngestJobError(e)) {
+          setIngestMessage(
+            "Cleared a stuck ingest that was no longer on the server. You can upload again.",
+          );
+          clearActiveIngest();
+          return;
+        }
         setIngestMessage(e instanceof Error ? e.message : String(e));
+        // Keep a progress row so Cancel remains available while retrying.
+        setIngestProgress((prev) =>
+          prev ?? { filesDone: 0, filesTotal: 1, batchLabel: "Stuck — job unreachable" },
+        );
         timer = window.setTimeout(() => void poll(), 3000);
       }
     };
 
     setIngesting(true);
+    setIngestProgress((prev) =>
+      prev ?? { filesDone: 0, filesTotal: 1, batchLabel: "Checking ingest status…" },
+    );
     void poll();
     return () => {
       stopped = true;
       if (timer) window.clearTimeout(timer);
     };
-  }, [activeIngestJobId, refreshCatalog, refreshStatus]);
+  }, [activeIngestJobId, clearActiveIngest, refreshCatalog, refreshStatus]);
 
   useEffect(() => {
     if (corpusOpen) {
@@ -671,17 +692,17 @@ export default function App() {
     }
   };
 
-  const clearActiveIngest = useCallback(() => {
-    window.localStorage.removeItem(ACTIVE_INGEST_JOB_KEY);
-    setActiveIngestJobId(null);
-    setIngesting(false);
-    setIngestCancelling(false);
-    setIngestProgress(null);
-  }, []);
-
   const handleCancelIngest = async () => {
-    if (!activeIngestJobId || ingestCancelling) return;
+    if (ingestCancelling) return;
     setIngestCancelling(true);
+
+    // No server job id (or only a local lock): unlock immediately.
+    if (!activeIngestJobId) {
+      setIngestMessage("Cleared stuck ingest status. You can upload again.");
+      clearActiveIngest();
+      return;
+    }
+
     try {
       const job = await cancelIngestJob(activeIngestJobId);
       if (["cancelled", "succeeded", "failed"].includes(job.status)) {
@@ -704,14 +725,13 @@ export default function App() {
       );
     } catch (e) {
       const msg = e instanceof Error ? e.message : String(e);
-      // Stuck client-only state (404 / missing job): unlock uploads immediately.
-      if (/not found|404/i.test(msg)) {
-        setIngestMessage("Cleared a stuck ingest that was no longer on the server.");
-        clearActiveIngest();
-        return;
-      }
-      setIngestCancelling(false);
-      setIngestMessage(msg);
+      // Missing/stale job or unreachable cancel: always unlock the drawer.
+      setIngestMessage(
+        isMissingIngestJobError(e)
+          ? "Cleared a stuck ingest that was no longer on the server. You can upload again."
+          : `Could not cancel on the server (${msg}). Cleared the local ingest lock so you can upload again.`,
+      );
+      clearActiveIngest();
     }
   };
 
