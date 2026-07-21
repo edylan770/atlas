@@ -13,6 +13,7 @@ import { defaultSearchSort } from "../sortResults";
 
 export default function DeckSuggestPage() {
   const [indexedCount, setIndexedCount] = useState(0);
+  const [statusUnavailable, setStatusUnavailable] = useState(false);
   const [file, setFile] = useState<File | null>(null);
   const [topK, setTopK] = useState(10);
   const [minMatchPercent, setMinMatchPercent] = useState(0);
@@ -25,8 +26,11 @@ export default function DeckSuggestPage() {
 
   useEffect(() => {
     void fetchStatus()
-      .then((s) => setIndexedCount(s.total_records ?? s.indexed_count))
-      .catch(() => setIndexedCount(0));
+      .then((s) => {
+        setIndexedCount(s.total_records ?? s.indexed_count);
+        setStatusUnavailable(false);
+      })
+      .catch(() => setStatusUnavailable(true));
   }, []);
 
   const handleFile = (f: File | null) => {
@@ -85,7 +89,7 @@ export default function DeckSuggestPage() {
           </div>
           <div className="flex shrink-0 items-center gap-2">
             <span className="rounded-full bg-white/10 px-2.5 py-0.5 text-xs font-medium text-white ring-1 ring-white/20">
-              {indexedCount} indexed
+              {statusUnavailable ? "Index unavailable" : `${indexedCount} indexed`}
             </span>
             <Link
               to="/"

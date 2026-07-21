@@ -555,9 +555,22 @@ function CorpusPage() {
 
       <section>
         <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
-          <h3 className="text-xs font-semibold uppercase tracking-wide text-navy-500">
-            Indexed corpus ({corpusLoading ? "…" : images.length})
-          </h3>
+          <div className="flex items-baseline gap-2">
+            <h3 className="text-xs font-semibold uppercase tracking-wide text-navy-500">
+              Indexed corpus (
+              {corpusLoading
+                ? "…"
+                : (corpusHealth?.total_records ??
+                  corpusHealth?.total_images ??
+                  images.length)}
+              )
+            </h3>
+            {!corpusLoading && corpusQualityFilter !== "all" && (
+              <span className="text-xs text-navy-500">
+                Showing {images.length} filtered
+              </span>
+            )}
+          </div>
           <div className="flex flex-wrap items-center gap-3">
             <label className="inline-flex items-center gap-1.5 text-xs text-navy-600">
               <span className="shrink-0 font-medium">Quality</span>

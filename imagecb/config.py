@@ -112,6 +112,9 @@ class Settings:
     s3_max_retries: int = field(
         default_factory=lambda: int(_env("S3_MAX_RETRIES", "3") or "3")
     )
+    s3_presign_expiry_sec: int = field(
+        default_factory=lambda: int(_env("S3_PRESIGN_EXPIRY_SEC", "3600") or "3600")
+    )
 
     # OCR
     tesseract_cmd: Optional[str] = field(default_factory=lambda: _env("TESSERACT_CMD"))

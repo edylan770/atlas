@@ -11,6 +11,7 @@ from fastapi.testclient import TestClient
 from imagecb.api.server import create_app
 from imagecb.retrieval.query_parser import QuerySpec
 from imagecb.retrieval.session import AskResult
+from imagecb.suggestions.corpus_summary import CorpusContext
 
 
 def _parse_sse_events(raw: str) -> list[dict]:
@@ -50,8 +51,10 @@ def test_chat_stream_emits_metadata_tokens_done(
     mock_session_factory.return_value = ("sess-1", mock_session)
     mock_iter.return_value = iter(["Hello", " world"])
 
-    with patch("imagecb.api.routes.vector_store") as mock_vs:
-        mock_vs.count.return_value = 0
+    with patch(
+        "imagecb.api.routes.build_corpus_context",
+        return_value=CorpusContext(indexed_count=17, fingerprint="sqlite"),
+    ):
         res = client.post(
             "/api/chat/stream",
             json={"message": "find charts", "top_k": 5, "min_match_percent": 0},
@@ -69,6 +72,7 @@ def test_chat_stream_emits_metadata_tokens_done(
     mock_session.record_turn.assert_called_once_with("find charts", "Hello world")
     assert events[0]["session_id"] == "sess-1"
     assert events[0]["search_event_id"] == "evt-1"
+    assert mock_iter.call_args.kwargs["indexed_count"] == 17
 
 
 @patch("imagecb.api.routes.get_or_create_session")

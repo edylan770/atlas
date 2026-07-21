@@ -454,8 +454,7 @@ async function runIngest() {
     const headers = adminKey ? { "X-Admin-Api-Key": adminKey } : {};
     const res = await api("/api/ingest", { method: "POST", headers, body: form });
     status.textContent = res.message;
-    $("indexed-badge").textContent = `${res.indexed_count} indexed`;
-    $("footer-count").textContent = res.indexed_count;
+    await refreshStatus();
     fileInput.value = "";
   } catch (e) {
     status.textContent = e.message || String(e);

@@ -4,7 +4,10 @@ import {
   fetchIngestJob,
   fetchStatus,
   fetchSuggestions,
+  createIngestJobDirectS3,
   createIngestJobBatched,
+  DirectS3UnavailableError,
+  type IngestJobUploadProgress,
   searchSimilarByImage,
   searchSimilarByImageId,
   sendChatStream,
@@ -742,40 +745,52 @@ export default function App() {
     window.addEventListener("beforeunload", onBeforeUnload);
 
     try {
-      const job = await createIngestJobBatched(
-        files,
-        {
-          skipCaption,
-          skipOcr,
-          force,
-          workers: ingestWorkers,
-        },
-        {
+      const flags = {
+        skipCaption,
+        skipOcr,
+        force,
+        workers: ingestWorkers,
+      };
+      const onProgress = (p: IngestJobUploadProgress) => {
+        if (p.jobId) {
+          stagingIngestJobIdRef.current = p.jobId;
+          if (activeIngestJobId !== p.jobId) {
+            window.localStorage.setItem(ACTIVE_INGEST_JOB_KEY, p.jobId);
+            setActiveIngestJobId(p.jobId);
+          }
+        }
+        const retryLabel =
+          p.retryingBatches > 0 ? `, ${p.retryingBatches} retrying` : "";
+        setIngestProgress({
+          filesDone: p.filesDone,
+          filesTotal: p.filesTotal,
+          bytesDone: p.bytesDone,
+          bytesTotal: p.bytesTotal,
+          batchLabel:
+            `Uploading to S3: ${p.filesDone}/${p.filesTotal} files ` +
+            `(${p.activeBatches} active${retryLabel})`,
+        });
+      };
+      let job;
+      try {
+        job = await createIngestJobDirectS3(files, flags, {
+          concurrency: 4,
+          signal: abort.signal,
+          onProgress,
+        });
+      } catch (error) {
+        if (!(error instanceof DirectS3UnavailableError)) throw error;
+        setIngestMessage(
+          "Direct S3 upload is unavailable; using server staging. Keep this tab open until upload finishes.",
+        );
+        job = await createIngestJobBatched(files, flags, {
           batchSize: 5,
           concurrency: 3,
+          timeoutMs: 600_000,
           signal: abort.signal,
-          onProgress: (p) => {
-            if (p.jobId) {
-              stagingIngestJobIdRef.current = p.jobId;
-              if (activeIngestJobId !== p.jobId) {
-                window.localStorage.setItem(ACTIVE_INGEST_JOB_KEY, p.jobId);
-                setActiveIngestJobId(p.jobId);
-              }
-            }
-            const retryLabel =
-              p.retryingBatches > 0 ? `, ${p.retryingBatches} retrying` : "";
-            setIngestProgress({
-              filesDone: p.filesDone,
-              filesTotal: p.filesTotal,
-              bytesDone: p.bytesDone,
-              bytesTotal: p.bytesTotal,
-              batchLabel:
-                `Uploading ${p.batchesDone}/${p.batchCount} batches ` +
-                `(${p.activeBatches} active${retryLabel})`,
-            });
-          },
-        },
-      );
+          onProgress,
+        });
+      }
       stagingIngestJobIdRef.current = null;
       window.localStorage.setItem(ACTIVE_INGEST_JOB_KEY, job.job_id);
       setActiveIngestJobId(job.job_id);

@@ -21,6 +21,7 @@ from sqlalchemy import (
     String,
     Text,
     create_engine,
+    func,
     select,
     text,
 )
@@ -90,6 +91,7 @@ class IngestJob(IngestJobBase):
     stats_json = Column(Text, nullable=True)
     stage_errors_json = Column(Text, nullable=True)
     completed_batches_json = Column(Text, nullable=True)
+    upload_manifest_json = Column(Text, nullable=True)
     error = Column(Text, nullable=True)
     phase = Column(String, nullable=True)
     status_detail = Column(Text, nullable=True)
@@ -245,6 +247,18 @@ def get_all_records(*, include_deleted: bool = False) -> List[ImageRecord]:
         for r in rows:
             s.expunge(r)
         return list(rows)
+
+
+def count_active_records() -> int:
+    """Return the canonical corpus size (non-deleted SQLite rows)."""
+    with session_scope() as s:
+        return int(
+            s.execute(
+                select(func.count())
+                .select_from(ImageRecord)
+                .where(ImageRecord.deleted_at.is_(None))
+            ).scalar_one()
+        )
 
 
 def get_active_image_ids() -> List[str]:

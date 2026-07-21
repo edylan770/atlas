@@ -264,7 +264,7 @@ def build_ui() -> gr.Blocks:
 
 def _status_line() -> str:
     try:
-        n = vector_store.count()
+        n = metadata_db.count_active_records()
     except Exception:  # noqa: BLE001
         n = 0
     return (

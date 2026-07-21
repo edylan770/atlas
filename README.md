@@ -39,6 +39,19 @@ query:   text + history -> LLM QuerySpec
                         -> ranked images + provenance
 ```
 
+### Corpus and index source of truth
+
+SQLite active rows (`deleted_at IS NULL`) are the canonical record of corpus
+membership. Public API fields named `indexed_count` are a backward-compatible
+alias for that active corpus count, and `/api/status` also exposes it as
+`total_records`.
+
+Chroma image vectors, caption-text vectors, and BM25 documents are derived
+search indexes. Their counts (`chroma_vectors`, `text_vector_count`, and
+`bm25_doc_count`) are health and search-availability metrics, not corpus-size
+substitutes. Admin health and readiness compare these indexes with SQLite so
+missing or orphaned entries remain visible without changing the corpus count.
+
 **Match % on result cards** is a calibrated display value derived from
 each hit's score. Chat search uses Cohere rerank relevance; similar-image
 search uses normalized RRF fusion across the visual and text lanes (rank,
@@ -189,6 +202,7 @@ S3_BUCKET=your-private-corpus-bucket
 S3_PREFIX=imagecb
 S3_REGION=us-east-1
 S3_READ_TIMEOUT=120
+S3_PRESIGN_EXPIRY_SEC=3600
 BOOTSTRAP_CORPUS_DIR=
 ```
 
@@ -204,23 +218,39 @@ separate stack and is not used by root `docker compose`.)
 Object layout under the prefix:
 
 - `uploads/` — original source files
+- `staging/` — direct browser uploads awaiting validation/ingestion
 - `images/` — generated display PNGs
 - `ingest-logs/` — per-run timing `.txt` reports (disable with `INGEST_TIMING_LOG=false`)
 
-Attach an EC2 instance role granting `s3:GetObject` and `s3:PutObject` for
+Attach an EC2 instance role granting `s3:GetObject`, `s3:PutObject`, and
+`s3:DeleteObject` for
 `arn:aws:s3:::your-private-corpus-bucket/imagecb/*`, plus
 `s3:ListBucket` scoped to the `imagecb/*` prefix. Boto3 uses that role
 automatically; do not add static AWS keys to `.env`.
 
+Allow the deployed web origin to upload with presigned URLs in the bucket CORS
+configuration (replace the example origin):
+
+```json
+[
+  {
+    "AllowedOrigins": ["https://atlas.example.com"],
+    "AllowedMethods": ["PUT"],
+    "AllowedHeaders": ["content-type"],
+    "ExposeHeaders": ["ETag"],
+    "MaxAgeSeconds": 3600
+  }
+]
+```
+
+Add a bucket lifecycle rule that expires `imagecb/staging/` objects after
+seven days. Application cleanup handles successful and cancelled jobs; the
+lifecycle rule covers abandoned browser sessions.
+
 For reliable large browser uploads, configure the EC2 path as follows:
 
-- Set the ALB idle timeout to 600 seconds. For example:
-  `aws elbv2 modify-load-balancer-attributes --load-balancer-arn <arn> --attributes Key=idle_timeout.timeout_seconds,Value=600`.
-- If a host reverse proxy is present, set its request-size limit above the
-  largest supported file and its read/send timeouts to at least 600 seconds.
 - Put the Compose `./data` directory on a persistent, sized gp3 EBS volume.
-  Monitor free bytes and inodes under `/app/data/ingest_jobs`; uploads remain
-  there until ingest persists them to S3.
+  Search indexes and temporary extractor files still use this volume.
 - Send container logs and EC2 disk/memory metrics to CloudWatch. Alarm on ALB
   5xx/target latency, low disk space, container restarts, and ingest
   heartbeats that remain stale for more than a few minutes.
@@ -228,10 +258,11 @@ For reliable large browser uploads, configure the EC2 path as follows:
   actions. Do not increase `INGEST_WORKERS` to speed browser transfer;
   upload concurrency and Bedrock processing concurrency are separate.
 
-The web UI creates one staging job, uploads five files per request with at
-most three requests active, retries transient failures idempotently, and
-queues processing only after every batch is present. A 235-file selection
-therefore uses 47 small upload requests but remains one ingest job.
+In S3 mode the web UI creates one manifest, uploads each source directly to a
+job-scoped S3 key with bounded concurrency and retries, and queues processing
+only after S3 confirms every object's byte count. The tab can close after that
+finalization succeeds. In local mode, five-file app-server batches remain as a
+development fallback.
 
 Existing local blobs can be migrated safely:
 

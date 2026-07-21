@@ -2,15 +2,21 @@
 
 from __future__ import annotations
 
+import threading
 import uuid
 from datetime import datetime
+from pathlib import Path
 from unittest.mock import MagicMock, patch
 
+import numpy as np
 import pytest
 from sqlalchemy import select
 
 from imagecb.admin import curation
 from imagecb import repair
+from imagecb.extractors.types import ExtractedImage, Provenance
+from imagecb.ingest import _IngestWorkItem, _ingest_one_image
+from imagecb.models.vlm import CaptionJSON
 from imagecb.retrieval.query_parser import QuerySpec
 from imagecb.retrieval.hybrid import search
 from imagecb.storage.metadata_db import (
@@ -59,6 +65,85 @@ def test_soft_delete_marks_record_and_calls_vector_delete(
             select(ImageRecord).where(ImageRecord.image_id == delete_target)
         ).scalar_one()
         assert row.deleted_at is not None
+
+
+def test_reingest_restores_soft_deleted_hash():
+    image_id = f"restore-reingest-{uuid.uuid4().hex[:8]}"
+    record = _record(image_id)
+    record.deleted_at = datetime.utcnow()
+    record.deleted_by = "admin-test"
+    upsert_image(record)
+    item = _IngestWorkItem(
+        file_path=Path("/tmp/reupload.png"),
+        extracted=ExtractedImage(
+            image=MagicMock(),
+            provenance=Provenance(
+                source_file="/tmp/reupload.png",
+                source_type="image",
+            ),
+        ),
+    )
+
+    with patch("imagecb.ingest._hash_image", return_value=record.content_hash), patch(
+        "imagecb.ingest._cache_image",
+        return_value=f"/tmp/{image_id}.png",
+    ), patch(
+        "imagecb.ingest._caption_and_embed",
+        return_value=(CaptionJSON.empty(), np.zeros(4)),
+    ), patch(
+        "imagecb.ingest.embed_caption_document",
+        return_value=None,
+    ):
+        outcome = _ingest_one_image(
+            item,
+            known={record.content_hash},
+            known_lock=threading.Lock(),
+            force=False,
+            skip_caption=False,
+            skip_ocr=True,
+            captioner=None,
+            embedder=MagicMock(),
+            max_image_side=1024,
+        )
+
+    assert outcome.updated is True
+    assert outcome.skipped_duplicate is False
+    restored = get_record(image_id)
+    assert restored is not None
+    assert restored.deleted_at is None
+    assert restored.deleted_by is None
+
+
+def test_reingest_still_skips_active_hash():
+    image_id = f"active-reingest-{uuid.uuid4().hex[:8]}"
+    record = _record(image_id)
+    upsert_image(record)
+    item = _IngestWorkItem(
+        file_path=Path("/tmp/reupload.png"),
+        extracted=ExtractedImage(
+            image=MagicMock(),
+            provenance=Provenance(
+                source_file="/tmp/reupload.png",
+                source_type="image",
+            ),
+        ),
+    )
+
+    with patch("imagecb.ingest._hash_image", return_value=record.content_hash):
+        outcome = _ingest_one_image(
+            item,
+            known={record.content_hash},
+            known_lock=threading.Lock(),
+            force=False,
+            skip_caption=False,
+            skip_ocr=True,
+            captioner=None,
+            embedder=MagicMock(),
+            max_image_side=1024,
+        )
+
+    assert outcome.skipped_duplicate is True
+    assert outcome.updated is False
 
 
 @patch("imagecb.admin.curation.vector_store")

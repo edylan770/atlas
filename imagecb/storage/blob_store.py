@@ -63,6 +63,16 @@ def source_key(filename: str, content_hash: Optional[str] = None) -> str:
     return _key(SETTINGS.s3_prefix, "uploads", identity[:2], identity, safe_filename(filename))
 
 
+def staging_source_key(job_id: str, file_id: str, filename: str) -> str:
+    return _key(
+        SETTINGS.s3_prefix,
+        "staging",
+        safe_filename(job_id),
+        safe_filename(file_id),
+        safe_filename(filename),
+    )
+
+
 def image_key(image_id: str) -> str:
     return _key(SETTINGS.s3_prefix, "images", f"{image_id}.png")
 
@@ -97,6 +107,58 @@ def _s3_client(region: str) -> Any:
 
 def get_s3_client() -> Any:
     return _s3_client(SETTINGS.s3_region)
+
+
+def presign_upload(
+    key: str,
+    *,
+    content_type: Optional[str] = None,
+    expires_in: Optional[int] = None,
+) -> tuple[str, dict[str, str]]:
+    """Create a scoped PUT URL and the headers the browser must send."""
+    if SETTINGS.blob_storage_backend != "s3" or not SETTINGS.s3_bucket:
+        raise ValueError("Direct uploads require BLOB_STORAGE_BACKEND=s3")
+    headers: dict[str, str] = {}
+    params: dict[str, Any] = {"Bucket": SETTINGS.s3_bucket, "Key": key}
+    if content_type:
+        params["ContentType"] = content_type
+        headers["Content-Type"] = content_type
+    expiry = max(60, min(expires_in or SETTINGS.s3_presign_expiry_sec, 86400))
+    url = get_s3_client().generate_presigned_url(
+        "put_object",
+        Params=params,
+        ExpiresIn=expiry,
+        HttpMethod="PUT",
+    )
+    return url, headers
+
+
+def validate_uploaded_object(ref: str, *, expected_size: int) -> None:
+    """Require a staged S3 object with the exact manifest byte count."""
+    bucket, key = parse_s3_uri(ref)
+    response = get_s3_client().head_object(Bucket=bucket, Key=key)
+    actual = int(response.get("ContentLength", -1))
+    if actual != int(expected_size):
+        raise ValueError(f"size mismatch for {PurePosixPath(key).name}: expected {expected_size}, got {actual}")
+
+
+def promote_staged_source(ref: str, local_path: Path) -> str:
+    """Copy a staged source to its content-addressed durable S3 key."""
+    if not is_s3_uri(ref):
+        return persist_source(local_path)
+    digest = hashlib.sha256()
+    with local_path.open("rb") as handle:
+        while chunk := handle.read(1024 * 1024):
+            digest.update(chunk)
+    source_bucket, source_object_key = parse_s3_uri(ref)
+    durable_key = source_key(local_path.name, digest.hexdigest())
+    get_s3_client().copy_object(
+        Bucket=SETTINGS.s3_bucket,
+        Key=durable_key,
+        CopySource={"Bucket": source_bucket, "Key": source_object_key},
+        MetadataDirective="COPY",
+    )
+    return s3_uri(durable_key)
 
 
 def put_file(path: Path, key: str, *, content_type: Optional[str] = None) -> str:

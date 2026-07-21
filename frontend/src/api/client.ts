@@ -461,6 +461,201 @@ export interface IngestJobUploadProgress {
   jobId?: string;
 }
 
+interface PresignedIngestUpload {
+  file_id: string;
+  filename: string;
+  size: number;
+  url: string;
+  headers: Record<string, string>;
+}
+
+interface S3IngestJobResponse {
+  job: IngestJob;
+  uploads: PresignedIngestUpload[];
+  expires_in: number;
+}
+
+export class DirectS3UnavailableError extends Error {
+  constructor() {
+    super("Direct S3 uploads are not enabled");
+    this.name = "DirectS3UnavailableError";
+  }
+}
+
+function putPresignedFile(
+  upload: PresignedIngestUpload,
+  file: File,
+  options: UploadBatchOptions,
+): Promise<void> {
+  return new Promise((resolve, reject) => {
+    const xhr = new XMLHttpRequest();
+    const abort = () => xhr.abort();
+    const cleanup = () => options.signal?.removeEventListener("abort", abort);
+    xhr.open("PUT", upload.url);
+    for (const [name, value] of Object.entries(upload.headers)) {
+      xhr.setRequestHeader(name, value);
+    }
+    xhr.timeout = options.timeoutMs;
+    xhr.upload.onprogress = (event) => {
+      options.onByteProgress?.(
+        event.loaded,
+        event.lengthComputable ? event.total : file.size,
+      );
+    };
+    xhr.onload = () => {
+      cleanup();
+      if (xhr.status >= 200 && xhr.status < 300) resolve();
+      else reject(new UploadRequestError(`S3 upload returned HTTP ${xhr.status}`, xhr.status >= 500));
+    };
+    xhr.onerror = () => {
+      cleanup();
+      reject(new UploadRequestError("Network error while uploading to S3.", true));
+    };
+    xhr.ontimeout = () => {
+      cleanup();
+      reject(new UploadRequestError("S3 upload timed out.", true));
+    };
+    xhr.onabort = () => {
+      cleanup();
+      reject(new DOMException("Upload cancelled.", "AbortError"));
+    };
+    if (options.signal?.aborted) {
+      reject(new DOMException("Upload cancelled.", "AbortError"));
+      return;
+    }
+    options.signal?.addEventListener("abort", abort, { once: true });
+    xhr.send(file);
+  });
+}
+
+export async function createIngestJobDirectS3(
+  files: File[],
+  flags: IngestFlags,
+  options: {
+    concurrency?: number;
+    maxRetries?: number;
+    timeoutMs?: number;
+    onProgress?: (p: IngestJobUploadProgress) => void;
+    signal?: AbortSignal;
+  } = {},
+): Promise<IngestJob> {
+  const supported = filterSupportedFiles(files);
+  if (!supported.length) throw new Error("No supported files selected.");
+  const key = getAdminApiKey();
+  if (!key) throw new Error("Admin API key required for ingest (set in Admin settings)");
+
+  const response = await fetch(`${API_BASE}/api/ingest/jobs/s3`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      "X-Admin-Api-Key": key,
+    },
+    body: JSON.stringify({
+      files: supported.map((file) => ({
+        filename: file.name,
+        size: file.size,
+        content_type: file.type || null,
+      })),
+      skip_caption: flags.skipCaption,
+      skip_ocr: flags.skipOcr,
+      force: flags.force,
+      workers: flags.workers,
+    }),
+    signal: options.signal,
+  });
+  if (response.status === 409) throw new DirectS3UnavailableError();
+  if (!response.ok) {
+    const body = await response.json().catch(() => ({})) as { detail?: string };
+    throw new Error(body.detail || `Could not prepare S3 upload (HTTP ${response.status})`);
+  }
+  const prepared = await response.json() as S3IngestJobResponse;
+  if (prepared.uploads.length !== supported.length) {
+    throw new Error("Upload manifest did not match selected files.");
+  }
+
+  const concurrency = Math.max(1, options.concurrency ?? 4);
+  const maxRetries = Math.max(0, options.maxRetries ?? 3);
+  const timeoutMs = Math.max(1_000, options.timeoutMs ?? 600_000);
+  const completed = new Set<number>();
+  const active = new Set<number>();
+  const retrying = new Set<number>();
+  const loaded = new Map<number, number>();
+  const bytesTotal = supported.reduce((sum, file) => sum + file.size, 0);
+  const emit = () => options.onProgress?.({
+    phase: "uploading",
+    batchIndex: completed.size,
+    batchCount: supported.length,
+    batchesDone: completed.size,
+    activeBatches: active.size,
+    retryingBatches: retrying.size,
+    filesDone: completed.size,
+    filesTotal: supported.length,
+    bytesDone: supported.reduce(
+      (sum, file, index) => sum + (completed.has(index) ? file.size : Math.min(loaded.get(index) ?? 0, file.size)),
+      0,
+    ),
+    bytesTotal,
+    jobId: prepared.job.job_id,
+  });
+  emit();
+
+  let next = 0;
+  const uploadOne = async (index: number) => {
+    for (let attempt = 0; ; attempt += 1) {
+      active.add(index);
+      loaded.set(index, 0);
+      emit();
+      try {
+        await putPresignedFile(prepared.uploads[index]!, supported[index]!, {
+          signal: options.signal,
+          timeoutMs,
+          onByteProgress: (value) => {
+            loaded.set(index, value);
+            emit();
+          },
+        });
+        completed.add(index);
+        retrying.delete(index);
+        return;
+      } catch (error) {
+        if (
+          options.signal?.aborted ||
+          !(error instanceof UploadRequestError) ||
+          !error.retryable ||
+          attempt >= maxRetries
+        ) {
+          throw new Error(`File ${index + 1}/${supported.length} (${supported[index]!.name}) failed: ${error instanceof Error ? error.message : String(error)}`);
+        }
+        retrying.add(index);
+        emit();
+        await new Promise((resolve) => globalThis.setTimeout(resolve, 500 * 2 ** attempt));
+      } finally {
+        active.delete(index);
+        emit();
+      }
+    }
+  };
+  const worker = async () => {
+    while (true) {
+      const index = next++;
+      if (index >= supported.length) return;
+      await uploadOne(index);
+    }
+  };
+  await Promise.all(Array.from(
+    { length: Math.min(concurrency, supported.length) },
+    () => worker(),
+  ));
+  return request<IngestJob>(
+    `/api/ingest/jobs/${encodeURIComponent(prepared.job.job_id)}/s3/finalize`,
+    {
+      method: "POST",
+      headers: { "X-Admin-Api-Key": key },
+      signal: options.signal,
+    },
+  );
+}
+
 export async function createIngestJobBatched(
   files: File[],
   flags: IngestFlags,
@@ -621,6 +816,7 @@ export async function ingestFilesBatched(
   let last: IngestResponse = {
     message: "",
     indexed_count: 0,
+    chroma_vectors: 0,
     stats: {},
   };
   const messages: string[] = [];

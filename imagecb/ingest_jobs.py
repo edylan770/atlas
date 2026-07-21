@@ -43,6 +43,7 @@ def _iso(value: Optional[datetime]) -> Optional[str]:
 
 def job_to_dict(job: IngestJob) -> dict:
     files = _loads(job.files_json, [])
+    upload_manifest = _loads(job.upload_manifest_json, [])
     return {
         "job_id": job.job_id,
         "status": job.status,
@@ -55,6 +56,8 @@ def job_to_dict(job: IngestJob) -> dict:
         "stats": _loads(job.stats_json, {}),
         "stage_errors": _loads(job.stage_errors_json, []),
         "completed_batches": _loads(job.completed_batches_json, []),
+        "uploads_total": len(upload_manifest),
+        "upload_bytes_total": sum(int(item.get("size", 0)) for item in upload_manifest),
         "error": job.error,
         "phase": job.phase,
         "status_detail": job.status_detail,
@@ -96,6 +99,10 @@ def ensure_job_schema() -> None:
                 "completed_batches_json",
                 "ALTER TABLE ingest_jobs ADD COLUMN completed_batches_json TEXT",
             ),
+            (
+                "upload_manifest_json",
+                "ALTER TABLE ingest_jobs ADD COLUMN upload_manifest_json TEXT",
+            ),
         ):
             if name not in columns:
                 connection.exec_driver_sql(ddl)
@@ -108,6 +115,7 @@ def create_job(
     *,
     stage_errors: Optional[list[str]] = None,
     status: str = "queued",
+    upload_manifest: Optional[list[dict]] = None,
 ) -> dict:
     if status not in {"queued", "staging"}:
         raise ValueError(f"invalid create_job status: {status}")
@@ -127,7 +135,8 @@ def create_job(
         stats_json="{}",
         stage_errors_json=json.dumps(stage_errors or []),
         completed_batches_json="[]",
-        files_total=len(files),
+        upload_manifest_json=json.dumps(upload_manifest or []),
+        files_total=len(upload_manifest) if upload_manifest is not None else len(files),
         phase=phase,
         status_detail=status_detail,
         created_at=now,
@@ -138,6 +147,34 @@ def create_job(
     if status == "queued":
         wake_worker()
     return get_job(job_id) or {}
+
+
+def finalize_s3_job(job_id: str, files: list[str]) -> Optional[dict]:
+    """Atomically attach validated S3 sources and queue a staging job."""
+    ensure_job_schema()
+    with _job_update_lock:
+        with session_scope() as session:
+            row = session.get(IngestJob, job_id)
+            if row is None:
+                return None
+            manifest = _loads(row.upload_manifest_json, [])
+            if not manifest:
+                raise ValueError("job does not have a direct-upload manifest")
+            if row.status != "staging":
+                if row.status in ACTIVE_STATUSES | TERMINAL_STATUSES:
+                    return job_to_dict(row)
+                raise ValueError(f"job {job_id} cannot be finalized (status={row.status})")
+            if len(files) != len(manifest):
+                raise ValueError("not all manifest files were uploaded")
+            row.files_json = json.dumps(files)
+            row.files_total = len(files)
+            row.status = "queued"
+            row.phase = "queued"
+            row.status_detail = "Uploads verified; waiting for the ingest worker"
+            row.heartbeat_at = datetime.utcnow()
+            result = job_to_dict(row)
+    wake_worker()
+    return result
 
 
 def append_job_files(
@@ -229,6 +266,15 @@ def get_job(job_id: str) -> Optional[dict]:
         return job_to_dict(row)
 
 
+def get_upload_manifest(job_id: str) -> Optional[list[dict]]:
+    ensure_job_schema()
+    with session_scope() as session:
+        row = session.get(IngestJob, job_id)
+        if row is None:
+            return None
+        return _loads(row.upload_manifest_json, [])
+
+
 def list_jobs(*, limit: int = 100) -> list[dict]:
     ensure_job_schema()
     with session_scope() as session:
@@ -274,6 +320,8 @@ def request_cancel(job_id: str) -> Optional[dict]:
         result = job_to_dict(row)
     if cleanup_staging_dir:
         shutil.rmtree(job_stage_dir(job_id), ignore_errors=True)
+        if SETTINGS.blob_storage_backend == "s3":
+            _cleanup_staging(job_id, "cancelled")
     wake_worker()
     return result
 
@@ -305,7 +353,7 @@ def _recover_interrupted_jobs() -> None:
             row.heartbeat_at = now
 
 
-def _claim_next_job(runner_id: Optional[str] = None) -> Optional[tuple[str, list[Path], dict]]:
+def _claim_next_job(runner_id: Optional[str] = None) -> Optional[tuple[str, list[str], dict]]:
     now = datetime.utcnow()
     with session_scope() as session:
         row = session.execute(
@@ -325,7 +373,7 @@ def _claim_next_job(runner_id: Optional[str] = None) -> Optional[tuple[str, list
         row.error = None
         return (
             row.job_id,
-            [Path(path) for path in _loads(row.files_json, [])],
+            [str(path) for path in _loads(row.files_json, [])],
             _loads(row.options_json, {}),
         )
 
@@ -425,9 +473,19 @@ def _requeue_job(job_id: str, error: str) -> None:
 def _cleanup_staging(job_id: str, status: str) -> None:
     if status not in {"succeeded", "cancelled"}:
         return
-    # Local provenance points at the staged source, so only S3-backed jobs can
-    # safely remove their local staging directory after persist_source().
     if SETTINGS.blob_storage_backend == "s3":
+        job = get_job(job_id)
+        if job is not None:
+            with session_scope() as session:
+                row = session.get(IngestJob, job_id)
+                manifest = _loads(row.upload_manifest_json, []) if row else []
+            from imagecb.storage import blob_store
+
+            for item in manifest:
+                try:
+                    blob_store.delete(item.get("uri"))
+                except Exception:  # noqa: BLE001
+                    logger.warning("Could not clean staged S3 object for job %s", job_id)
         shutil.rmtree(job_stage_dir(job_id), ignore_errors=True)
 
 
@@ -469,7 +527,7 @@ class IngestJobRunner:
                 continue
             self._execute(*claimed)
 
-    def _execute(self, job_id: str, files: list[Path], options: dict) -> None:
+    def _execute(self, job_id: str, files: list[str], options: dict) -> None:
         from imagecb.ingest import IngestInProgressError, ingest_paths_batched
 
         heartbeat_stop = threading.Event()

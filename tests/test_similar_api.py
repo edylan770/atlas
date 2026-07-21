@@ -8,6 +8,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 from imagecb.api.server import create_app
+from imagecb.formatting.conversational_reply import build_conversational_reply
 from imagecb.models.vlm import ImageQueryJSON
 from imagecb.retrieval.query_parser import QuerySpec
 from imagecb.retrieval.similar import SimilarSearchOutcome
@@ -27,7 +28,16 @@ def _fake_outcome() -> SimilarSearchOutcome:
 
 
 def test_similar_json_image_id(client):
-    with mock.patch("imagecb.api.routes.search_similar", return_value=_fake_outcome()) as mock_search:
+    with mock.patch(
+        "imagecb.api.routes.search_similar",
+        return_value=_fake_outcome(),
+    ) as mock_search, mock.patch(
+        "imagecb.api.routes.metadata_db.count_active_records",
+        return_value=17,
+    ), mock.patch(
+        "imagecb.api.routes.build_conversational_reply",
+        wraps=build_conversational_reply,
+    ) as mock_reply:
         res = client.post(
             "/api/similar",
             json={
@@ -42,6 +52,7 @@ def test_similar_json_image_id(client):
     kwargs = mock_search.call_args.kwargs
     assert kwargs["image_id"] == "abc-123"
     assert kwargs["exclude_image_id"] == "abc-123"
+    assert mock_reply.call_args.kwargs["indexed_count"] == 17
 
 
 def test_similar_multipart_image_id(client):

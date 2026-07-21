@@ -31,6 +31,9 @@ from imagecb.api.schemas import (
     HealthResponse,
     ReadyResponse,
     IngestResponse,
+    PresignedIngestUploadOut,
+    S3IngestJobRequest,
+    S3IngestJobResponse,
     IngestJobListResponse,
     IngestJobOut,
     InteractionRequest,
@@ -66,7 +69,9 @@ from imagecb.ingest_jobs import (
     append_job_batch,
     append_job_files,
     create_job,
+    finalize_s3_job,
     get_job,
+    get_upload_manifest,
     job_stage_dir,
     list_jobs,
     new_job_id,
@@ -82,7 +87,7 @@ from imagecb.retrieval.sort import InvalidSortError, ResultSort, resolve_sort
 from imagecb.storage import blob_store, metadata_db, vector_store
 from imagecb.suggestions import generate_follow_up_suggestions, generate_suggestions
 from imagecb.suggestions.corpus_summary import build_corpus_context
-from imagecb.uploads import cleanup_staged_uploads, save_uploads_from_files
+from imagecb.uploads import cleanup_staged_uploads, is_supported_extension, save_uploads_from_files
 
 logger = logging.getLogger(__name__)
 
@@ -227,14 +232,18 @@ def _index_status_payload() -> StatusResponse:
         report = assess_index_health(include_weak=True)
     except Exception:  # noqa: BLE001
         logger.exception("Index health assessment failed")
+        total_records = metadata_db.count_active_records()
         try:
-            n = len(metadata_db.get_all_records(include_deleted=False))
+            chroma_vectors = vector_store.count()
         except Exception:  # noqa: BLE001
-            try:
-                n = vector_store.count()
-            except Exception:  # noqa: BLE001
-                n = 0
-        return StatusResponse(indexed_count=n, total_records=n)
+            chroma_vectors = 0
+        return StatusResponse(
+            indexed_count=total_records,
+            total_records=total_records,
+            chroma_vectors=chroma_vectors,
+            is_healthy=False,
+            stores_in_sync=False,
+        )
 
     return StatusResponse(
         indexed_count=report.total_records,
@@ -362,12 +371,8 @@ def chat(
         visual_fallback=ask_result.visual_fallback,
         low_confidence_visual=ask_result.low_confidence_visual,
     )
-    try:
-        indexed_count = vector_store.count()
-    except Exception:  # noqa: BLE001
-        indexed_count = ask_result.indexed_count
-
     corpus = build_corpus_context()
+    indexed_count = corpus.indexed_count
     follow_up_future = _follow_up_executor.submit(
         generate_follow_up_suggestions,
         message,
@@ -437,10 +442,6 @@ def chat_stream(
         visual_fallback=ask_result.visual_fallback,
         low_confidence_visual=ask_result.low_confidence_visual,
     )
-    try:
-        indexed_count = vector_store.count()
-    except Exception:  # noqa: BLE001
-        indexed_count = ask_result.indexed_count
 
     result_cards = build_result_cards(ask_result.results)
     results_out = [_result_card_out(c) for c in result_cards]
@@ -455,6 +456,7 @@ def chat_stream(
     )
 
     corpus = build_corpus_context()
+    indexed_count = corpus.indexed_count
     follow_up_future = _follow_up_executor.submit(
         generate_follow_up_suggestions,
         message,
@@ -627,10 +629,7 @@ async def similar(
     ]
     notes = [n for n in notes if n]
 
-    try:
-        indexed_count = vector_store.count()
-    except Exception:  # noqa: BLE001
-        indexed_count = 0
+    indexed_count = metadata_db.count_active_records()
 
     ask_result = AskResult(
         spec=spec,
@@ -771,11 +770,10 @@ def corpus_catalog(limit: int = 40, sort: Optional[str] = None) -> CorpusCatalog
                 asset_type=(r.asset_type or "").strip(),
             )
         )
-    try:
-        n = vector_store.count()
-    except Exception:  # noqa: BLE001
-        n = len(records)
-    return CorpusCatalogResponse(items=items, indexed_count=n)
+    return CorpusCatalogResponse(
+        items=items,
+        indexed_count=metadata_db.count_active_records(),
+    )
 
 
 @router.post("/ingest", response_model=IngestResponse)
@@ -796,10 +794,15 @@ async def ingest(
         if stage_errors:
             msg += "\n" + "\n".join(f"- {e}" for e in stage_errors)
         try:
-            n = vector_store.count()
+            chroma_vectors = vector_store.count()
         except Exception:  # noqa: BLE001
-            n = 0
-        return IngestResponse(message=msg, indexed_count=n, stats={})
+            chroma_vectors = 0
+        return IngestResponse(
+            message=msg,
+            indexed_count=metadata_db.count_active_records(),
+            chroma_vectors=chroma_vectors,
+            stats={},
+        )
 
     try:
         ingest_workers = workers if workers is not None else SETTINGS.ingest_workers
@@ -845,10 +848,15 @@ async def ingest(
     if repair_line:
         lines.append(repair_line)
     try:
-        n = vector_store.count()
+        chroma_vectors = vector_store.count()
     except Exception:  # noqa: BLE001
-        n = 0
-    return IngestResponse(message="\n".join(lines), indexed_count=n, stats=stats)
+        chroma_vectors = 0
+    return IngestResponse(
+        message="\n".join(lines),
+        indexed_count=metadata_db.count_active_records(),
+        chroma_vectors=chroma_vectors,
+        stats=stats,
+    )
 
 
 @router.post("/ingest/jobs", response_model=IngestJobOut, status_code=202)
@@ -899,6 +907,112 @@ async def create_ingest_job(
             status=status,
         )
     )
+
+
+@router.post("/ingest/jobs/s3", response_model=S3IngestJobResponse, status_code=202)
+def create_s3_ingest_job(
+    body: S3IngestJobRequest,
+    _: str = Depends(require_admin),
+) -> S3IngestJobResponse:
+    if SETTINGS.blob_storage_backend != "s3":
+        raise HTTPException(status_code=409, detail="Direct S3 uploads are not enabled")
+
+    job_id = new_job_id()
+    manifest: list[dict] = []
+    uploads: list[PresignedIngestUploadOut] = []
+    for requested in body.files:
+        if not is_supported_extension(Path(requested.filename)):
+            raise HTTPException(
+                status_code=400,
+                detail=f"Unsupported file type: {requested.filename}",
+            )
+        file_id = uuid.uuid4().hex
+        key = blob_store.staging_source_key(job_id, file_id, requested.filename)
+        uri = blob_store.s3_uri(key)
+        try:
+            url, headers = blob_store.presign_upload(
+                key,
+                content_type=requested.content_type,
+            )
+        except Exception as exc:  # noqa: BLE001
+            logger.exception("Could not presign ingest upload")
+            raise HTTPException(status_code=503, detail=f"Could not prepare S3 upload: {exc}") from exc
+        item = {
+            "file_id": file_id,
+            "filename": Path(requested.filename).name,
+            "size": requested.size,
+            "content_type": requested.content_type,
+            "key": key,
+            "uri": uri,
+        }
+        manifest.append(item)
+        uploads.append(
+            PresignedIngestUploadOut(
+                file_id=file_id,
+                filename=item["filename"],
+                size=requested.size,
+                url=url,
+                headers=headers,
+            )
+        )
+
+    ingest_workers = body.workers if body.workers is not None else SETTINGS.ingest_workers
+    options = {
+        "skip_caption": body.skip_caption,
+        "skip_ocr": body.skip_ocr,
+        "force": body.force,
+        "workers": max(1, min(int(ingest_workers), 32)),
+        "batch_size": 25,
+        "direct_s3": True,
+    }
+    job = create_job(
+        job_id,
+        [],
+        options,
+        status="staging",
+        upload_manifest=manifest,
+    )
+    return S3IngestJobResponse(
+        job=IngestJobOut.model_validate(job),
+        uploads=uploads,
+        expires_in=max(60, min(SETTINGS.s3_presign_expiry_sec, 86400)),
+    )
+
+
+@router.post("/ingest/jobs/{job_id}/s3/finalize", response_model=IngestJobOut)
+def finalize_s3_ingest_job(
+    job_id: str,
+    _: str = Depends(require_admin),
+) -> IngestJobOut:
+    existing = get_job(job_id)
+    if existing is None:
+        raise HTTPException(status_code=404, detail="ingest job not found")
+    if existing["status"] != "staging":
+        return IngestJobOut.model_validate(existing)
+    manifest = get_upload_manifest(job_id) or []
+    if not manifest:
+        raise HTTPException(status_code=409, detail="job has no direct-upload manifest")
+    missing: list[str] = []
+    for item in manifest:
+        try:
+            blob_store.validate_uploaded_object(
+                item["uri"],
+                expected_size=int(item["size"]),
+            )
+        except Exception as exc:  # noqa: BLE001
+            missing.append(f"{item['filename']}: {exc}")
+    if missing:
+        raise HTTPException(
+            status_code=409,
+            detail="Upload verification failed: " + "; ".join(missing[:10]),
+        )
+    try:
+        job = finalize_s3_job(job_id, [str(item["uri"]) for item in manifest])
+    except ValueError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    if job is None:
+        raise HTTPException(status_code=404, detail="ingest job not found")
+    return IngestJobOut.model_validate(job)
 
 
 @router.post("/ingest/jobs/{job_id}/files", response_model=IngestJobOut)

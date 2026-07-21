@@ -42,7 +42,7 @@ from imagecb.ingest_timing import ImageTimingDetail, IngestTimingSession
 from imagecb.models.embedder import BedrockEmbedder, get_embedder, get_text_embedder
 from imagecb.models.ocr import extract_text as ocr_extract
 from imagecb.models.vlm import CaptionJSON, VLMCaptioner, get_captioner
-from imagecb.storage import bm25_index, vector_store
+from imagecb.storage import blob_store, bm25_index, vector_store
 from imagecb.storage.blob_store import persist_image_png, persist_source
 from imagecb.storage.metadata_db import (
     ImageRecord,
@@ -57,6 +57,7 @@ from imagecb.storage.metadata_db import (
 logger = logging.getLogger(__name__)
 
 _ingest_lock = threading.Lock()
+SourceInput = Path | str
 
 
 class IngestInProgressError(Exception):
@@ -283,7 +284,7 @@ def _ingest_one_image(
         steps["hash_image"] = time.perf_counter() - t0
         with known_lock:
             existing = get_record_by_hash(content_hash) if content_hash in known else None
-            if existing is not None and not force:
+            if existing is not None and existing.deleted_at is None and not force:
                 if timing is not None:
                     timing.add_image_detail(
                         ImageTimingDetail(
@@ -334,6 +335,9 @@ def _ingest_one_image(
             ocr_text=ocr_text,
             caption=caption,
         )
+        if existing is not None and existing.deleted_at is not None:
+            record.deleted_at = None
+            record.deleted_by = None
         if should_cancel and should_cancel():
             raise _IngestCancelled()
         t0 = time.perf_counter()
@@ -429,7 +433,7 @@ def _collect_work_items(paths: Iterable[Path]) -> Tuple[List[_IngestWorkItem], i
 
 
 def _iter_work_items(
-    paths: Iterable[Path],
+    paths: Iterable[SourceInput],
     *,
     timing: Optional[IngestTimingSession] = None,
     phase_callback: Optional[Callable[[str, Optional[str]], None]] = None,
@@ -437,27 +441,48 @@ def _iter_work_items(
 ) -> Iterator[Tuple[Optional[_IngestWorkItem], int]]:
     """Stream work items file-by-file. Yields (item, extract_errors_so_far)."""
     errors = 0
-    for file_path in paths:
+    for source in paths:
+        source_value = str(source)
+        is_remote = blob_store.is_s3_uri(source_value)
         try:
-            if phase_callback:
-                phase_callback("source_blob_write", f"Persisting {file_path.name}")
-            if timing is None:
-                source_ref = persist_source(file_path)
-                if phase_callback:
-                    phase_callback("extracting", f"Extracting images from {file_path.name}")
-                extracted_images = list(extract_path(file_path))
+            materialized = blob_store.materialize(source_value) if is_remote else None
+            if materialized is not None:
+                with materialized as file_path:
+                    if phase_callback:
+                        phase_callback("source_blob_write", f"Promoting {file_path.name}")
+                    if timing is None:
+                        source_ref = blob_store.promote_staged_source(source_value, file_path)
+                        if phase_callback:
+                            phase_callback("extracting", f"Extracting images from {file_path.name}")
+                        extracted_images = list(extract_path(file_path))
+                    else:
+                        with timing.timed("persist_source"):
+                            source_ref = blob_store.promote_staged_source(source_value, file_path)
+                        if phase_callback:
+                            phase_callback("extracting", f"Extracting images from {file_path.name}")
+                        with timing.timed("extract"):
+                            extracted_images = list(extract_path(file_path))
             else:
-                with timing.timed("persist_source"):
-                    source_ref = persist_source(file_path)
+                file_path = Path(source_value)
                 if phase_callback:
-                    phase_callback("extracting", f"Extracting images from {file_path.name}")
-                with timing.timed("extract"):
+                    phase_callback("source_blob_write", f"Persisting {file_path.name}")
+                if timing is None:
+                    source_ref = persist_source(file_path)
+                    if phase_callback:
+                        phase_callback("extracting", f"Extracting images from {file_path.name}")
                     extracted_images = list(extract_path(file_path))
+                else:
+                    with timing.timed("persist_source"):
+                        source_ref = persist_source(file_path)
+                    if phase_callback:
+                        phase_callback("extracting", f"Extracting images from {file_path.name}")
+                    with timing.timed("extract"):
+                        extracted_images = list(extract_path(file_path))
             for extracted in extracted_images:
                 extracted.provenance.source_file = source_ref
                 yield _IngestWorkItem(file_path=file_path, extracted=extracted), errors
         except Exception as exc:  # noqa: BLE001
-            logger.warning("Extractor failed for %s: %s", file_path, exc)
+            logger.warning("Extractor failed for %s: %s", source_value, exc)
             detail = f"{type(exc).__name__}: {exc}"
             if error_callback:
                 error_callback(detail)
@@ -709,7 +734,7 @@ def _run_ingest_pool(
 
 
 def ingest_paths(
-    paths: Iterable[Path],
+    paths: Iterable[SourceInput],
     *,
     skip_caption: bool = False,
     skip_ocr: bool = False,
@@ -756,7 +781,7 @@ def ingest_paths(
 
 
 def _ingest_paths_locked(
-    paths: Iterable[Path],
+    paths: Iterable[SourceInput],
     *,
     skip_caption: bool = False,
     skip_ocr: bool = False,
@@ -899,7 +924,7 @@ def _ingest_paths_locked(
 
 
 def ingest_paths_batched(
-    paths: Iterable[Path],
+    paths: Iterable[SourceInput],
     *,
     batch_size: int,
     skip_caption: bool = False,

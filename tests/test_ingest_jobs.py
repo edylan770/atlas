@@ -424,3 +424,91 @@ def test_append_files_rejects_non_staging_job():
         )
     assert response.status_code == 409
     assert "not accepting uploads" in response.json()["detail"]
+
+
+def test_direct_s3_manifest_supports_235_files():
+    from imagecb.api.server import create_app
+
+    configured = replace(
+        SETTINGS,
+        admin_api_key="test-admin-secret",
+        blob_storage_backend="s3",
+        s3_bucket="test-bucket",
+    )
+    files = [
+        {"filename": f"image-{index}.png", "size": 100 + index, "content_type": "image/png"}
+        for index in range(235)
+    ]
+
+    def create_direct(job_id, _files, options, **kwargs):
+        manifest = kwargs["upload_manifest"]
+        return {
+            "job_id": job_id,
+            "status": "staging",
+            "files": [],
+            "files_total": len(manifest),
+            "options": options,
+            "uploads_total": len(manifest),
+            "upload_bytes_total": sum(item["size"] for item in manifest),
+            "cancellable": True,
+        }
+
+    with patch("imagecb.api.auth.SETTINGS", configured), patch(
+        "imagecb.api.routes.SETTINGS", configured
+    ), patch("imagecb.api.routes.new_job_id", return_value="direct-job"), patch(
+        "imagecb.api.routes.blob_store.presign_upload",
+        side_effect=lambda key, **_kwargs: (f"https://s3.test/{key}", {"Content-Type": "image/png"}),
+    ), patch("imagecb.api.routes.create_job", side_effect=create_direct):
+        client = TestClient(create_app())
+        response = client.post(
+            "/api/ingest/jobs/s3",
+            json={"files": files, "workers": 4},
+            headers={"X-Admin-Api-Key": "test-admin-secret"},
+        )
+
+    assert response.status_code == 202
+    body = response.json()
+    assert body["job"]["files_total"] == 235
+    assert len(body["uploads"]) == 235
+    assert all(upload["url"].startswith("https://s3.test/") for upload in body["uploads"])
+
+
+def test_direct_s3_finalize_verifies_every_object_before_queueing():
+    from imagecb.api.server import create_app
+
+    configured = replace(
+        SETTINGS,
+        admin_api_key="test-admin-secret",
+        blob_storage_backend="s3",
+        s3_bucket="test-bucket",
+    )
+    staging = {
+        "job_id": "direct-job",
+        "status": "staging",
+        "files": [],
+        "files_total": 2,
+        "options": {},
+        "cancellable": True,
+    }
+    manifest = [
+        {"filename": "a.png", "size": 10, "uri": "s3://test-bucket/staging/a.png"},
+        {"filename": "b.png", "size": 20, "uri": "s3://test-bucket/staging/b.png"},
+    ]
+    queued = {**staging, "status": "queued", "files": [item["uri"] for item in manifest]}
+    with patch("imagecb.api.auth.SETTINGS", configured), patch(
+        "imagecb.api.routes.get_job", return_value=staging
+    ), patch("imagecb.api.routes.get_upload_manifest", return_value=manifest), patch(
+        "imagecb.api.routes.blob_store.validate_uploaded_object"
+    ) as validate, patch("imagecb.api.routes.finalize_s3_job", return_value=queued) as finalize:
+        client = TestClient(create_app())
+        response = client.post(
+            "/api/ingest/jobs/direct-job/s3/finalize",
+            headers={"X-Admin-Api-Key": "test-admin-secret"},
+        )
+
+    assert response.status_code == 200
+    assert validate.call_count == 2
+    finalize.assert_called_once_with(
+        "direct-job",
+        ["s3://test-bucket/staging/a.png", "s3://test-bucket/staging/b.png"],
+    )

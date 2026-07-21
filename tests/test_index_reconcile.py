@@ -98,6 +98,86 @@ def test_status_indexed_count_follows_sqlite_when_stores_diverge(client):
     assert body["stores_in_sync"] is False
 
 
+def test_status_health_failure_keeps_store_semantics(client):
+    with patch(
+        "imagecb.repair.assess_index_health",
+        side_effect=RuntimeError("health scan failed"),
+    ), patch(
+        "imagecb.api.routes.metadata_db.count_active_records",
+        return_value=12,
+    ), patch(
+        "imagecb.api.routes.vector_store.count",
+        return_value=7,
+    ):
+        res = client.get("/api/status")
+
+    assert res.status_code == 200
+    body = res.json()
+    assert body["indexed_count"] == 12
+    assert body["total_records"] == 12
+    assert body["chroma_vectors"] == 7
+    assert body["is_healthy"] is False
+    assert body["stores_in_sync"] is False
+
+
+def test_catalog_count_uses_full_sqlite_corpus_not_page_or_chroma(client):
+    with patch(
+        "imagecb.api.routes.metadata_db.list_catalog_records",
+        return_value=[],
+    ), patch(
+        "imagecb.api.routes.metadata_db.count_active_records",
+        return_value=12,
+    ), patch(
+        "imagecb.api.routes.vector_store.count",
+        side_effect=AssertionError("catalog count must not read Chroma"),
+    ):
+        res = client.get("/api/corpus/catalog?limit=1")
+
+    assert res.status_code == 200
+    assert res.json()["items"] == []
+    assert res.json()["indexed_count"] == 12
+
+
+def test_ingest_response_separates_corpus_and_chroma_counts():
+    from dataclasses import replace
+    from pathlib import Path
+
+    from imagecb.config import SETTINGS
+
+    patched = replace(SETTINGS, admin_api_key="test-admin-secret")
+    stats = {
+        "elapsed_sec": 0,
+        "images_added": 1,
+        "images_updated": 0,
+    }
+    with patch("imagecb.api.auth.SETTINGS", patched), patch(
+        "imagecb.api.routes.save_uploads_from_files",
+        return_value=([Path("/tmp/x.png")], []),
+    ), patch(
+        "imagecb.api.routes.ingest_paths",
+        return_value=stats,
+    ), patch(
+        "imagecb.api.routes.cleanup_staged_uploads",
+    ), patch(
+        "imagecb.api.routes.metadata_db.count_active_records",
+        return_value=12,
+    ), patch(
+        "imagecb.api.routes.vector_store.count",
+        return_value=7,
+    ):
+        client = TestClient(create_app())
+        res = client.post(
+            "/api/ingest",
+            files=[("files", ("x.png", b"png", "image/png"))],
+            headers={"X-Admin-Api-Key": "test-admin-secret"},
+        )
+
+    assert res.status_code == 200
+    body = res.json()
+    assert body["indexed_count"] == 12
+    assert body["chroma_vectors"] == 7
+
+
 def test_ingest_returns_409_when_already_running():
     from dataclasses import replace
     from pathlib import Path

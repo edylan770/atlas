@@ -11,7 +11,7 @@ from imagecb.deck.extract import SlideContent, deck_hash, extract_slides_from_by
 from imagecb.deck.llm import SlideLLMOutput, describe_slides_batched, get_slide_description_llm
 from imagecb.deck.search import result_cards_to_dicts, search_for_description
 from imagecb.config import SETTINGS
-from imagecb.storage import vector_store
+from imagecb.storage import metadata_db, vector_store
 
 logger = logging.getLogger(__name__)
 
@@ -219,10 +219,15 @@ def process_deck_upload(
     from imagecb.retrieval.sort import resolve_sort
 
     resolved_sort = resolve_sort(sort, is_search=True)
-    indexed = vector_store.count()
-    if indexed == 0:
+    corpus_count = metadata_db.count_active_records()
+    if corpus_count == 0:
         raise ValueError(
             "Image corpus is empty. Add images via the Corpus panel before using deck suggest."
+        )
+    if vector_store.count() == 0:
+        raise ValueError(
+            "The image search index has no vectors for the existing corpus. "
+            "Repair the index before using deck suggest."
         )
 
     if len(data) > SETTINGS.deck_max_upload_bytes:

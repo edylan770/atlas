@@ -178,7 +178,30 @@ class ReadyResponse(BaseModel):
 class IngestResponse(BaseModel):
     message: str
     indexed_count: int
+    chroma_vectors: int = 0
     stats: dict = Field(default_factory=dict)
+
+
+class IngestUploadFileIn(BaseModel):
+    filename: str = Field(min_length=1, max_length=255)
+    size: int = Field(gt=0)
+    content_type: Optional[str] = Field(default=None, max_length=255)
+
+
+class S3IngestJobRequest(BaseModel):
+    files: List[IngestUploadFileIn] = Field(min_length=1, max_length=5000)
+    skip_caption: bool = False
+    skip_ocr: bool = False
+    force: bool = False
+    workers: Optional[int] = Field(default=None, ge=1, le=32)
+
+
+class PresignedIngestUploadOut(BaseModel):
+    file_id: str
+    filename: str
+    size: int
+    url: str
+    headers: Dict[str, str] = Field(default_factory=dict)
 
 
 class IngestJobOut(BaseModel):
@@ -192,6 +215,8 @@ class IngestJobOut(BaseModel):
     options: Dict[str, Any] = Field(default_factory=dict)
     stats: Dict[str, Any] = Field(default_factory=dict)
     stage_errors: List[str] = Field(default_factory=list)
+    uploads_total: int = 0
+    upload_bytes_total: int = 0
     error: Optional[str] = None
     phase: Optional[str] = None
     status_detail: Optional[str] = None
@@ -202,6 +227,12 @@ class IngestJobOut(BaseModel):
     heartbeat_at: Optional[str] = None
     cancel_requested_at: Optional[str] = None
     cancellable: bool = False
+
+
+class S3IngestJobResponse(BaseModel):
+    job: IngestJobOut
+    uploads: List[PresignedIngestUploadOut]
+    expires_in: int
 
 
 class IngestJobListResponse(BaseModel):

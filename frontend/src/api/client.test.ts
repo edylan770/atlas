@@ -8,6 +8,7 @@ vi.mock("./telemetry", () => ({
 }));
 
 import {
+  createIngestJobDirectS3,
   createIngestJobBatched,
   type IngestJobUploadProgress,
 } from "./client";
@@ -184,5 +185,92 @@ describe("createIngestJobBatched", () => {
 
     await expect(promise).rejects.toThrow("Batch");
     expect(aborted).toBe(2);
+  });
+});
+
+describe("createIngestJobDirectS3", () => {
+  beforeEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  it("uploads 235 files with bounded concurrency and finalizes last", async () => {
+    const selected = Array.from({ length: 235 }, (_, index) =>
+      file(`image-${index}.png`, 100 + index),
+    );
+    let active = 0;
+    let maxActive = 0;
+    let completed = 0;
+    let finalizeObservedCompleted = -1;
+
+    class DirectUploadXMLHttpRequest {
+      status = 200;
+      timeout = 0;
+      upload: { onprogress: ((event: ProgressEvent) => void) | null } = {
+        onprogress: null,
+      };
+      onload: (() => void) | null = null;
+      onerror: (() => void) | null = null;
+      ontimeout: (() => void) | null = null;
+      onabort: (() => void) | null = null;
+      open() {}
+      setRequestHeader() {}
+      send(body: File) {
+        active += 1;
+        maxActive = Math.max(maxActive, active);
+        this.upload.onprogress?.({
+          loaded: body.size,
+          total: body.size,
+          lengthComputable: true,
+        } as ProgressEvent);
+        globalThis.setTimeout(() => {
+          active -= 1;
+          completed += 1;
+          this.onload?.();
+        }, 0);
+      }
+      abort() {
+        this.onabort?.();
+      }
+    }
+    vi.stubGlobal("XMLHttpRequest", DirectUploadXMLHttpRequest);
+
+    let fetchCount = 0;
+    vi.stubGlobal("fetch", vi.fn(async () => {
+      fetchCount += 1;
+      if (fetchCount === 1) {
+        return {
+          ok: true,
+          status: 202,
+          json: async () => ({
+            job: { ...stagingJob, files_total: selected.length },
+            uploads: selected.map((item, index) => ({
+              file_id: String(index),
+              filename: item.name,
+              size: item.size,
+              url: `https://s3.test/${index}`,
+              headers: { "Content-Type": "image/png" },
+            })),
+            expires_in: 3600,
+          }),
+        } as Response;
+      }
+      finalizeObservedCompleted = completed;
+      return {
+        ok: true,
+        status: 200,
+        json: async () => ({ ...stagingJob, status: "queued", files_total: selected.length }),
+      } as Response;
+    }));
+
+    const result = await createIngestJobDirectS3(
+      selected,
+      { skipCaption: false, skipOcr: false, force: false },
+      { concurrency: 4 },
+    );
+
+    expect(result.status).toBe("queued");
+    expect(maxActive).toBe(4);
+    expect(completed).toBe(235);
+    expect(finalizeObservedCompleted).toBe(235);
   });
 });

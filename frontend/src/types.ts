@@ -142,6 +142,7 @@ export interface SuggestionsResponse {
 export interface IngestResponse {
   message: string;
   indexed_count: number;
+  chroma_vectors: number;
   stats: Record<string, number>;
 }
 
@@ -165,6 +166,8 @@ export interface IngestJob {
   options: Record<string, unknown>;
   stats: Record<string, unknown>;
   stage_errors: string[];
+  uploads_total?: number;
+  upload_bytes_total?: number;
   error?: string | null;
   phase?: string | null;
   status_detail?: string | null;

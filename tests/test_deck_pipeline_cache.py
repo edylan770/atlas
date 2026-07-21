@@ -28,12 +28,27 @@ def pipeline_env(tmp_path, monkeypatch):
 
     monkeypatch.setattr("imagecb.deck.cache._slide_cache_path", slide_path)
     monkeypatch.setattr("imagecb.deck.cache._deck_cache_path", deck_path)
+    monkeypatch.setattr("imagecb.deck.pipeline.metadata_db.count_active_records", lambda: 10)
     monkeypatch.setattr("imagecb.deck.pipeline.vector_store.count", lambda: 10)
     monkeypatch.setattr(
         "imagecb.deck.cache.corpus_fingerprint",
         lambda: "corp_v1",
     )
     return cache
+
+
+def test_deck_rejects_empty_sqlite_corpus(pipeline_env, monkeypatch):
+    monkeypatch.setattr("imagecb.deck.pipeline.metadata_db.count_active_records", lambda: 0)
+
+    with pytest.raises(ValueError, match="corpus is empty"):
+        process_deck_upload(b"pptx", "demo.pptx")
+
+
+def test_deck_reports_missing_search_vectors(pipeline_env, monkeypatch):
+    monkeypatch.setattr("imagecb.deck.pipeline.vector_store.count", lambda: 0)
+
+    with pytest.raises(ValueError, match="search index has no vectors"):
+        process_deck_upload(b"pptx", "demo.pptx")
 
 
 def test_manifest_hit_when_request_fingerprint_matches(pipeline_env):
