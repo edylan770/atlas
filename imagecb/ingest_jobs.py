@@ -25,6 +25,7 @@ ACTIVE_STATUSES = {"queued", "running", "cancel_requested"}
 # Statuses the UI may cancel (includes staging uploads).
 CANCELLABLE_STATUSES = {"staging", "queued", "running", "cancel_requested"}
 TERMINAL_STATUSES = {"cancelled", "succeeded", "failed"}
+_job_update_lock = threading.RLock()
 
 
 def _loads(value: Optional[str], fallback: Any) -> Any:
@@ -53,6 +54,7 @@ def job_to_dict(job: IngestJob) -> dict:
         "options": _loads(job.options_json, {}),
         "stats": _loads(job.stats_json, {}),
         "stage_errors": _loads(job.stage_errors_json, []),
+        "completed_batches": _loads(job.completed_batches_json, []),
         "error": job.error,
         "phase": job.phase,
         "status_detail": job.status_detail,
@@ -90,6 +92,10 @@ def ensure_job_schema() -> None:
             ("phase", "ALTER TABLE ingest_jobs ADD COLUMN phase VARCHAR"),
             ("status_detail", "ALTER TABLE ingest_jobs ADD COLUMN status_detail TEXT"),
             ("runner_id", "ALTER TABLE ingest_jobs ADD COLUMN runner_id VARCHAR"),
+            (
+                "completed_batches_json",
+                "ALTER TABLE ingest_jobs ADD COLUMN completed_batches_json TEXT",
+            ),
         ):
             if name not in columns:
                 connection.exec_driver_sql(ddl)
@@ -120,6 +126,7 @@ def create_job(
         options_json=json.dumps(options),
         stats_json="{}",
         stage_errors_json=json.dumps(stage_errors or []),
+        completed_batches_json="[]",
         files_total=len(files),
         phase=phase,
         status_detail=status_detail,
@@ -140,24 +147,57 @@ def append_job_files(
     stage_errors: Optional[list[str]] = None,
 ) -> Optional[dict]:
     """Append staged paths to a staging job. Returns None if job is missing."""
+    job, _ = append_job_batch(
+        job_id,
+        files,
+        stage_errors=stage_errors,
+        batch_id=None,
+    )
+    return job
+
+
+def append_job_batch(
+    job_id: str,
+    files: list[Path],
+    *,
+    stage_errors: Optional[list[str]] = None,
+    batch_id: Optional[str],
+) -> tuple[Optional[dict], bool]:
+    """Atomically append one upload batch.
+
+    Returns ``(job, accepted)``. A repeated batch ID is successful but is not
+    appended again, which makes client retries safe after an uncertain timeout.
+    """
     ensure_job_schema()
-    with session_scope() as session:
-        row = session.get(IngestJob, job_id)
-        if row is None:
-            return None
-        if row.status != "staging":
-            raise ValueError(f"job {job_id} is not staging (status={row.status})")
-        existing = _loads(row.files_json, [])
-        existing.extend(str(path.resolve()) for path in files)
-        row.files_json = json.dumps(existing)
-        row.files_total = len(existing)
-        errors = _loads(row.stage_errors_json, [])
-        if stage_errors:
-            errors.extend(stage_errors)
-        row.stage_errors_json = json.dumps(errors)
-        row.heartbeat_at = datetime.utcnow()
-        row.status_detail = f"Staged {row.files_total} file(s); waiting for more uploads or start"
-    return get_job(job_id)
+    accepted = False
+    with _job_update_lock:
+        with session_scope() as session:
+            row = session.get(IngestJob, job_id)
+            if row is None:
+                return None, False
+            if row.status != "staging":
+                raise ValueError(f"job {job_id} is not staging (status={row.status})")
+            completed_batches = _loads(row.completed_batches_json, [])
+            if batch_id and batch_id in completed_batches:
+                return job_to_dict(row), False
+            existing = _loads(row.files_json, [])
+            existing.extend(str(path.resolve()) for path in files)
+            row.files_json = json.dumps(existing)
+            row.files_total = len(existing)
+            errors = _loads(row.stage_errors_json, [])
+            if stage_errors:
+                errors.extend(stage_errors)
+            row.stage_errors_json = json.dumps(errors)
+            if batch_id:
+                completed_batches.append(batch_id)
+                row.completed_batches_json = json.dumps(completed_batches)
+            row.heartbeat_at = datetime.utcnow()
+            row.status_detail = (
+                f"Staged {row.files_total} file(s); waiting for more uploads or start"
+            )
+            accepted = True
+            result = job_to_dict(row)
+    return result, accepted
 
 
 def start_job(job_id: str) -> Optional[dict]:

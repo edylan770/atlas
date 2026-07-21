@@ -70,6 +70,7 @@ function applyTurnToPanel(
 
 export default function App() {
   const [indexedCount, setIndexedCount] = useState(0);
+  const [statusError, setStatusError] = useState<string | null>(null);
   const [conversations, setConversations] = useState<Conversation[]>([]);
   const [activeConversationId, setActiveConversationId] = useState<string | null>(
     null,
@@ -112,9 +113,12 @@ export default function App() {
     filesDone: number;
     filesTotal: number;
     batchLabel: string;
+    bytesDone?: number;
+    bytesTotal?: number;
   } | null>(null);
   const [catalog, setCatalog] = useState<CatalogItem[]>([]);
   const [catalogLoading, setCatalogLoading] = useState(false);
+  const [catalogError, setCatalogError] = useState<string | null>(null);
   const [suggestions, setSuggestions] = useState<string[]>([]);
   const [suggestionsLoading, setSuggestionsLoading] = useState(false);
   const [searchEventId, setSearchEventId] = useState<string | null>(null);
@@ -193,8 +197,9 @@ export default function App() {
     try {
       const s = await fetchStatus();
       setIndexedCount(s.indexed_count);
-    } catch {
-      /* backend may be down during dev */
+      setStatusError(null);
+    } catch (e) {
+      setStatusError(e instanceof Error ? e.message : String(e));
     }
   }, []);
 
@@ -219,11 +224,13 @@ export default function App() {
 
   const refreshCatalog = useCallback(async () => {
     setCatalogLoading(true);
+    setCatalogError(null);
     try {
       const res = await fetchCorpusCatalog(40, catalogSortBy);
       setCatalog(res.items);
-    } catch {
+    } catch (e) {
       setCatalog([]);
+      setCatalogError(e instanceof Error ? e.message : String(e));
     } finally {
       setCatalogLoading(false);
     }
@@ -251,16 +258,20 @@ export default function App() {
         );
         setIngesting(active);
         setIngestCancelling(job.status === "cancel_requested");
-        setIngestProgress(
-          active
-            ? {
-                filesDone: job.files_done,
-                filesTotal: job.files_total,
-                batchLabel: formatIngestPhase(job),
-              }
-            : null,
-        );
-        if (active) {
+        const browserIsUploading =
+          job.status === "staging" && ingestUploadingRef.current;
+        if (!browserIsUploading) {
+          setIngestProgress(
+            active
+              ? {
+                  filesDone: job.files_done,
+                  filesTotal: job.files_total,
+                  batchLabel: formatIngestPhase(job),
+                }
+              : null,
+          );
+        }
+        if (active && !browserIsUploading) {
           const heartbeatAge = heartbeatAgeSeconds(job.heartbeat_at);
           setIngestMessage(
             `Job ${job.job_id}\n${job.status_detail ?? job.phase ?? job.status}` +
@@ -740,14 +751,27 @@ export default function App() {
           workers: ingestWorkers,
         },
         {
-          batchSize: 25,
+          batchSize: 5,
+          concurrency: 3,
           signal: abort.signal,
           onProgress: (p) => {
-            if (p.jobId) stagingIngestJobIdRef.current = p.jobId;
+            if (p.jobId) {
+              stagingIngestJobIdRef.current = p.jobId;
+              if (activeIngestJobId !== p.jobId) {
+                window.localStorage.setItem(ACTIVE_INGEST_JOB_KEY, p.jobId);
+                setActiveIngestJobId(p.jobId);
+              }
+            }
+            const retryLabel =
+              p.retryingBatches > 0 ? `, ${p.retryingBatches} retrying` : "";
             setIngestProgress({
               filesDone: p.filesDone,
               filesTotal: p.filesTotal,
-              batchLabel: `Uploading batch ${p.batchIndex}/${p.batchCount}`,
+              bytesDone: p.bytesDone,
+              bytesTotal: p.bytesTotal,
+              batchLabel:
+                `Uploading ${p.batchesDone}/${p.batchCount} batches ` +
+                `(${p.activeBatches} active${retryLabel})`,
             });
           },
         },
@@ -763,13 +787,20 @@ export default function App() {
         `Ingest queued (${job.files_total} file(s)). You may close this tab.${stageNote}`,
       );
     } catch (e) {
+      const stagingId = stagingIngestJobIdRef.current;
+      if (stagingId) {
+        try {
+          await cancelIngestJob(stagingId);
+        } catch {
+          /* best-effort cleanup after a failed or cancelled upload */
+        }
+      }
       if (abort.signal.aborted) {
         setIngestMessage("Upload cancelled.");
       } else {
         setIngestMessage(e instanceof Error ? e.message : String(e));
       }
-      setIngesting(false);
-      setIngestProgress(null);
+      clearActiveIngest();
       stagingIngestJobIdRef.current = null;
     } finally {
       ingestUploadingRef.current = false;
@@ -848,6 +879,7 @@ export default function App() {
       <div className="shrink-0">
         <Header
           indexedCount={indexedCount}
+          statusError={statusError}
           onOpenCorpus={() => setCorpusOpen(true)}
         />
       </div>
@@ -963,7 +995,9 @@ export default function App() {
         <span>
           <span className="font-semibold text-white/80">ATLAS</span>
           {" · "}
-          {indexedCount} indexed images
+          {statusError
+            ? "index status unavailable"
+            : `${indexedCount} indexed images`}
         </span>
         <AdminNavLink variant="footer" />
       </footer>
@@ -988,6 +1022,7 @@ export default function App() {
         activeIngestJobId={activeIngestJobId}
         catalog={catalog}
         catalogLoading={catalogLoading}
+        catalogError={catalogError}
         catalogSortBy={catalogSortBy}
         onCatalogSortChange={setCatalogSortBy}
       />

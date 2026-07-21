@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
-import { Route, Routes } from "react-router-dom";
+import { Route, Routes, Link } from "react-router-dom";
 import {
   fetchAnalyticsSummary,
   fetchAudit,
@@ -625,7 +625,56 @@ function CorpusPage() {
         {corpusLoading ? (
           <p className="text-sm text-navy-500">Loading corpus…</p>
         ) : images.length === 0 ? (
-          <p className="text-sm text-navy-500">No indexed images.</p>
+          <div className="rounded-lg border border-navy-200 bg-navy-50/80 p-4 text-sm text-navy-700">
+            <p className="font-medium text-navy-900">No indexed images in the local search index.</p>
+            <p className="mt-2 text-navy-600">
+              This page lists metadata from SQLite on the app host — it does not
+              scan the S3 bucket. Image bytes may still live in S3, and old chat
+              turns in the browser can show images even when this list is empty.
+            </p>
+            {((corpusHealth?.total_records ?? corpusHealth?.total_images ?? 0) === 0 &&
+              (corpusHealth?.chroma_vectors ?? 0) === 0) && (
+              <div className="mt-3 space-y-2 text-xs text-navy-600">
+                <p className="font-medium text-navy-800">If this is an AWS deployment:</p>
+                <ul className="list-disc space-y-1 pl-5">
+                  <li>
+                    In the browser Network tab, confirm{" "}
+                    <code className="rounded bg-white px-1">GET /api/status</code> and{" "}
+                    <code className="rounded bg-white px-1">GET /api/admin/corpus/images</code>{" "}
+                    return empty counts, then run a new chat search
+                    (not an old conversation) and check{" "}
+                    <code className="rounded bg-white px-1">POST /api/chat</code>.
+                  </li>
+                  <li>
+                    Ask whoever manages the host to verify the persistent{" "}
+                    <code className="rounded bg-white px-1">./data → /app/data</code>{" "}
+                    volume survives container recreate, and that{" "}
+                    <code className="rounded bg-white px-1">imagecb.db</code> and{" "}
+                    <code className="rounded bg-white px-1">chroma/</code> are
+                    non-empty after ingest.
+                  </li>
+                  <li>
+                    Compare runtime and SQLite identity under Ingestions
+                    diagnostics; re-ingest only after the data volume is fixed.
+                  </li>
+                </ul>
+                <p>
+                  <Link
+                    to="/admin/ingestions"
+                    className="font-medium text-brand-700 hover:underline"
+                  >
+                    Open ingest diagnostics →
+                  </Link>
+                </p>
+              </div>
+            )}
+            {corpusQualityFilter !== "all" && (
+              <p className="mt-3 text-xs text-navy-500">
+                Quality filter is set to “{corpusQualityFilter}”. Try “All” if you
+                expect images with other caption qualities.
+              </p>
+            )}
+          </div>
         ) : (
           <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
             {images.map((img) => {
@@ -999,7 +1048,22 @@ function IngestionsPage() {
             <span>Runner: {diagnostics.runner.alive ? "healthy" : "not running"}</span>
             <span>Storage: {diagnostics.storage_backend}</span>
             <span>SQLite: {diagnostics.sqlite_identity}</span>
+            {diagnostics.sqlite_path && (
+              <span className="sm:col-span-2">
+                SQLite path: {diagnostics.sqlite_path}
+              </span>
+            )}
           </div>
+        )}
+        {diagnostics && (
+          <p className="text-xs text-navy-500">
+            Search indexes live on the host data volume (SQLite/Chroma under{" "}
+            <code className="rounded bg-navy-50 px-1">DATA_DIR</code>
+            ), not in S3. On AWS, confirm{" "}
+            <code className="rounded bg-navy-50 px-1">./data → /app/data</code>{" "}
+            persists across container recreate; an empty path here with chat
+            history still showing images usually means a lost local index.
+          </p>
         )}
         {diagnostics && diagnostics.build_id !== frontendBuildId && (
           <p className="text-xs font-medium text-red-600">

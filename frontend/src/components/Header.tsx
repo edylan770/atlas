@@ -3,10 +3,13 @@ import { AtlasAcronymLine, AtlasWordmark } from "./AtlasBranding";
 
 interface HeaderProps {
   indexedCount: number;
+  /** When set, status fetch failed — do not treat count as authoritative. */
+  statusError?: string | null;
   onOpenCorpus: () => void;
 }
 
-export function Header({ indexedCount, onOpenCorpus }: HeaderProps) {
+export function Header({ indexedCount, statusError, onOpenCorpus }: HeaderProps) {
+  const statusUnavailable = Boolean(statusError);
   return (
     <header className="border-b border-navy-800 bg-navy-900 text-white shadow-md">
       <div className="flex flex-col gap-2.5 px-5 py-2.5 sm:flex-row sm:items-center sm:justify-between sm:gap-4">
@@ -16,11 +19,28 @@ export function Header({ indexedCount, onOpenCorpus }: HeaderProps) {
         </div>
         <div className="flex min-w-0 flex-wrap items-center justify-start gap-2 sm:justify-end">
           <span
-            className="rounded-full bg-white/10 px-2.5 py-0.5 text-xs font-medium text-white ring-1 ring-white/20"
-            title={`${indexedCount} indexed`}
+            className={
+              statusUnavailable
+                ? "rounded-full bg-amber-500/20 px-2.5 py-0.5 text-xs font-medium text-amber-100 ring-1 ring-amber-300/40"
+                : "rounded-full bg-white/10 px-2.5 py-0.5 text-xs font-medium text-white ring-1 ring-white/20"
+            }
+            title={
+              statusUnavailable
+                ? `Index status unavailable: ${statusError}`
+                : `${indexedCount} indexed`
+            }
           >
-            <span className="sm:hidden">{indexedCount}</span>
-            <span className="hidden sm:inline">{indexedCount} indexed</span>
+            {statusUnavailable ? (
+              <>
+                <span className="sm:hidden">?</span>
+                <span className="hidden sm:inline">Index unavailable</span>
+              </>
+            ) : (
+              <>
+                <span className="sm:hidden">{indexedCount}</span>
+                <span className="hidden sm:inline">{indexedCount} indexed</span>
+              </>
+            )}
           </span>
           <button
             type="button"

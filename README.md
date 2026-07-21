@@ -188,6 +188,7 @@ BLOB_STORAGE_BACKEND=s3
 S3_BUCKET=your-private-corpus-bucket
 S3_PREFIX=imagecb
 S3_REGION=us-east-1
+S3_READ_TIMEOUT=120
 BOOTSTRAP_CORPUS_DIR=
 ```
 
@@ -210,6 +211,27 @@ Attach an EC2 instance role granting `s3:GetObject` and `s3:PutObject` for
 `arn:aws:s3:::your-private-corpus-bucket/imagecb/*`, plus
 `s3:ListBucket` scoped to the `imagecb/*` prefix. Boto3 uses that role
 automatically; do not add static AWS keys to `.env`.
+
+For reliable large browser uploads, configure the EC2 path as follows:
+
+- Set the ALB idle timeout to 600 seconds. For example:
+  `aws elbv2 modify-load-balancer-attributes --load-balancer-arn <arn> --attributes Key=idle_timeout.timeout_seconds,Value=600`.
+- If a host reverse proxy is present, set its request-size limit above the
+  largest supported file and its read/send timeouts to at least 600 seconds.
+- Put the Compose `./data` directory on a persistent, sized gp3 EBS volume.
+  Monitor free bytes and inodes under `/app/data/ingest_jobs`; uploads remain
+  there until ingest persists them to S3.
+- Send container logs and EC2 disk/memory metrics to CloudWatch. Alarm on ALB
+  5xx/target latency, low disk space, container restarts, and ingest
+  heartbeats that remain stale for more than a few minutes.
+- Keep the instance role scoped to the S3 prefix and required Bedrock invoke
+  actions. Do not increase `INGEST_WORKERS` to speed browser transfer;
+  upload concurrency and Bedrock processing concurrency are separate.
+
+The web UI creates one staging job, uploads five files per request with at
+most three requests active, retries transient failures idempotently, and
+queues processing only after every batch is present. A 235-file selection
+therefore uses 47 small upload requests but remains one ingest job.
 
 Existing local blobs can be migrated safely:
 

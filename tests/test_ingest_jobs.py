@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from dataclasses import replace
 from datetime import datetime
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from unittest.mock import AsyncMock, patch
 
@@ -228,6 +229,89 @@ def test_staging_job_not_claimable_until_started(isolated_jobs, tmp_path):
     assert claimed is not None
     assert claimed[0] == "job-stage"
     assert len(claimed[1]) == 2
+
+
+def test_empty_staging_job_can_be_created_via_api():
+    from imagecb.api.server import create_app
+
+    configured = replace(SETTINGS, admin_api_key="test-admin-secret")
+    job = {
+        "job_id": "job-empty-api",
+        "status": "staging",
+        "files": [],
+        "files_total": 0,
+        "options": {"workers": 2},
+        "cancellable": True,
+        "stage_errors": [],
+    }
+    with patch("imagecb.api.auth.SETTINGS", configured), patch(
+        "imagecb.api.routes.save_uploads_from_files",
+        new=AsyncMock(return_value=([], [])),
+    ), patch("imagecb.api.routes.new_job_id", return_value="job-empty-api"), patch(
+        "imagecb.api.routes.create_job", return_value=job
+    ) as mock_create:
+        client = TestClient(create_app())
+        response = client.post(
+            "/api/ingest/jobs",
+            data={"start": "false", "workers": "2"},
+            headers={"X-Admin-Api-Key": "test-admin-secret"},
+        )
+
+    assert response.status_code == 202
+    assert response.json()["status"] == "staging"
+    assert response.json()["files_total"] == 0
+    mock_create.assert_called_once()
+    assert mock_create.call_args.args[1] == []
+
+
+def test_batch_append_is_idempotent(isolated_jobs, tmp_path):
+    first = tmp_path / "attempt-1" / "a.png"
+    retry = tmp_path / "attempt-2" / "a.png"
+    first.parent.mkdir()
+    retry.parent.mkdir()
+    first.write_bytes(b"first")
+    retry.write_bytes(b"retry")
+    isolated_jobs.create_job("job-dedupe", [], {"workers": 1}, status="staging")
+
+    accepted, first_won = isolated_jobs.append_job_batch(
+        "job-dedupe", [first], batch_id="batch-1"
+    )
+    duplicate, retry_won = isolated_jobs.append_job_batch(
+        "job-dedupe", [retry], batch_id="batch-1"
+    )
+
+    assert first_won is True
+    assert retry_won is False
+    assert accepted is not None and accepted["files_total"] == 1
+    assert duplicate is not None and duplicate["files_total"] == 1
+    assert duplicate["completed_batches"] == ["batch-1"]
+
+
+def test_concurrent_batch_appends_do_not_lose_updates(isolated_jobs, tmp_path):
+    isolated_jobs.create_job("job-concurrent", [], {"workers": 1}, status="staging")
+    paths = []
+    for index in range(8):
+        path = tmp_path / f"{index}.png"
+        path.write_bytes(str(index).encode())
+        paths.append(path)
+
+    def append(index: int):
+        return isolated_jobs.append_job_batch(
+            "job-concurrent",
+            [paths[index]],
+            batch_id=f"batch-{index}",
+        )
+
+    with ThreadPoolExecutor(max_workers=4) as executor:
+        results = list(executor.map(append, range(len(paths))))
+
+    assert all(accepted for _job, accepted in results)
+    job = isolated_jobs.get_job("job-concurrent")
+    assert job is not None
+    assert job["files_total"] == len(paths)
+    assert set(job["completed_batches"]) == {
+        f"batch-{index}" for index in range(len(paths))
+    }
 
 
 def test_cancel_staging_job_cleans_stage_dir(isolated_jobs, tmp_path):

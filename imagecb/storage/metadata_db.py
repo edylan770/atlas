@@ -89,6 +89,7 @@ class IngestJob(IngestJobBase):
     options_json = Column(Text, nullable=False)
     stats_json = Column(Text, nullable=True)
     stage_errors_json = Column(Text, nullable=True)
+    completed_batches_json = Column(Text, nullable=True)
     error = Column(Text, nullable=True)
     phase = Column(String, nullable=True)
     status_detail = Column(Text, nullable=True)

@@ -5,6 +5,9 @@ from __future__ import annotations
 import io
 import json
 import logging
+import re
+import shutil
+import uuid
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from typing import Iterator, List, Optional
@@ -60,6 +63,7 @@ from imagecb.formatting.conversational_reply import (
 from imagecb.deck.pipeline import DeckSuggestResult, SlideSuggestion, force_slide_image, process_deck_upload
 from imagecb.ingest import IngestInProgressError, ingest_paths
 from imagecb.ingest_jobs import (
+    append_job_batch,
     append_job_files,
     create_job,
     get_job,
@@ -846,7 +850,7 @@ async def ingest(
 
 @router.post("/ingest/jobs", response_model=IngestJobOut, status_code=202)
 async def create_ingest_job(
-    files: List[UploadFile] = File(...),
+    files: Optional[List[UploadFile]] = File(None),
     skip_caption: bool = Form(False),
     skip_ocr: bool = Form(False),
     force: bool = Form(False),
@@ -854,13 +858,17 @@ async def create_ingest_job(
     start: bool = Form(True),
     _: str = Depends(require_admin),
 ) -> IngestJobOut:
-    if not files:
-        raise HTTPException(status_code=400, detail="at least one file is required")
+    uploads = files or []
+    if not uploads and start:
+        raise HTTPException(
+            status_code=400,
+            detail="at least one file is required when starting immediately",
+        )
 
     job_id = new_job_id()
     stage_dir = job_stage_dir(job_id)
-    saved, stage_errors = await save_uploads_from_files(files, dest_dir=stage_dir)
-    if not saved:
+    saved, stage_errors = await save_uploads_from_files(uploads, dest_dir=stage_dir)
+    if uploads and not saved:
         try:
             stage_dir.rmdir()
         except OSError:
@@ -894,6 +902,7 @@ async def create_ingest_job(
 async def append_ingest_job_files(
     job_id: str,
     files: List[UploadFile] = File(...),
+    batch_id: Optional[str] = Form(None),
     _: str = Depends(require_admin),
 ) -> IngestJobOut:
     if not files:
@@ -907,16 +916,44 @@ async def append_ingest_job_files(
             detail=f"job is not accepting uploads (status={existing['status']})",
         )
 
-    stage_dir = job_stage_dir(job_id)
-    saved, stage_errors = await save_uploads_from_files(files, dest_dir=stage_dir)
+    if batch_id is not None and not re.fullmatch(r"[A-Za-z0-9_-]{1,100}", batch_id):
+        raise HTTPException(
+            status_code=400,
+            detail="batch_id must contain only letters, numbers, underscores, or hyphens",
+        )
+
+    if batch_id:
+        attempt_dir = (
+            job_stage_dir(job_id)
+            / "batches"
+            / batch_id
+            / uuid.uuid4().hex
+        )
+    else:
+        attempt_dir = job_stage_dir(job_id)
+    saved, stage_errors = await save_uploads_from_files(files, dest_dir=attempt_dir)
     if not saved and stage_errors:
+        if batch_id:
+            shutil.rmtree(attempt_dir, ignore_errors=True)
         raise HTTPException(
             status_code=400,
             detail="No supported files could be staged. " + "; ".join(stage_errors),
         )
     try:
-        job = append_job_files(job_id, saved, stage_errors=stage_errors)
+        if batch_id:
+            job, accepted = append_job_batch(
+                job_id,
+                saved,
+                stage_errors=stage_errors,
+                batch_id=batch_id,
+            )
+            if not accepted:
+                shutil.rmtree(attempt_dir, ignore_errors=True)
+        else:
+            job = append_job_files(job_id, saved, stage_errors=stage_errors)
     except ValueError as exc:
+        if batch_id:
+            shutil.rmtree(attempt_dir, ignore_errors=True)
         raise HTTPException(status_code=409, detail=str(exc)) from exc
     if job is None:
         raise HTTPException(status_code=404, detail="ingest job not found")

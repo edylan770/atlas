@@ -21,10 +21,17 @@ interface CorpusDrawerProps {
   ingestMessage: string | null;
   ingesting: boolean;
   ingestCancelling: boolean;
-  ingestProgress: { filesDone: number; filesTotal: number; batchLabel: string } | null;
+  ingestProgress: {
+    filesDone: number;
+    filesTotal: number;
+    batchLabel: string;
+    bytesDone?: number;
+    bytesTotal?: number;
+  } | null;
   activeIngestJobId: string | null;
   catalog: CatalogItem[];
   catalogLoading: boolean;
+  catalogError?: string | null;
   catalogSortBy: ResultSort;
   onCatalogSortChange: (value: ResultSort) => void;
 }
@@ -49,6 +56,7 @@ export function CorpusDrawer({
   activeIngestJobId,
   catalog,
   catalogLoading,
+  catalogError = null,
   catalogSortBy,
   onCatalogSortChange,
 }: CorpusDrawerProps) {
@@ -119,8 +127,8 @@ export function CorpusDrawer({
               Drag and drop files or folders here
             </p>
             <p className="mt-1 text-xs text-navy-500">
-              Images, PDF, PPTX — uploads in chunks of 25; keep this tab open until
-              upload finishes
+              Images, PDF, PPTX — uploads 3 batches at a time in chunks of 5; keep
+              this tab open until upload finishes
             </p>
             <div className="mt-4 flex flex-wrap justify-center gap-2">
               <button
@@ -224,6 +232,13 @@ export function CorpusDrawer({
                 <span>{ingestProgress.batchLabel}</span>
                 <span>
                   {ingestProgress.filesDone} / {ingestProgress.filesTotal} files
+                  {ingestProgress.bytesTotal != null &&
+                    ingestProgress.bytesTotal > 0 &&
+                    ` · ${(ingestProgress.bytesDone! / 1024 / 1024).toFixed(1)} / ${(
+                      ingestProgress.bytesTotal /
+                      1024 /
+                      1024
+                    ).toFixed(1)} MB`}
                 </span>
               </div>
               <div className="h-2 overflow-hidden rounded-full bg-navy-100">
@@ -231,8 +246,12 @@ export function CorpusDrawer({
                   className="h-full bg-brand-500 transition-all"
                   style={{
                     width: `${
-                      ingestProgress.filesTotal > 0
-                        ? (100 * ingestProgress.filesDone) / ingestProgress.filesTotal
+                      (ingestProgress.bytesTotal ?? 0) > 0
+                        ? (100 * (ingestProgress.bytesDone ?? 0)) /
+                          ingestProgress.bytesTotal!
+                        : ingestProgress.filesTotal > 0
+                          ? (100 * ingestProgress.filesDone) /
+                            ingestProgress.filesTotal
                         : 0
                     }%`,
                   }}
@@ -300,7 +319,12 @@ export function CorpusDrawer({
             {catalogLoading && (
               <p className="mt-3 text-xs text-navy-400">Loading catalog…</p>
             )}
-            {!catalogLoading && catalog.length === 0 && (
+            {!catalogLoading && catalogError && (
+              <p className="mt-3 text-xs text-red-600" role="alert">
+                Could not load catalog: {catalogError}
+              </p>
+            )}
+            {!catalogLoading && !catalogError && catalog.length === 0 && (
               <p className="mt-3 text-xs text-navy-400">No images indexed yet.</p>
             )}
             <ul className="mt-3 space-y-3">

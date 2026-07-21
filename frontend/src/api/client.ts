@@ -277,6 +277,122 @@ export async function createIngestJob(
   });
 }
 
+export async function createEmptyIngestJob(
+  flags: IngestFlags,
+  options: { signal?: AbortSignal } = {},
+): Promise<IngestJob> {
+  const form = new FormData();
+  form.append("skip_caption", String(flags.skipCaption));
+  form.append("skip_ocr", String(flags.skipOcr));
+  form.append("force", String(flags.force));
+  if (flags.workers != null) form.append("workers", String(flags.workers));
+  form.append("start", "false");
+  const key = getAdminApiKey();
+  if (!key) {
+    throw new Error("Admin API key required for ingest (set in Admin settings)");
+  }
+  return request<IngestJob>("/api/ingest/jobs", {
+    method: "POST",
+    headers: { "X-Admin-Api-Key": key },
+    body: form,
+    signal: options.signal,
+  });
+}
+
+class UploadRequestError extends Error {
+  constructor(
+    message: string,
+    readonly retryable: boolean,
+  ) {
+    super(message);
+    this.name = "UploadRequestError";
+  }
+}
+
+interface UploadBatchOptions {
+  signal?: AbortSignal;
+  timeoutMs: number;
+  onByteProgress?: (loaded: number, total: number) => void;
+}
+
+function uploadIngestJobBatch(
+  jobId: string,
+  batchId: string,
+  files: File[],
+  options: UploadBatchOptions,
+): Promise<IngestJob> {
+  const key = getAdminApiKey();
+  if (!key) {
+    return Promise.reject(
+      new Error("Admin API key required for ingest (set in Admin settings)"),
+    );
+  }
+  return new Promise((resolve, reject) => {
+    const xhr = new XMLHttpRequest();
+    const form = new FormData();
+    for (const file of files) form.append("files", file);
+    form.append("batch_id", batchId);
+    const abort = () => xhr.abort();
+    const cleanup = () => options.signal?.removeEventListener("abort", abort);
+
+    xhr.open(
+      "POST",
+      `${API_BASE}/api/ingest/jobs/${encodeURIComponent(jobId)}/files`,
+    );
+    xhr.setRequestHeader("X-Admin-Api-Key", key);
+    xhr.timeout = options.timeoutMs;
+    xhr.upload.onprogress = (event) => {
+      const fallbackTotal = files.reduce((sum, file) => sum + file.size, 0);
+      options.onByteProgress?.(
+        event.loaded,
+        event.lengthComputable ? event.total : fallbackTotal,
+      );
+    };
+    xhr.onload = () => {
+      cleanup();
+      if (xhr.status >= 200 && xhr.status < 300) {
+        try {
+          resolve(JSON.parse(xhr.responseText) as IngestJob);
+        } catch {
+          reject(new UploadRequestError("Upload returned invalid JSON.", false));
+        }
+        return;
+      }
+      let detail = xhr.statusText || `HTTP ${xhr.status}`;
+      try {
+        const body = JSON.parse(xhr.responseText) as { detail?: unknown };
+        if (body.detail) detail = String(body.detail);
+      } catch {
+        /* use status text */
+      }
+      reject(
+        new UploadRequestError(
+          detail,
+          xhr.status === 408 || xhr.status === 429 || xhr.status >= 500,
+        ),
+      );
+    };
+    xhr.onerror = () => {
+      cleanup();
+      reject(new UploadRequestError("Network error while uploading batch.", true));
+    };
+    xhr.ontimeout = () => {
+      cleanup();
+      reject(new UploadRequestError("Upload batch timed out.", true));
+    };
+    xhr.onabort = () => {
+      cleanup();
+      reject(new DOMException("Upload cancelled.", "AbortError"));
+    };
+    if (options.signal?.aborted) {
+      reject(new DOMException("Upload cancelled.", "AbortError"));
+      return;
+    }
+    options.signal?.addEventListener("abort", abort, { once: true });
+    xhr.send(form);
+  });
+}
+
 export async function appendIngestJobFiles(
   jobId: string,
   files: File[],
@@ -335,8 +451,13 @@ export interface IngestJobUploadProgress {
   phase: "uploading";
   batchIndex: number;
   batchCount: number;
+  batchesDone: number;
+  activeBatches: number;
+  retryingBatches: number;
   filesDone: number;
   filesTotal: number;
+  bytesDone: number;
+  bytesTotal: number;
   jobId?: string;
 }
 
@@ -345,65 +466,138 @@ export async function createIngestJobBatched(
   flags: IngestFlags,
   options: {
     batchSize?: number;
+    concurrency?: number;
+    maxRetries?: number;
+    timeoutMs?: number;
     onProgress?: (p: IngestJobUploadProgress) => void;
     signal?: AbortSignal;
   } = {},
 ): Promise<IngestJob> {
-  const batchSize = Math.max(1, options.batchSize ?? 25);
+  const batchSize = Math.max(1, options.batchSize ?? 5);
+  const concurrency = Math.max(1, options.concurrency ?? 3);
+  const maxRetries = Math.max(0, options.maxRetries ?? 2);
+  const timeoutMs = Math.max(1_000, options.timeoutMs ?? 180_000);
   const supported = filterSupportedFiles(files);
   if (supported.length === 0) {
     throw new Error("No supported files selected.");
   }
-  const batches: File[][] = [];
+  const batches: Array<{ id: string; files: File[]; bytes: number }> = [];
   for (let i = 0; i < supported.length; i += batchSize) {
-    batches.push(supported.slice(i, i + batchSize));
-  }
-
-  const first = batches[0]!;
-  options.onProgress?.({
-    phase: "uploading",
-    batchIndex: 1,
-    batchCount: batches.length,
-    filesDone: 0,
-    filesTotal: supported.length,
-  });
-
-  let job = await createIngestJob(first, flags, {
-    start: false,
-    signal: options.signal,
-  });
-  options.onProgress?.({
-    phase: "uploading",
-    batchIndex: 1,
-    batchCount: batches.length,
-    filesDone: first.length,
-    filesTotal: supported.length,
-    jobId: job.job_id,
-  });
-
-  let filesDone = first.length;
-  for (let i = 1; i < batches.length; i++) {
-    const batch = batches[i]!;
-    options.onProgress?.({
-      phase: "uploading",
-      batchIndex: i + 1,
-      batchCount: batches.length,
-      filesDone,
-      filesTotal: supported.length,
-      jobId: job.job_id,
-    });
-    job = await appendIngestJobFiles(job.job_id, batch, { signal: options.signal });
-    filesDone += batch.length;
-    options.onProgress?.({
-      phase: "uploading",
-      batchIndex: i + 1,
-      batchCount: batches.length,
-      filesDone,
-      filesTotal: supported.length,
-      jobId: job.job_id,
+    const batchFiles = supported.slice(i, i + batchSize);
+    batches.push({
+      id:
+        typeof crypto !== "undefined" && "randomUUID" in crypto
+          ? crypto.randomUUID()
+          : `${Date.now()}-${i}-${Math.random().toString(36).slice(2)}`,
+      files: batchFiles,
+      bytes: batchFiles.reduce((sum, file) => sum + file.size, 0),
     });
   }
 
+  const job = await createEmptyIngestJob(flags, { signal: options.signal });
+  const completed = new Set<number>();
+  const active = new Set<number>();
+  const retrying = new Set<number>();
+  const loadedByBatch = new Map<number, number>();
+  const bytesTotal = batches.reduce((sum, batch) => sum + batch.bytes, 0);
+  const emitProgress = () => {
+    const filesDone = [...completed].reduce(
+      (sum, index) => sum + batches[index]!.files.length,
+      0,
+    );
+    const bytesDone = batches.reduce((sum, batch, index) => {
+      if (completed.has(index)) return sum + batch.bytes;
+      return sum + Math.min(loadedByBatch.get(index) ?? 0, batch.bytes);
+    }, 0);
+    options.onProgress?.({
+      phase: "uploading",
+      batchIndex: completed.size,
+      batchCount: batches.length,
+      batchesDone: completed.size,
+      activeBatches: active.size,
+      retryingBatches: retrying.size,
+      filesDone,
+      filesTotal: supported.length,
+      bytesDone,
+      bytesTotal,
+      jobId: job.job_id,
+    });
+  };
+  emitProgress();
+
+  const uploadAbort = new AbortController();
+  const abortUploads = () => uploadAbort.abort();
+  if (options.signal?.aborted) uploadAbort.abort();
+  options.signal?.addEventListener("abort", abortUploads, { once: true });
+  let nextBatch = 0;
+  const uploadOne = async (index: number) => {
+    const batch = batches[index]!;
+    for (let attempt = 0; ; attempt += 1) {
+      active.add(index);
+      loadedByBatch.set(index, 0);
+      emitProgress();
+      try {
+        await uploadIngestJobBatch(job.job_id, batch.id, batch.files, {
+          signal: uploadAbort.signal,
+          timeoutMs,
+          onByteProgress: (loaded) => {
+            loadedByBatch.set(index, loaded);
+            emitProgress();
+          },
+        });
+        completed.add(index);
+        retrying.delete(index);
+        return;
+      } catch (error) {
+        if (
+          uploadAbort.signal.aborted ||
+          !(error instanceof UploadRequestError) ||
+          !error.retryable ||
+          attempt >= maxRetries
+        ) {
+          throw new Error(
+            `Batch ${index + 1}/${batches.length} failed: ${
+              error instanceof Error ? error.message : String(error)
+            }`,
+          );
+        }
+        retrying.add(index);
+        emitProgress();
+        await new Promise<void>((resolve, reject) => {
+          const timer = globalThis.setTimeout(resolve, 500 * 2 ** attempt);
+          uploadAbort.signal.addEventListener(
+            "abort",
+            () => {
+              globalThis.clearTimeout(timer);
+              reject(new DOMException("Upload cancelled.", "AbortError"));
+            },
+            { once: true },
+          );
+        });
+      } finally {
+        active.delete(index);
+        emitProgress();
+      }
+    }
+  };
+  const worker = async () => {
+    while (true) {
+      const index = nextBatch++;
+      if (index >= batches.length) return;
+      await uploadOne(index);
+    }
+  };
+
+  try {
+    await Promise.all(
+      Array.from({ length: Math.min(concurrency, batches.length) }, () => worker()),
+    );
+  } catch (error) {
+    uploadAbort.abort();
+    throw error;
+  } finally {
+    options.signal?.removeEventListener("abort", abortUploads);
+  }
   return startIngestJob(job.job_id, { signal: options.signal });
 }
 
