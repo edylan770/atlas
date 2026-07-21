@@ -20,7 +20,10 @@ from imagecb.storage.metadata_db import IngestJob, get_engine, session_scope
 
 logger = logging.getLogger(__name__)
 
+# Worker / processing statuses (excludes staging — uploads still in progress).
 ACTIVE_STATUSES = {"queued", "running", "cancel_requested"}
+# Statuses the UI may cancel (includes staging uploads).
+CANCELLABLE_STATUSES = {"staging", "queued", "running", "cancel_requested"}
 TERMINAL_STATUSES = {"cancelled", "succeeded", "failed"}
 
 
@@ -59,7 +62,7 @@ def job_to_dict(job: IngestJob) -> dict:
         "finished_at": _iso(job.finished_at),
         "heartbeat_at": _iso(job.heartbeat_at),
         "cancel_requested_at": _iso(job.cancel_requested_at),
-        "cancellable": job.status in ACTIVE_STATUSES,
+        "cancellable": job.status in CANCELLABLE_STATUSES,
     }
 
 
@@ -98,26 +101,83 @@ def create_job(
     options: dict,
     *,
     stage_errors: Optional[list[str]] = None,
+    status: str = "queued",
 ) -> dict:
+    if status not in {"queued", "staging"}:
+        raise ValueError(f"invalid create_job status: {status}")
     ensure_job_schema()
     now = datetime.utcnow()
+    if status == "staging":
+        phase = "staging"
+        status_detail = "Waiting for remaining file uploads"
+    else:
+        phase = "queued"
+        status_detail = "Waiting for the ingest worker"
     record = IngestJob(
         job_id=job_id,
-        status="queued",
+        status=status,
         files_json=json.dumps([str(path.resolve()) for path in files]),
         options_json=json.dumps(options),
         stats_json="{}",
         stage_errors_json=json.dumps(stage_errors or []),
         files_total=len(files),
-        phase="queued",
-        status_detail="Waiting for the ingest worker",
+        phase=phase,
+        status_detail=status_detail,
         created_at=now,
         heartbeat_at=now,
     )
     with session_scope() as session:
         session.add(record)
-    wake_worker()
+    if status == "queued":
+        wake_worker()
     return get_job(job_id) or {}
+
+
+def append_job_files(
+    job_id: str,
+    files: list[Path],
+    *,
+    stage_errors: Optional[list[str]] = None,
+) -> Optional[dict]:
+    """Append staged paths to a staging job. Returns None if job is missing."""
+    ensure_job_schema()
+    with session_scope() as session:
+        row = session.get(IngestJob, job_id)
+        if row is None:
+            return None
+        if row.status != "staging":
+            raise ValueError(f"job {job_id} is not staging (status={row.status})")
+        existing = _loads(row.files_json, [])
+        existing.extend(str(path.resolve()) for path in files)
+        row.files_json = json.dumps(existing)
+        row.files_total = len(existing)
+        errors = _loads(row.stage_errors_json, [])
+        if stage_errors:
+            errors.extend(stage_errors)
+        row.stage_errors_json = json.dumps(errors)
+        row.heartbeat_at = datetime.utcnow()
+        row.status_detail = f"Staged {row.files_total} file(s); waiting for more uploads or start"
+    return get_job(job_id)
+
+
+def start_job(job_id: str) -> Optional[dict]:
+    """Move a staging job to queued so the worker can claim it."""
+    ensure_job_schema()
+    with session_scope() as session:
+        row = session.get(IngestJob, job_id)
+        if row is None:
+            return None
+        if row.status != "staging":
+            raise ValueError(f"job {job_id} is not staging (status={row.status})")
+        files = _loads(row.files_json, [])
+        if not files:
+            raise ValueError(f"job {job_id} has no staged files")
+        row.status = "queued"
+        row.phase = "queued"
+        row.status_detail = "Waiting for the ingest worker"
+        row.heartbeat_at = datetime.utcnow()
+    wake_worker()
+    return get_job(job_id)
 
 
 def get_job(job_id: str) -> Optional[dict]:
@@ -147,16 +207,21 @@ def list_jobs(*, limit: int = 100) -> list[dict]:
 def request_cancel(job_id: str) -> Optional[dict]:
     ensure_job_schema()
     now = datetime.utcnow()
-    cancelled_while_queued = False
+    cleanup_staging_dir = False
     with session_scope() as session:
         row = session.get(IngestJob, job_id)
         if row is None:
             return None
-        if row.status == "queued":
-            cancelled_while_queued = True
+        if row.status in {"queued", "staging"}:
+            cleanup_staging_dir = True
+            detail = (
+                "Cancelled during upload staging"
+                if row.status == "staging"
+                else "Cancelled before the worker started"
+            )
             row.status = "cancelled"
             row.phase = "cancelled"
-            row.status_detail = "Cancelled before the worker started"
+            row.status_detail = detail
             row.cancel_requested_at = now
             row.finished_at = now
             row.heartbeat_at = now
@@ -167,7 +232,7 @@ def request_cancel(job_id: str) -> Optional[dict]:
             row.cancel_requested_at = now
             row.heartbeat_at = now
         result = job_to_dict(row)
-    if cancelled_while_queued:
+    if cleanup_staging_dir:
         shutil.rmtree(job_stage_dir(job_id), ignore_errors=True)
     wake_worker()
     return result

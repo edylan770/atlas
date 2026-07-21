@@ -252,6 +252,7 @@ export async function ingestFiles(
 export async function createIngestJob(
   files: File[],
   flags: IngestFlags,
+  options: { start?: boolean; signal?: AbortSignal } = {},
 ): Promise<IngestJob> {
   const supported = filterSupportedFiles(files);
   if (supported.length === 0) {
@@ -263,6 +264,7 @@ export async function createIngestJob(
   form.append("skip_ocr", String(flags.skipOcr));
   form.append("force", String(flags.force));
   if (flags.workers != null) form.append("workers", String(flags.workers));
+  form.append("start", String(options.start !== false));
   const key = getAdminApiKey();
   if (!key) {
     throw new Error("Admin API key required for ingest (set in Admin settings)");
@@ -271,6 +273,45 @@ export async function createIngestJob(
     method: "POST",
     headers: { "X-Admin-Api-Key": key },
     body: form,
+    signal: options.signal,
+  });
+}
+
+export async function appendIngestJobFiles(
+  jobId: string,
+  files: File[],
+  options: { signal?: AbortSignal } = {},
+): Promise<IngestJob> {
+  const supported = filterSupportedFiles(files);
+  if (supported.length === 0) {
+    throw new Error("No supported files selected.");
+  }
+  const form = new FormData();
+  for (const file of supported) form.append("files", file);
+  const key = getAdminApiKey();
+  if (!key) {
+    throw new Error("Admin API key required for ingest (set in Admin settings)");
+  }
+  return request<IngestJob>(`/api/ingest/jobs/${encodeURIComponent(jobId)}/files`, {
+    method: "POST",
+    headers: { "X-Admin-Api-Key": key },
+    body: form,
+    signal: options.signal,
+  });
+}
+
+export async function startIngestJob(
+  jobId: string,
+  options: { signal?: AbortSignal } = {},
+): Promise<IngestJob> {
+  const key = getAdminApiKey();
+  if (!key) {
+    throw new Error("Admin API key required for ingest (set in Admin settings)");
+  }
+  return request<IngestJob>(`/api/ingest/jobs/${encodeURIComponent(jobId)}/start`, {
+    method: "POST",
+    headers: { "X-Admin-Api-Key": key },
+    signal: options.signal,
   });
 }
 
@@ -288,6 +329,82 @@ export interface BatchedIngestProgress {
   filesDone: number;
   filesTotal: number;
   lastMessage?: string;
+}
+
+export interface IngestJobUploadProgress {
+  phase: "uploading";
+  batchIndex: number;
+  batchCount: number;
+  filesDone: number;
+  filesTotal: number;
+  jobId?: string;
+}
+
+export async function createIngestJobBatched(
+  files: File[],
+  flags: IngestFlags,
+  options: {
+    batchSize?: number;
+    onProgress?: (p: IngestJobUploadProgress) => void;
+    signal?: AbortSignal;
+  } = {},
+): Promise<IngestJob> {
+  const batchSize = Math.max(1, options.batchSize ?? 25);
+  const supported = filterSupportedFiles(files);
+  if (supported.length === 0) {
+    throw new Error("No supported files selected.");
+  }
+  const batches: File[][] = [];
+  for (let i = 0; i < supported.length; i += batchSize) {
+    batches.push(supported.slice(i, i + batchSize));
+  }
+
+  const first = batches[0]!;
+  options.onProgress?.({
+    phase: "uploading",
+    batchIndex: 1,
+    batchCount: batches.length,
+    filesDone: 0,
+    filesTotal: supported.length,
+  });
+
+  let job = await createIngestJob(first, flags, {
+    start: false,
+    signal: options.signal,
+  });
+  options.onProgress?.({
+    phase: "uploading",
+    batchIndex: 1,
+    batchCount: batches.length,
+    filesDone: first.length,
+    filesTotal: supported.length,
+    jobId: job.job_id,
+  });
+
+  let filesDone = first.length;
+  for (let i = 1; i < batches.length; i++) {
+    const batch = batches[i]!;
+    options.onProgress?.({
+      phase: "uploading",
+      batchIndex: i + 1,
+      batchCount: batches.length,
+      filesDone,
+      filesTotal: supported.length,
+      jobId: job.job_id,
+    });
+    job = await appendIngestJobFiles(job.job_id, batch, { signal: options.signal });
+    filesDone += batch.length;
+    options.onProgress?.({
+      phase: "uploading",
+      batchIndex: i + 1,
+      batchCount: batches.length,
+      filesDone,
+      filesTotal: supported.length,
+      jobId: job.job_id,
+    });
+  }
+
+  return startIngestJob(job.job_id, { signal: options.signal });
 }
 
 export async function ingestFilesBatched(

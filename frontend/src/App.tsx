@@ -4,7 +4,7 @@ import {
   fetchIngestJob,
   fetchStatus,
   fetchSuggestions,
-  createIngestJob,
+  createIngestJobBatched,
   searchSimilarByImage,
   searchSimilarByImageId,
   sendChatStream,
@@ -122,6 +122,9 @@ export default function App() {
   const [catalogSortBy, setCatalogSortBy] = useState<ResultSort>(defaultCatalogSort());
 
   const saveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const ingestUploadAbortRef = useRef<AbortController | null>(null);
+  const stagingIngestJobIdRef = useRef<string | null>(null);
+  const ingestUploadingRef = useRef(false);
 
   const activeConversation = useMemo(
     () => conversations.find((c) => c.id === activeConversationId) ?? null,
@@ -243,7 +246,9 @@ export default function App() {
       try {
         const job = await fetchIngestJob(activeIngestJobId);
         if (stopped) return;
-        const active = ["queued", "running", "cancel_requested"].includes(job.status);
+        const active = ["staging", "queued", "running", "cancel_requested"].includes(
+          job.status,
+        );
         setIngesting(active);
         setIngestCancelling(job.status === "cancel_requested");
         setIngestProgress(
@@ -704,28 +709,97 @@ export default function App() {
     if (!files.length) return;
     setIngesting(true);
     setIngestCancelling(false);
-    setIngestMessage(null);
-    setIngestProgress({ filesDone: 0, filesTotal: files.length, batchLabel: "Starting…" });
+    setIngestMessage(
+      "Keep this tab open until the upload finishes. Processing can continue after that.",
+    );
+    setIngestProgress({
+      filesDone: 0,
+      filesTotal: files.length,
+      batchLabel: "Uploading…",
+    });
+
+    const abort = new AbortController();
+    ingestUploadAbortRef.current?.abort();
+    ingestUploadAbortRef.current = abort;
+    stagingIngestJobIdRef.current = null;
+    ingestUploadingRef.current = true;
+
+    const onBeforeUnload = (event: BeforeUnloadEvent) => {
+      event.preventDefault();
+      event.returnValue = "";
+    };
+    window.addEventListener("beforeunload", onBeforeUnload);
+
     try {
-      const job = await createIngestJob(files, {
-        skipCaption,
-        skipOcr,
-        force,
-        workers: ingestWorkers,
-      });
+      const job = await createIngestJobBatched(
+        files,
+        {
+          skipCaption,
+          skipOcr,
+          force,
+          workers: ingestWorkers,
+        },
+        {
+          batchSize: 25,
+          signal: abort.signal,
+          onProgress: (p) => {
+            if (p.jobId) stagingIngestJobIdRef.current = p.jobId;
+            setIngestProgress({
+              filesDone: p.filesDone,
+              filesTotal: p.filesTotal,
+              batchLabel: `Uploading batch ${p.batchIndex}/${p.batchCount}`,
+            });
+          },
+        },
+      );
+      stagingIngestJobIdRef.current = null;
       window.localStorage.setItem(ACTIVE_INGEST_JOB_KEY, job.job_id);
       setActiveIngestJobId(job.job_id);
-      setIngestMessage(`Ingest queued (${job.files_total} file(s)). You may close this tab.`);
+      const stageNote =
+        job.stage_errors?.length > 0
+          ? `\n${job.stage_errors.length} file(s) could not be staged.`
+          : "";
+      setIngestMessage(
+        `Ingest queued (${job.files_total} file(s)). You may close this tab.${stageNote}`,
+      );
     } catch (e) {
-      setIngestMessage(e instanceof Error ? e.message : String(e));
+      if (abort.signal.aborted) {
+        setIngestMessage("Upload cancelled.");
+      } else {
+        setIngestMessage(e instanceof Error ? e.message : String(e));
+      }
       setIngesting(false);
       setIngestProgress(null);
+      stagingIngestJobIdRef.current = null;
+    } finally {
+      ingestUploadingRef.current = false;
+      if (ingestUploadAbortRef.current === abort) {
+        ingestUploadAbortRef.current = null;
+      }
+      window.removeEventListener("beforeunload", onBeforeUnload);
     }
   };
 
   const handleCancelIngest = async () => {
     if (ingestCancelling) return;
     setIngestCancelling(true);
+
+    // Abort an in-flight chunked upload and cancel the staging job if created.
+    if (ingestUploadingRef.current) {
+      ingestUploadAbortRef.current?.abort();
+      const stagingId = stagingIngestJobIdRef.current;
+      if (stagingId) {
+        try {
+          await cancelIngestJob(stagingId);
+        } catch {
+          /* best-effort */
+        }
+        stagingIngestJobIdRef.current = null;
+      }
+      setIngestMessage("Upload cancelled.");
+      clearActiveIngest();
+      return;
+    }
 
     // No server job id (or only a local lock): unlock immediately.
     if (!activeIngestJobId) {

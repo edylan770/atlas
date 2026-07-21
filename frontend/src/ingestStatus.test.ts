@@ -37,6 +37,10 @@ describe("ingest status diagnostics", () => {
     ).toBe("Persisting image.png");
   });
 
+  it("shows uploading label for staging jobs", () => {
+    expect(formatIngestPhase(job({ status: "staging" }))).toBe("Uploading files…");
+  });
+
   it("detects a stale active worker heartbeat", () => {
     const now = Date.parse("2026-07-21T12:00:30Z");
     const running = job({ heartbeat_at: "2026-07-21T12:00:00Z" });

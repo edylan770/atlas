@@ -196,3 +196,147 @@ def test_job_list_and_detail_are_consistent_and_not_cached():
     assert listed.json()["jobs"][0] == detail.json()
     assert listed.headers["cache-control"] == "no-store, max-age=0"
     assert detail.headers["cache-control"] == "no-store, max-age=0"
+
+
+def test_staging_job_not_claimable_until_started(isolated_jobs, tmp_path):
+    a = tmp_path / "a.png"
+    b = tmp_path / "b.png"
+    a.write_bytes(b"a")
+    b.write_bytes(b"b")
+
+    job = isolated_jobs.create_job(
+        "job-stage",
+        [a],
+        {"workers": 1},
+        status="staging",
+    )
+    assert job["status"] == "staging"
+    assert job["cancellable"] is True
+    assert isolated_jobs._claim_next_job() is None
+
+    appended = isolated_jobs.append_job_files("job-stage", [b], stage_errors=["warn"])
+    assert appended is not None
+    assert appended["files_total"] == 2
+    assert appended["stage_errors"] == ["warn"]
+    assert appended["status"] == "staging"
+    assert isolated_jobs._claim_next_job() is None
+
+    started = isolated_jobs.start_job("job-stage")
+    assert started is not None
+    assert started["status"] == "queued"
+    claimed = isolated_jobs._claim_next_job()
+    assert claimed is not None
+    assert claimed[0] == "job-stage"
+    assert len(claimed[1]) == 2
+
+
+def test_cancel_staging_job_cleans_stage_dir(isolated_jobs, tmp_path):
+    source = tmp_path / "source.png"
+    source.write_bytes(b"png")
+    isolated_jobs.create_job("job-stg-cancel", [source], {"workers": 1}, status="staging")
+    stage_dir = isolated_jobs.job_stage_dir("job-stg-cancel")
+    stage_dir.mkdir(parents=True, exist_ok=True)
+    (stage_dir / "source.png").write_bytes(b"png")
+
+    cancelled = isolated_jobs.request_cancel("job-stg-cancel")
+    assert cancelled is not None
+    assert cancelled["status"] == "cancelled"
+    assert not stage_dir.exists()
+
+
+def test_start_job_rejects_empty_or_non_staging(isolated_jobs, tmp_path):
+    source = tmp_path / "source.png"
+    source.write_bytes(b"png")
+    isolated_jobs.create_job("job-queued", [source], {"workers": 1}, status="queued")
+    with pytest.raises(ValueError, match="not staging"):
+        isolated_jobs.start_job("job-queued")
+
+    isolated_jobs.create_job("job-empty", [], {"workers": 1}, status="staging")
+    with pytest.raises(ValueError, match="no staged files"):
+        isolated_jobs.start_job("job-empty")
+
+
+def test_staging_append_start_job_api():
+    from imagecb.api.server import create_app
+
+    configured = replace(SETTINGS, admin_api_key="test-admin-secret")
+    staging_job = {
+        "job_id": "job-chunk",
+        "status": "staging",
+        "files": ["a.png"],
+        "files_total": 1,
+        "options": {"workers": 2},
+        "cancellable": True,
+        "stage_errors": [],
+    }
+    appended_job = {
+        **staging_job,
+        "files": ["a.png", "b.png"],
+        "files_total": 2,
+    }
+    started_job = {**appended_job, "status": "queued"}
+
+    with patch("imagecb.api.auth.SETTINGS", configured), patch(
+        "imagecb.api.routes.save_uploads_from_files",
+        new=AsyncMock(side_effect=[([Path("a.png")], []), ([Path("b.png")], [])]),
+    ), patch("imagecb.api.routes.new_job_id", return_value="job-chunk"), patch(
+        "imagecb.api.routes.create_job", return_value=staging_job
+    ) as mock_create, patch(
+        "imagecb.api.routes.get_job",
+        side_effect=[staging_job, staging_job, appended_job],
+    ), patch(
+        "imagecb.api.routes.append_job_files", return_value=appended_job
+    ), patch("imagecb.api.routes.start_job", return_value=started_job):
+        client = TestClient(create_app())
+        headers = {"X-Admin-Api-Key": "test-admin-secret"}
+
+        created = client.post(
+            "/api/ingest/jobs",
+            files=[("files", ("a.png", b"a", "image/png"))],
+            data={"start": "false"},
+            headers=headers,
+        )
+        assert created.status_code == 202
+        assert created.json()["status"] == "staging"
+        mock_create.assert_called_once()
+        assert mock_create.call_args.kwargs.get("status") == "staging"
+
+        appended = client.post(
+            "/api/ingest/jobs/job-chunk/files",
+            files=[("files", ("b.png", b"b", "image/png"))],
+            headers=headers,
+        )
+        assert appended.status_code == 200
+        assert appended.json()["files_total"] == 2
+
+        started = client.post(
+            "/api/ingest/jobs/job-chunk/start",
+            headers=headers,
+        )
+        assert started.status_code == 200
+        assert started.json()["status"] == "queued"
+
+
+def test_append_files_rejects_non_staging_job():
+    from imagecb.api.server import create_app
+
+    configured = replace(SETTINGS, admin_api_key="test-admin-secret")
+    queued = {
+        "job_id": "job-q",
+        "status": "queued",
+        "files": ["a.png"],
+        "files_total": 1,
+        "cancellable": True,
+        "stage_errors": [],
+    }
+    with patch("imagecb.api.auth.SETTINGS", configured), patch(
+        "imagecb.api.routes.get_job", return_value=queued
+    ):
+        client = TestClient(create_app())
+        response = client.post(
+            "/api/ingest/jobs/job-q/files",
+            files=[("files", ("b.png", b"b", "image/png"))],
+            headers={"X-Admin-Api-Key": "test-admin-secret"},
+        )
+    assert response.status_code == 409
+    assert "not accepting uploads" in response.json()["detail"]

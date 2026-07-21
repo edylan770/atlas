@@ -146,6 +146,7 @@ export interface IngestResponse {
 }
 
 export type IngestJobStatus =
+  | "staging"
   | "queued"
   | "running"
   | "cancel_requested"

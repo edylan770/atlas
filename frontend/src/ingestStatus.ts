@@ -4,6 +4,7 @@ const ACTIVE = new Set(["queued", "running", "cancel_requested"]);
 
 export function formatIngestPhase(job: IngestJob): string {
   if (job.status === "cancel_requested") return "Cancelling…";
+  if (job.status === "staging") return "Uploading files…";
   return (
     job.status_detail ||
     job.phase?.replace(/_/g, " ") ||

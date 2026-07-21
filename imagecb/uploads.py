@@ -116,6 +116,7 @@ async def save_uploads_from_files(
     errors: List[str] = []
     target_dir = dest_dir if dest_dir is not None else SETTINGS.uploads_dir
     target_dir.mkdir(parents=True, exist_ok=True)
+    chunk_size = 1024 * 1024
 
     for upload in files or []:
         name = upload.filename or "upload"
@@ -126,8 +127,12 @@ async def save_uploads_from_files(
                     f"Supported: {', '.join(sorted(SUPPORTED_EXTS))}"
                 )
             dest = unique_dest(target_dir, name)
-            content = await upload.read()
-            dest.write_bytes(content)
+            with dest.open("wb") as out:
+                while True:
+                    chunk = await upload.read(chunk_size)
+                    if not chunk:
+                        break
+                    out.write(chunk)
             saved.append(dest)
             logger.info("Staged API upload %s -> %s", name, dest)
         except (OSError, ValueError) as exc:

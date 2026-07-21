@@ -60,12 +60,14 @@ from imagecb.formatting.conversational_reply import (
 from imagecb.deck.pipeline import DeckSuggestResult, SlideSuggestion, force_slide_image, process_deck_upload
 from imagecb.ingest import IngestInProgressError, ingest_paths
 from imagecb.ingest_jobs import (
+    append_job_files,
     create_job,
     get_job,
     job_stage_dir,
     list_jobs,
     new_job_id,
     request_cancel,
+    start_job,
 )
 from imagecb.paths import image_fallbacks, source_fallbacks
 from imagecb.retrieval.image_query import SimilarityAxis, axis_label
@@ -849,6 +851,7 @@ async def create_ingest_job(
     skip_ocr: bool = Form(False),
     force: bool = Form(False),
     workers: Optional[int] = Form(None),
+    start: bool = Form(True),
     _: str = Depends(require_admin),
 ) -> IngestJobOut:
     if not files:
@@ -875,9 +878,66 @@ async def create_ingest_job(
         "workers": max(1, min(int(ingest_workers), 32)),
         "batch_size": 25,
     }
+    status = "queued" if start else "staging"
     return IngestJobOut.model_validate(
-        create_job(job_id, saved, options, stage_errors=stage_errors)
+        create_job(
+            job_id,
+            saved,
+            options,
+            stage_errors=stage_errors,
+            status=status,
+        )
     )
+
+
+@router.post("/ingest/jobs/{job_id}/files", response_model=IngestJobOut)
+async def append_ingest_job_files(
+    job_id: str,
+    files: List[UploadFile] = File(...),
+    _: str = Depends(require_admin),
+) -> IngestJobOut:
+    if not files:
+        raise HTTPException(status_code=400, detail="at least one file is required")
+    existing = get_job(job_id)
+    if existing is None:
+        raise HTTPException(status_code=404, detail="ingest job not found")
+    if existing["status"] != "staging":
+        raise HTTPException(
+            status_code=409,
+            detail=f"job is not accepting uploads (status={existing['status']})",
+        )
+
+    stage_dir = job_stage_dir(job_id)
+    saved, stage_errors = await save_uploads_from_files(files, dest_dir=stage_dir)
+    if not saved and stage_errors:
+        raise HTTPException(
+            status_code=400,
+            detail="No supported files could be staged. " + "; ".join(stage_errors),
+        )
+    try:
+        job = append_job_files(job_id, saved, stage_errors=stage_errors)
+    except ValueError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    if job is None:
+        raise HTTPException(status_code=404, detail="ingest job not found")
+    return IngestJobOut.model_validate(job)
+
+
+@router.post("/ingest/jobs/{job_id}/start", response_model=IngestJobOut)
+def start_ingest_job(
+    job_id: str,
+    _: str = Depends(require_admin),
+) -> IngestJobOut:
+    existing = get_job(job_id)
+    if existing is None:
+        raise HTTPException(status_code=404, detail="ingest job not found")
+    try:
+        job = start_job(job_id)
+    except ValueError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    if job is None:
+        raise HTTPException(status_code=404, detail="ingest job not found")
+    return IngestJobOut.model_validate(job)
 
 
 @router.get("/ingest/jobs", response_model=IngestJobListResponse)

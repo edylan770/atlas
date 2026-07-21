@@ -119,7 +119,8 @@ export function CorpusDrawer({
               Drag and drop files or folders here
             </p>
             <p className="mt-1 text-xs text-navy-500">
-              Images, PDF, PPTX — large batches are uploaded in chunks
+              Images, PDF, PPTX — uploads in chunks of 25; keep this tab open until
+              upload finishes
             </p>
             <div className="mt-4 flex flex-wrap justify-center gap-2">
               <button
