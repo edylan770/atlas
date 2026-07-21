@@ -95,13 +95,13 @@ def test_build_spec_then_sanitize_strips_llm_style_filters():
     assert sanitized.source_filters.asset_types == []
 
 
-@patch("imagecb.retrieval.session.rerank")
+@patch("imagecb.retrieval.session._rank_by_fused_score")
 @patch("imagecb.retrieval.session.search")
 @patch("imagecb.retrieval.session.parse_query")
 def test_session_ask_nonzero_candidates_after_sanitized_spec(
     mock_parse,
     mock_search,
-    mock_rerank,
+    mock_rank,
 ):
     from imagecb.retrieval.rerank import RankedResult
 
@@ -113,7 +113,7 @@ def test_session_ask_nonzero_candidates_after_sanitized_spec(
     mock_search.return_value = SearchOutcome(
         candidates=[Candidate(image_id="img-1", fused_score=0.5)]
     )
-    mock_rerank.return_value = [
+    mock_rank.return_value = [
         RankedResult(
             image_id="img-1",
             score=0.8,

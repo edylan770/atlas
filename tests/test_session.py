@@ -23,10 +23,10 @@ def _spec(
     )
 
 
-@patch("imagecb.retrieval.session.rerank")
+@patch("imagecb.retrieval.session._rank_by_fused_score")
 @patch("imagecb.retrieval.session.search")
 @patch("imagecb.retrieval.session.parse_query")
-def test_fresh_turn_searches_full_corpus(mock_parse, mock_search, mock_rerank):
+def test_fresh_turn_searches_full_corpus(mock_parse, mock_search, mock_rank):
     session = ChatSession()
     session.last_spec = _spec(filename_contains=["Q3_Review.pptx"])
     session.last_candidate_ids = ["img-1", "img-2"]
@@ -35,17 +35,17 @@ def test_fresh_turn_searches_full_corpus(mock_parse, mock_search, mock_rerank):
     mock_search.return_value = SearchOutcome(
         candidates=[Candidate(image_id="img-9", fused_score=0.5)]
     )
-    mock_rerank.return_value = []
+    mock_rank.return_value = []
 
     session.ask("cybersecurity")
 
     mock_search.assert_called_once()
 
 
-@patch("imagecb.retrieval.session.rerank")
+@patch("imagecb.retrieval.session._rank_by_fused_score")
 @patch("imagecb.retrieval.session.search")
 @patch("imagecb.retrieval.session.parse_query")
-def test_refinement_turn_does_not_carry_previous_filters(mock_parse, mock_search, mock_rerank):
+def test_refinement_turn_does_not_carry_previous_filters(mock_parse, mock_search, mock_rank):
     session = ChatSession()
     session.last_spec = _spec(filename_contains=["Q3_Review.pptx"])
     session.last_candidate_ids = ["img-1", "img-2"]
@@ -54,17 +54,17 @@ def test_refinement_turn_does_not_carry_previous_filters(mock_parse, mock_search
     mock_search.return_value = SearchOutcome(
         candidates=[Candidate(image_id="img-9", fused_score=0.5)]
     )
-    mock_rerank.return_value = []
+    mock_rank.return_value = []
 
     result = session.ask("only charts")
 
     assert result.spec.source_filters.filename_contains == []
 
 
-@patch("imagecb.retrieval.session.rerank")
+@patch("imagecb.retrieval.session._rank_by_fused_score")
 @patch("imagecb.retrieval.session.search")
 @patch("imagecb.retrieval.session.parse_query")
-def test_ask_passes_min_match_percent_to_rerank(mock_parse, mock_search, mock_rerank):
+def test_ask_applies_min_match_percent_to_fused_results(mock_parse, mock_search, mock_rank):
     from imagecb.retrieval.rerank import RankedResult
 
     session = ChatSession()
@@ -72,7 +72,7 @@ def test_ask_passes_min_match_percent_to_rerank(mock_parse, mock_search, mock_re
     mock_search.return_value = SearchOutcome(
         candidates=[Candidate(image_id="img-1", fused_score=0.5)]
     )
-    mock_rerank.return_value = [
+    mock_rank.return_value = [
         RankedResult(
             image_id="img-1",
             score=0.9,
@@ -81,17 +81,17 @@ def test_ask_passes_min_match_percent_to_rerank(mock_parse, mock_search, mock_re
         )
     ]
 
-    session.ask("cybersecurity", min_match_percent=80)
+    result = session.ask("cybersecurity", min_match_percent=80)
 
-    assert mock_rerank.call_count == 1
-    _, kwargs = mock_rerank.call_args
-    assert kwargs.get("min_match_percent") == 80
+    assert mock_rank.call_count == 1
+    assert len(result.results) == 1
+    assert result.relaxed_min_score is False
 
 
-@patch("imagecb.retrieval.session.rerank")
+@patch("imagecb.retrieval.session._rank_by_fused_score")
 @patch("imagecb.retrieval.session.search")
 @patch("imagecb.retrieval.session.parse_query")
-def test_ask_uses_no_score_floor_when_min_match_zero(mock_parse, mock_search, mock_rerank):
+def test_ask_uses_no_score_floor_when_min_match_zero(mock_parse, mock_search, mock_rank):
     from imagecb.retrieval.rerank import RankedResult
 
     session = ChatSession()
@@ -99,7 +99,7 @@ def test_ask_uses_no_score_floor_when_min_match_zero(mock_parse, mock_search, mo
     mock_search.return_value = SearchOutcome(
         candidates=[Candidate(image_id="img-1", fused_score=0.5)]
     )
-    mock_rerank.return_value = [
+    mock_rank.return_value = [
         RankedResult(
             image_id="img-1",
             score=0.9,
@@ -108,17 +108,17 @@ def test_ask_uses_no_score_floor_when_min_match_zero(mock_parse, mock_search, mo
         )
     ]
 
-    session.ask("cybersecurity")
+    result = session.ask("cybersecurity")
 
-    assert mock_rerank.call_count == 1
-    _, kwargs = mock_rerank.call_args
-    assert kwargs.get("min_match_percent") == 0
+    assert mock_rank.call_count == 1
+    assert len(result.results) == 1
+    assert result.relaxed_min_score is False
 
 
-@patch("imagecb.retrieval.session.rerank")
+@patch("imagecb.retrieval.session._rank_by_fused_score")
 @patch("imagecb.retrieval.session.search")
 @patch("imagecb.retrieval.session.parse_query")
-def test_ask_marks_relaxed_when_backfill_below_threshold(mock_parse, mock_search, mock_rerank):
+def test_ask_marks_relaxed_when_below_threshold(mock_parse, mock_search, mock_rank):
     from imagecb.retrieval.rerank import RankedResult
 
     session = ChatSession()
@@ -126,7 +126,7 @@ def test_ask_marks_relaxed_when_backfill_below_threshold(mock_parse, mock_search
     mock_search.return_value = SearchOutcome(
         candidates=[Candidate(image_id="img-1", fused_score=0.5)]
     )
-    mock_rerank.return_value = [
+    mock_rank.return_value = [
         RankedResult(
             image_id="img-1",
             score=0.5,
@@ -137,14 +137,14 @@ def test_ask_marks_relaxed_when_backfill_below_threshold(mock_parse, mock_search
 
     result = session.ask("charts", min_match_percent=80)
 
-    assert mock_rerank.call_count == 1
+    assert mock_rank.call_count == 1
     assert result.relaxed_min_score is True
 
 
-@patch("imagecb.retrieval.session.rerank")
+@patch("imagecb.retrieval.session._rank_by_fused_score")
 @patch("imagecb.retrieval.session.search")
 @patch("imagecb.retrieval.session.parse_query")
-def test_ask_relaxes_min_score_when_all_filtered(mock_parse, mock_search, mock_rerank):
+def test_ask_retains_results_when_all_are_below_threshold(mock_parse, mock_search, mock_rank):
     from imagecb.retrieval.rerank import RankedResult
 
     session = ChatSession()
@@ -158,11 +158,11 @@ def test_ask_relaxes_min_score_when_all_filtered(mock_parse, mock_search, mock_r
         record=MagicMock(),
         provenance_line="Slide 1",
     )
-    mock_rerank.side_effect = [[], [ranked]]
+    mock_rank.return_value = [ranked]
 
     result = session.ask("charts", min_match_percent=80)
 
-    assert mock_rerank.call_count == 2
+    assert mock_rank.call_count == 1
     assert result.relaxed_min_score is True
     assert len(result.results) == 1
 
