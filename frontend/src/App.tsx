@@ -40,6 +40,27 @@ import type {
 
 const ACTIVE_INGEST_JOB_KEY = "atlas.activeIngestJobId";
 
+function shouldClearIngestFromUrl(): boolean {
+  const params = new URLSearchParams(window.location.search);
+  if (params.get("clearIngest") === "1") return true;
+  const hash = window.location.hash.replace(/^#/, "");
+  return hash === "clearIngest";
+}
+
+function stripClearIngestFromUrl(): void {
+  const url = new URL(window.location.href);
+  if (url.searchParams.has("clearIngest")) {
+    url.searchParams.delete("clearIngest");
+  }
+  if (url.hash === "#clearIngest") {
+    url.hash = "";
+  }
+  window.history.replaceState({}, "", `${url.pathname}${url.search}${url.hash}`);
+}
+
+/** Cleared once on boot when ?clearIngest=1 or #clearIngest is present. */
+let clearedStuckIngestOnBoot = false;
+
 function applyTurnToPanel(
   turn: ConversationTurn | null,
   setResults: (r: ResultCard[]) => void,
@@ -73,10 +94,20 @@ export default function App() {
   const [ingestWorkers, setIngestWorkers] = useState(4);
   const [ingesting, setIngesting] = useState(false);
   const [ingestCancelling, setIngestCancelling] = useState(false);
-  const [activeIngestJobId, setActiveIngestJobId] = useState<string | null>(() =>
-    window.localStorage.getItem(ACTIVE_INGEST_JOB_KEY),
+  const [activeIngestJobId, setActiveIngestJobId] = useState<string | null>(() => {
+    if (shouldClearIngestFromUrl()) {
+      window.localStorage.removeItem(ACTIVE_INGEST_JOB_KEY);
+      stripClearIngestFromUrl();
+      clearedStuckIngestOnBoot = true;
+      return null;
+    }
+    return window.localStorage.getItem(ACTIVE_INGEST_JOB_KEY);
+  });
+  const [ingestMessage, setIngestMessage] = useState<string | null>(() =>
+    clearedStuckIngestOnBoot
+      ? "Cleared stuck ingest state. You can upload again."
+      : null,
   );
-  const [ingestMessage, setIngestMessage] = useState<string | null>(null);
   const [ingestProgress, setIngestProgress] = useState<{
     filesDone: number;
     filesTotal: number;

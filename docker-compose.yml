@@ -23,8 +23,6 @@ services:
       ACRONYM_CACHE_PATH: /app/data/acronym_cache.json
       TESSERACT_CMD: /usr/bin/tesseract
       BOOTSTRAP_CORPUS_DIR: ""
-      # Force local blobs for this stack even if .env sets s3 (playground is separate).
-      BLOB_STORAGE_BACKEND: local
     healthcheck:
       test: ["CMD", "curl", "-f", "http://127.0.0.1:8080/api/health"]
       interval: 30s

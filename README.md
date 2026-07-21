@@ -155,8 +155,8 @@ Open http://localhost:8080. The image builds `frontend/dist/`, converts
 the corpus's Windows paths to container paths, and serves the UI via FastAPI.
 
 Local Docker bind-mounts host `./data` to `/app/data` and `./corpus` to
-`/corpus` (read-only), and forces `BLOB_STORAGE_BACKEND=local` so uploads,
-display PNGs, and ingest timing logs stay on disk even if `.env` sets `s3`.
+`/corpus` (read-only). Blob storage follows `BLOB_STORAGE_BACKEND` in `.env`
+(`local` by default; set `s3` plus `S3_BUCKET` to write corpus blobs to S3).
 Put alternate ingest scenarios under `./corpus/` and run:
 
 ```powershell
@@ -181,9 +181,7 @@ S3 stores original uploads, generated display PNGs, and optional ingest
 timing reports. The search indexes remain on the persistent `/app/data`
 mount because SQLite and Chroma must not run directly against S3.
 
-Root `docker-compose.yml` forces `BLOB_STORAGE_BACKEND=local` for local
-dev. On EC2, override that to `s3` in the Compose `environment:` block
-(or remove the local force) and configure:
+On EC2, set these in `.env` (Compose reads `env_file: .env`):
 
 ```dotenv
 BLOB_STORAGE_BACKEND=s3
