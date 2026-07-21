@@ -14,8 +14,16 @@ export function setAdminApiKey(key: string): void {
   sessionStorage.setItem(ADMIN_KEY_STORAGE, key);
 }
 
-async function adminRequest<T>(path: string, init?: RequestInit): Promise<T> {
-  const key = getAdminApiKey();
+export function clearAdminApiKey(): void {
+  sessionStorage.removeItem(ADMIN_KEY_STORAGE);
+}
+
+async function adminRequest<T>(
+  path: string,
+  init?: RequestInit,
+  explicitKey?: string,
+): Promise<T> {
+  const key = explicitKey ?? getAdminApiKey();
   if (!key) {
     throw new Error("Admin API key not set");
   }
@@ -35,6 +43,11 @@ async function adminRequest<T>(path: string, init?: RequestInit): Promise<T> {
     throw new Error(String(detail));
   }
   return res.json() as Promise<T>;
+}
+
+/** Probe a protected admin endpoint with a candidate key (does not persist it). */
+export async function verifyAdminApiKey(key: string): Promise<void> {
+  await adminRequest("/api/admin/corpus/health", undefined, key);
 }
 
 export interface AnalyticsSummary {

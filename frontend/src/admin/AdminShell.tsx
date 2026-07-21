@@ -2,7 +2,12 @@ import { useState } from "react";
 import { Link, NavLink } from "react-router-dom";
 import tistaLogoUrl from "../assets/tista-logo.png";
 import { AtlasAcronymLine, AtlasWordmark } from "../components/AtlasBranding";
-import { getAdminApiKey, setAdminApiKey } from "../api/adminClient";
+import {
+  clearAdminApiKey,
+  getAdminApiKey,
+  setAdminApiKey,
+  verifyAdminApiKey,
+} from "../api/adminClient";
 
 const navLinkClass = ({ isActive }: { isActive: boolean }) =>
   isActive
@@ -17,6 +22,25 @@ const navLinkEndClass = ({ isActive }: { isActive: boolean }) =>
 export function AdminKeyGate({ children }: { children: React.ReactNode }) {
   const [key, setKey] = useState(getAdminApiKey() ?? "");
   const [unlocked, setUnlocked] = useState(!!getAdminApiKey());
+  const [error, setError] = useState<string | null>(null);
+  const [checking, setChecking] = useState(false);
+
+  async function handleContinue() {
+    const trimmed = key.trim();
+    if (!trimmed || checking) return;
+    setChecking(true);
+    setError(null);
+    try {
+      await verifyAdminApiKey(trimmed);
+      setAdminApiKey(trimmed);
+      setUnlocked(true);
+    } catch (e) {
+      clearAdminApiKey();
+      setError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setChecking(false);
+    }
+  }
 
   if (unlocked) return <>{children}</>;
 
@@ -38,20 +62,30 @@ export function AdminKeyGate({ children }: { children: React.ReactNode }) {
           <input
             type="password"
             value={key}
-            onChange={(e) => setKey(e.target.value)}
-            className="mb-3 w-full rounded-lg border border-navy-200 px-3 py-2 text-sm text-navy-900 focus:border-brand-500 focus:outline-none focus:ring-1 focus:ring-brand-200"
+            onChange={(e) => {
+              setKey(e.target.value);
+              if (error) setError(null);
+            }}
+            onKeyDown={(e) => {
+              if (e.key === "Enter") void handleContinue();
+            }}
+            disabled={checking}
+            className="mb-3 w-full rounded-lg border border-navy-200 px-3 py-2 text-sm text-navy-900 focus:border-brand-500 focus:outline-none focus:ring-1 focus:ring-brand-200 disabled:opacity-60"
             placeholder="Admin API key"
+            autoComplete="current-password"
           />
+          {error ? (
+            <p className="mb-3 -mt-1 text-sm text-red-600" role="alert">
+              {error}
+            </p>
+          ) : null}
           <button
             type="button"
-            className="w-full rounded-lg bg-brand-500 px-4 py-2 text-sm font-semibold text-white shadow-sm transition hover:bg-brand-400"
-            onClick={() => {
-              if (!key.trim()) return;
-              setAdminApiKey(key.trim());
-              setUnlocked(true);
-            }}
+            className="w-full rounded-lg bg-brand-500 px-4 py-2 text-sm font-semibold text-white shadow-sm transition hover:bg-brand-400 disabled:cursor-not-allowed disabled:opacity-60"
+            disabled={checking || !key.trim()}
+            onClick={() => void handleContinue()}
           >
-            Continue
+            {checking ? "Checking…" : "Continue"}
           </button>
           <Link
             to="/"
