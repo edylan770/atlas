@@ -193,6 +193,12 @@ S3_REGION=us-east-1
 BOOTSTRAP_CORPUS_DIR=
 ```
 
+Set `APP_BUILD_ID` to the deployed commit SHA before `docker compose build`.
+After deployment, open **Admin → Ingestions** and run **Ingest preflight**.
+It verifies the writable data directory, SQLite, an S3 write/read/delete
+round trip, and the configured caption and embedding models. The same page
+shows the current ingest phase and warns when the worker heartbeat is stale.
+
 (The MinIO S3 emulator playground under `.local/s3-playground/` is a
 separate stack and is not used by root `docker compose`.)
 

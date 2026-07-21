@@ -165,6 +165,38 @@ export interface ReindexImageResult {
   caption_quality?: string;
 }
 
+export interface IngestDiagnostics {
+  build_id: string;
+  runtime_id: string;
+  pid: number;
+  storage_backend: string;
+  aws_region: string;
+  s3_region: string;
+  s3_bucket?: string | null;
+  s3_prefix: string;
+  embedding_model: string;
+  text_embedding_model: string;
+  vlm_model: string;
+  sqlite_path: string;
+  sqlite_identity: string;
+  runner: {
+    runner_id: string;
+    alive: boolean;
+    thread_name?: string | null;
+  };
+}
+
+export interface IngestPreflight {
+  ok: boolean;
+  runtime: IngestDiagnostics;
+  checks: Array<{
+    name: string;
+    ok: boolean;
+    detail: string;
+    elapsed_ms: number;
+  }>;
+}
+
 export function fetchAnalyticsSummary(days = 7): Promise<AnalyticsSummary> {
   return adminRequest(`/api/admin/analytics/summary?days=${days}`);
 }
@@ -275,6 +307,14 @@ export function reindexImage(imageId: string): Promise<ReindexImageResult> {
 
 export function fetchIngestJobs(limit = 100): Promise<{ jobs: IngestJob[] }> {
   return adminRequest(`/api/ingest/jobs?limit=${limit}`);
+}
+
+export function fetchIngestDiagnostics(): Promise<IngestDiagnostics> {
+  return adminRequest("/api/admin/ingest/diagnostics");
+}
+
+export function runIngestPreflight(): Promise<IngestPreflight> {
+  return adminRequest("/api/admin/ingest/preflight", { method: "POST" });
 }
 
 export function cancelIngestJob(jobId: string): Promise<IngestJob> {

@@ -25,6 +25,7 @@ import { EmptyState } from "./components/EmptyState";
 import { AdminNavLink } from "./components/AdminNavLink";
 import { AtlasLoadingScreen, useMinDurationLoading } from "./components/AtlasLoadingScreen";
 import { Header } from "./components/Header";
+import { formatIngestPhase, heartbeatAgeSeconds } from "./ingestStatus";
 import { ResultsGrid } from "./components/ResultsGrid";
 import { SortSelect } from "./components/SortSelect";
 import { defaultCatalogSort, defaultSearchSort, sortResultCards } from "./sortResults";
@@ -208,15 +209,17 @@ export default function App() {
             ? {
                 filesDone: job.files_done,
                 filesTotal: job.files_total,
-                batchLabel:
-                  job.status === "cancel_requested"
-                    ? "Cancelling…"
-                    : job.status === "queued"
-                      ? "Queued"
-                      : "Ingesting",
+                batchLabel: formatIngestPhase(job),
               }
             : null,
         );
+        if (active) {
+          const heartbeatAge = heartbeatAgeSeconds(job.heartbeat_at);
+          setIngestMessage(
+            `Job ${job.job_id}\n${job.status_detail ?? job.phase ?? job.status}` +
+              (heartbeatAge == null ? "" : `\nWorker heartbeat: ${heartbeatAge}s ago`),
+          );
+        }
         if (!active) {
           const processed =
             Number(job.stats.images_added ?? 0) +
@@ -806,6 +809,7 @@ export default function App() {
         ingestMessage={ingestMessage}
         ingesting={ingesting}
         ingestProgress={ingestProgress}
+        activeIngestJobId={activeIngestJobId}
         catalog={catalog}
         catalogLoading={catalogLoading}
         catalogSortBy={catalogSortBy}

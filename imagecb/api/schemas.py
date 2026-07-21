@@ -193,6 +193,9 @@ class IngestJobOut(BaseModel):
     stats: Dict[str, Any] = Field(default_factory=dict)
     stage_errors: List[str] = Field(default_factory=list)
     error: Optional[str] = None
+    phase: Optional[str] = None
+    status_detail: Optional[str] = None
+    runner_id: Optional[str] = None
     created_at: Optional[str] = None
     started_at: Optional[str] = None
     finished_at: Optional[str] = None

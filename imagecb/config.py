@@ -103,6 +103,15 @@ class Settings:
         or _env("AWS_REGION", "us-east-1")
         or "us-east-1"
     )
+    s3_connect_timeout: int = field(
+        default_factory=lambda: int(_env("S3_CONNECT_TIMEOUT", "10") or "10")
+    )
+    s3_read_timeout: int = field(
+        default_factory=lambda: int(_env("S3_READ_TIMEOUT", "30") or "30")
+    )
+    s3_max_retries: int = field(
+        default_factory=lambda: int(_env("S3_MAX_RETRIES", "3") or "3")
+    )
 
     # OCR
     tesseract_cmd: Optional[str] = field(default_factory=lambda: _env("TESSERACT_CMD"))

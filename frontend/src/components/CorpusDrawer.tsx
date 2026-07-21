@@ -20,6 +20,7 @@ interface CorpusDrawerProps {
   ingestMessage: string | null;
   ingesting: boolean;
   ingestProgress: { filesDone: number; filesTotal: number; batchLabel: string } | null;
+  activeIngestJobId: string | null;
   catalog: CatalogItem[];
   catalogLoading: boolean;
   catalogSortBy: ResultSort;
@@ -41,6 +42,7 @@ export function CorpusDrawer({
   ingestMessage,
   ingesting,
   ingestProgress,
+  activeIngestJobId,
   catalog,
   catalogLoading,
   catalogSortBy,
@@ -239,6 +241,14 @@ export function CorpusDrawer({
             <pre className="mt-4 max-h-40 overflow-y-auto whitespace-pre-wrap rounded-lg bg-navy-50 p-3 text-xs text-navy-700">
               {ingestMessage}
             </pre>
+          )}
+          {activeIngestJobId && (
+            <a
+              href={`/admin/ingestions?job=${encodeURIComponent(activeIngestJobId)}`}
+              className="mt-2 inline-block text-xs font-medium text-brand-600 hover:underline"
+            >
+              View job {activeIngestJobId.slice(0, 8)}… in Admin
+            </a>
           )}
 
           <div className="mt-8 border-t border-navy-100 pt-6">

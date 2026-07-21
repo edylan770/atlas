@@ -4,12 +4,41 @@ from __future__ import annotations
 
 import threading
 import time
+from concurrent.futures import Future
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 import pytest
 
-from imagecb.ingest import _merge_stats, ingest_paths_batched
+from imagecb.ingest import _drain_future, _merge_stats, ingest_paths_batched
+
+
+def test_image_timeout_is_recorded_with_actionable_error():
+    future = Future()
+    stats = {
+        "errors": 0,
+        "timeouts": 0,
+        "images_added": 0,
+        "images_updated": 0,
+        "skipped_duplicates": 0,
+    }
+    item = MagicMock(file_path=Path("stalled.png"))
+
+    _drain_future(
+        future,
+        item,
+        stats=stats,
+        chroma_batch=[],
+        text_batch=[],
+        chroma_lock=threading.Lock(),
+        batch_upsert=1,
+        image_timeout_sec=0,
+    )
+
+    assert stats["errors"] == 1
+    assert stats["timeouts"] == 1
+    assert "timeout" in stats["last_error"]
+    assert future.cancelled()
 
 
 def test_merge_stats_aggregates_batches():

@@ -76,6 +76,21 @@ def test_interrupted_running_job_is_requeued(isolated_jobs, tmp_path):
     assert recovered["error"] == "Recovered after server restart"
 
 
+def test_claim_records_runner_and_phase(isolated_jobs, tmp_path):
+    source = tmp_path / "source.png"
+    source.write_bytes(b"png")
+    isolated_jobs.create_job("job-phase", [source], {"workers": 1})
+
+    claimed = isolated_jobs._claim_next_job("host:123:runner")
+
+    assert claimed is not None
+    job = isolated_jobs.get_job("job-phase")
+    assert job is not None
+    assert job["status"] == "running"
+    assert job["phase"] == "claimed"
+    assert job["runner_id"] == "host:123:runner"
+
+
 def test_runner_records_cancelled_partial_stats(isolated_jobs, tmp_path):
     source = tmp_path / "source.png"
     source.write_bytes(b"png")
@@ -91,6 +106,32 @@ def test_runner_records_cancelled_partial_stats(isolated_jobs, tmp_path):
     assert job is not None
     assert job["status"] == "cancelled"
     assert job["stats"]["images_added"] == 1
+
+
+def test_runner_fails_job_when_all_processing_fails(isolated_jobs, tmp_path):
+    source = tmp_path / "source.png"
+    source.write_bytes(b"png")
+    isolated_jobs.create_job("job-failed", [source], {"workers": 1})
+    claimed = isolated_jobs._claim_next_job("test-runner")
+    assert claimed is not None
+
+    stats = {
+        "images_seen": 1,
+        "images_added": 0,
+        "images_updated": 0,
+        "skipped_duplicates": 0,
+        "errors": 1,
+        "timeouts": 1,
+        "last_error": "Image processing exceeded the configured 30s timeout",
+    }
+    with patch("imagecb.ingest.ingest_paths_batched", return_value=stats):
+        isolated_jobs.IngestJobRunner()._execute(*claimed)
+
+    job = isolated_jobs.get_job("job-failed")
+    assert job is not None
+    assert job["status"] == "failed"
+    assert "timeout" in (job["error"] or "")
+    assert job["phase"] == "failed"
 
 
 def test_create_and_cancel_job_api():
@@ -126,3 +167,32 @@ def test_create_and_cancel_job_api():
         )
         assert cancelled.status_code == 200
         assert cancelled.json()["status"] == "cancelled"
+
+
+def test_job_list_and_detail_are_consistent_and_not_cached():
+    from imagecb.api.server import create_app
+
+    configured = replace(SETTINGS, admin_api_key="test-admin-secret")
+    job = {
+        "job_id": "job-visible",
+        "status": "running",
+        "files": ["x.png"],
+        "files_total": 1,
+        "phase": "image_embedding",
+        "status_detail": "Calling image embedding model",
+        "runner_id": "host:1:runner",
+        "cancellable": True,
+    }
+    with patch("imagecb.api.auth.SETTINGS", configured), patch(
+        "imagecb.api.routes.list_jobs", return_value=[job]
+    ), patch("imagecb.api.routes.get_job", return_value=job):
+        client = TestClient(create_app())
+        headers = {"X-Admin-Api-Key": "test-admin-secret"}
+        listed = client.get("/api/ingest/jobs", headers=headers)
+        detail = client.get("/api/ingest/jobs/job-visible", headers=headers)
+
+    assert listed.status_code == 200
+    assert detail.status_code == 200
+    assert listed.json()["jobs"][0] == detail.json()
+    assert listed.headers["cache-control"] == "no-store, max-age=0"
+    assert detail.headers["cache-control"] == "no-store, max-age=0"

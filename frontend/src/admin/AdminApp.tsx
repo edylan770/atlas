@@ -4,7 +4,9 @@ import {
   fetchAnalyticsSummary,
   fetchAudit,
   fetchCorpusHealth,
+  fetchIngestDiagnostics,
   fetchIngestJobs,
+  runIngestPreflight,
   reconcileIndex,
   repairIndex,
   purgeUnrecoverable,
@@ -23,10 +25,13 @@ import {
   type CaptionQualityFilter,
   type CorpusHealth,
   type CorpusImage,
+  type IngestDiagnostics,
+  type IngestPreflight,
   type SearchQualityItem,
   type SearchQualityLists,
 } from "../api/adminClient";
 import { SortSelect } from "../components/SortSelect";
+import { heartbeatAgeSeconds, isStaleIngestJob } from "../ingestStatus";
 import { defaultCatalogSort } from "../sortResults";
 import type { ResultSort } from "../types";
 import type { IngestJob } from "../types";
@@ -808,6 +813,11 @@ function IngestionsPage() {
   const [jobs, setJobs] = useState<IngestJob[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [cancelling, setCancelling] = useState<string | null>(null);
+  const [diagnostics, setDiagnostics] = useState<IngestDiagnostics | null>(null);
+  const [preflight, setPreflight] = useState<IngestPreflight | null>(null);
+  const [preflightRunning, setPreflightRunning] = useState(false);
+  const selectedJobId = new URLSearchParams(window.location.search).get("job");
+  const frontendBuildId = import.meta.env.VITE_APP_BUILD_ID || "development";
 
   const load = useCallback(() => {
     fetchIngestJobs()
@@ -820,9 +830,26 @@ function IngestionsPage() {
 
   useEffect(() => {
     load();
+    fetchIngestDiagnostics()
+      .then(setDiagnostics)
+      .catch((e) => setError(e instanceof Error ? e.message : String(e)));
     const timer = window.setInterval(load, 2000);
     return () => window.clearInterval(timer);
   }, [load]);
+
+  const handlePreflight = async () => {
+    setPreflightRunning(true);
+    try {
+      const result = await runIngestPreflight();
+      setPreflight(result);
+      setDiagnostics(result.runtime);
+      setError(null);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setPreflightRunning(false);
+    }
+  };
 
   const handleCancel = async (job: IngestJob) => {
     if (
@@ -865,8 +892,18 @@ function IngestionsPage() {
           </tr>
         </thead>
         <tbody>
-          {items.map((job) => (
-            <tr key={job.job_id} className="border-t border-navy-100 align-top">
+          {items.map((job) => {
+            const heartbeatAge = heartbeatAgeSeconds(job.heartbeat_at);
+            const stale = isStaleIngestJob(job);
+            return (
+            <tr
+              key={job.job_id}
+              className={`border-t align-top ${
+                job.job_id === selectedJobId
+                  ? "border-brand-300 bg-brand-50"
+                  : "border-navy-100"
+              }`}
+            >
               <td className="px-3 py-2 font-mono text-navy-800" title={job.job_id}>
                 {job.job_id.slice(0, 8)}…
               </td>
@@ -874,6 +911,13 @@ function IngestionsPage() {
                 <span className="rounded bg-navy-100 px-2 py-0.5 font-medium text-navy-800">
                   {job.status.replace("_", " ")}
                 </span>
+                {job.phase && <p className="mt-1 text-navy-600">{job.phase.replace(/_/g, " ")}</p>}
+                {job.status_detail && <p className="mt-1 max-w-xs text-navy-500">{job.status_detail}</p>}
+                {heartbeatAge !== null && (
+                  <p className={stale ? "mt-1 font-medium text-red-600" : "mt-1 text-navy-400"}>
+                    heartbeat {heartbeatAge}s ago{stale ? " — worker may be stale" : ""}
+                  </p>
+                )}
                 {job.error && <p className="mt-1 max-w-xs text-red-600">{job.error}</p>}
               </td>
               <td className="px-3 py-2 text-navy-700">
@@ -911,7 +955,7 @@ function IngestionsPage() {
                 )}
               </td>
             </tr>
-          ))}
+          )})}
         </tbody>
       </table>
     </div>
@@ -926,6 +970,52 @@ function IngestionsPage() {
         </p>
       </div>
       {error && <p className="text-sm text-red-600">{error}</p>}
+      {selectedJobId && !jobs.some((job) => job.job_id === selectedJobId) && (
+        <p className="text-sm font-medium text-red-600">
+          Job {selectedJobId} is visible to the upload page but missing from this runtime.
+          Compare the build, runtime, and SQLite identities below.
+        </p>
+      )}
+      <section className="space-y-3 rounded-lg bg-white p-4 ring-1 ring-navy-200">
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <div>
+            <h3 className="font-medium text-navy-800">Runtime diagnostics</h3>
+            <p className="text-xs text-navy-500">
+              Frontend build {frontendBuildId}; backend build {diagnostics?.build_id ?? "loading…"}
+            </p>
+          </div>
+          <button
+            type="button"
+            disabled={preflightRunning}
+            onClick={() => void handlePreflight()}
+            className="rounded bg-brand-600 px-3 py-1.5 text-xs font-medium text-white disabled:opacity-50"
+          >
+            {preflightRunning ? "Running preflight…" : "Run ingest preflight"}
+          </button>
+        </div>
+        {diagnostics && (
+          <div className="grid gap-1 text-xs text-navy-600 sm:grid-cols-2">
+            <span>Runtime: {diagnostics.runtime_id}</span>
+            <span>Runner: {diagnostics.runner.alive ? "healthy" : "not running"}</span>
+            <span>Storage: {diagnostics.storage_backend}</span>
+            <span>SQLite: {diagnostics.sqlite_identity}</span>
+          </div>
+        )}
+        {diagnostics && diagnostics.build_id !== frontendBuildId && (
+          <p className="text-xs font-medium text-red-600">
+            Frontend and backend build IDs differ. Rebuild and redeploy one Docker image.
+          </p>
+        )}
+        {preflight && (
+          <div className="space-y-1 text-xs">
+            {preflight.checks.map((check) => (
+              <p key={check.name} className={check.ok ? "text-navy-600" : "font-medium text-red-600"}>
+                {check.ok ? "Pass" : "Fail"} — {check.name}: {check.detail} ({check.elapsed_ms}ms)
+              </p>
+            ))}
+          </div>
+        )}
+      </section>
       <section className="space-y-2">
         <h3 className="font-medium text-navy-800">Current ({active.length})</h3>
         {active.length ? table(active) : <p className="text-sm text-navy-500">No active ingests.</p>}

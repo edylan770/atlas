@@ -77,6 +77,7 @@ _STAT_KEYS = (
     "images_updated",
     "skipped_duplicates",
     "errors",
+    "timeouts",
     "captions_weak",
     "captions_failed",
     "workers",
@@ -125,6 +126,7 @@ def _empty_stats(*, workers: int = 1) -> dict:
         "images_updated": 0,
         "skipped_duplicates": 0,
         "errors": 0,
+        "timeouts": 0,
         "captions_weak": 0,
         "captions_failed": 0,
         "workers": workers,
@@ -138,6 +140,8 @@ def _merge_stats(total: dict, batch: dict) -> None:
         if key in ("files", "workers", "elapsed_sec", "batches"):
             continue
         total[key] = total.get(key, 0) + batch.get(key, 0)
+    if batch.get("last_error"):
+        total["last_error"] = batch["last_error"]
 
 
 def _hash_image(img: Image.Image) -> str:
@@ -228,6 +232,7 @@ def _caption_and_embed(
     embedder: BedrockEmbedder,
     max_image_side: int,
     step_times: Optional[dict] = None,
+    phase_callback: Optional[Callable[[str, Optional[str]], None]] = None,
 ) -> Tuple[CaptionJSON, np.ndarray]:
     """Caption first (with context), then embed with interpretive context."""
     times = step_times if step_times is not None else {}
@@ -236,10 +241,14 @@ def _caption_and_embed(
     if captioner is None:
         caption = CaptionJSON.empty()
     else:
+        if phase_callback:
+            phase_callback("captioning", "Calling the configured vision-language model")
         caption = generate_caption(extracted, captioner, max_side=max_image_side)
     times["caption_vlm"] = time.perf_counter() - t0
 
     t0 = time.perf_counter()
+    if phase_callback:
+        phase_callback("image_embedding", "Calling the configured image embedding model")
     ctx = embed_context_from_caption_and_provenance(caption, extracted.provenance)
     emb = embedder.embed_image_with_context(extracted.image, ctx or None)
     times["embed_image"] = time.perf_counter() - t0
@@ -259,6 +268,7 @@ def _ingest_one_image(
     max_image_side: int,
     timing: Optional[IngestTimingSession] = None,
     should_cancel: Optional[Callable[[], bool]] = None,
+    phase_callback: Optional[Callable[[str, Optional[str]], None]] = None,
 ) -> _IngestOutcome:
     extracted = item.extracted
     source_label = str(extracted.provenance.source_file or item.file_path)
@@ -293,12 +303,16 @@ def _ingest_one_image(
                 outcome = _IngestOutcome(added=True)
 
         t0 = time.perf_counter()
+        if phase_callback:
+            phase_callback("image_blob_write", "Persisting the display image")
         cached_path = _cache_image(extracted.image, image_id)
         steps["cache_image"] = time.perf_counter() - t0
 
         if should_cancel and should_cancel():
             raise _IngestCancelled()
         t0 = time.perf_counter()
+        if phase_callback:
+            phase_callback("ocr", "Reading visible text")
         ocr_text = "" if skip_ocr else ocr_extract(extracted.image)
         steps["ocr"] = time.perf_counter() - t0
 
@@ -310,6 +324,7 @@ def _ingest_one_image(
             embedder=embedder,
             max_image_side=max_image_side,
             step_times=steps,
+            phase_callback=phase_callback,
         )
         record = _record_for(
             image_id=image_id,
@@ -322,6 +337,8 @@ def _ingest_one_image(
         if should_cancel and should_cancel():
             raise _IngestCancelled()
         t0 = time.perf_counter()
+        if phase_callback:
+            phase_callback("metadata_write", "Writing image metadata to SQLite")
         with session_scope() as s:
             s.merge(record)
         steps["sqlite_write"] = time.perf_counter() - t0
@@ -330,6 +347,8 @@ def _ingest_one_image(
         outcome.record = record
         outcome.embedding = emb
         t0 = time.perf_counter()
+        if phase_callback:
+            phase_callback("text_embedding", "Calling the configured text embedding model")
         outcome.text_embedding = embed_caption_document(record)
         steps["embed_text"] = time.perf_counter() - t0
         if timing is not None:
@@ -413,17 +432,25 @@ def _iter_work_items(
     paths: Iterable[Path],
     *,
     timing: Optional[IngestTimingSession] = None,
+    phase_callback: Optional[Callable[[str, Optional[str]], None]] = None,
+    error_callback: Optional[Callable[[str], None]] = None,
 ) -> Iterator[Tuple[Optional[_IngestWorkItem], int]]:
     """Stream work items file-by-file. Yields (item, extract_errors_so_far)."""
     errors = 0
     for file_path in paths:
         try:
+            if phase_callback:
+                phase_callback("source_blob_write", f"Persisting {file_path.name}")
             if timing is None:
                 source_ref = persist_source(file_path)
+                if phase_callback:
+                    phase_callback("extracting", f"Extracting images from {file_path.name}")
                 extracted_images = list(extract_path(file_path))
             else:
                 with timing.timed("persist_source"):
                     source_ref = persist_source(file_path)
+                if phase_callback:
+                    phase_callback("extracting", f"Extracting images from {file_path.name}")
                 with timing.timed("extract"):
                     extracted_images = list(extract_path(file_path))
             for extracted in extracted_images:
@@ -431,6 +458,11 @@ def _iter_work_items(
                 yield _IngestWorkItem(file_path=file_path, extracted=extracted), errors
         except Exception as exc:  # noqa: BLE001
             logger.warning("Extractor failed for %s: %s", file_path, exc)
+            detail = f"{type(exc).__name__}: {exc}"
+            if error_callback:
+                error_callback(detail)
+            if phase_callback:
+                phase_callback("source_or_extract_failed", detail)
             errors += 1
             yield None, errors
 
@@ -452,6 +484,7 @@ def _apply_outcome(
         return
     if outcome.error:
         stats["errors"] += 1
+        stats["last_error"] = outcome.error
         return
     if outcome.added:
         stats["images_added"] += 1
@@ -527,6 +560,10 @@ def _drain_future(
             image_timeout_sec,
         )
         stats["errors"] += 1
+        stats["timeouts"] += 1
+        stats["last_error"] = (
+            f"Image processing exceeded the configured {image_timeout_sec}s timeout"
+        )
         future.cancel()
         return
     _apply_outcome(
@@ -559,6 +596,7 @@ def _run_ingest_pool(
     timing: Optional[IngestTimingSession] = None,
     should_cancel: Optional[Callable[[], bool]] = None,
     progress_callback: Optional[Callable[[dict], None]] = None,
+    phase_callback: Optional[Callable[[str, Optional[str]], None]] = None,
 ) -> bool:
     chroma_batch: List[Tuple[str, np.ndarray, dict]] = []
     text_batch: List[Tuple[str, np.ndarray]] = []
@@ -577,6 +615,7 @@ def _run_ingest_pool(
             max_image_side=max_image_side,
             timing=timing,
             should_cancel=should_cancel,
+            phase_callback=phase_callback,
         )
 
     def _report_progress() -> None:
@@ -658,6 +697,8 @@ def _run_ingest_pool(
             pbar.close()
 
     with chroma_lock:
+        if phase_callback:
+            phase_callback("vector_write", "Flushing vectors to Chroma")
         if chroma_batch:
             _flush_chroma_batch(list(chroma_batch), timing=timing)
             chroma_batch.clear()
@@ -682,6 +723,7 @@ def ingest_paths(
     auto_repair: bool = True,
     should_cancel: Optional[Callable[[], bool]] = None,
     progress_callback: Optional[Callable[[dict], None]] = None,
+    phase_callback: Optional[Callable[[str, Optional[str]], None]] = None,
     _hold_ingest_lock: bool = True,
 ) -> dict:
     """Ingest a list of source files. Returns a stats dict."""
@@ -706,6 +748,7 @@ def ingest_paths(
             auto_repair=auto_repair,
             should_cancel=should_cancel,
             progress_callback=progress_callback,
+            phase_callback=phase_callback,
         )
     finally:
         if acquired:
@@ -727,6 +770,7 @@ def _ingest_paths_locked(
     auto_repair: bool = True,
     should_cancel: Optional[Callable[[], bool]] = None,
     progress_callback: Optional[Callable[[dict], None]] = None,
+    phase_callback: Optional[Callable[[str, Optional[str]], None]] = None,
 ) -> dict:
     paths = list(paths)
     workers = workers if workers is not None else SETTINGS.ingest_workers
@@ -762,7 +806,15 @@ def _ingest_paths_locked(
 
     def _stream_items() -> Iterator[_IngestWorkItem]:
         nonlocal extract_errors, images_seen
-        for item, err_count in _iter_work_items(paths, timing=timing):
+        def record_extract_error(detail: str) -> None:
+            stats["last_error"] = detail
+
+        for item, err_count in _iter_work_items(
+            paths,
+            timing=timing,
+            phase_callback=phase_callback,
+            error_callback=record_extract_error,
+        ):
             extract_errors = err_count
             if item is not None:
                 images_seen += 1
@@ -792,12 +844,15 @@ def _ingest_paths_locked(
         timing=timing,
         should_cancel=should_cancel,
         progress_callback=progress_callback,
+        phase_callback=phase_callback,
     ) is True
 
     stats["errors"] += extract_errors
     stats["images_seen"] = images_seen
 
     if images_seen > 0:
+        if phase_callback:
+            phase_callback("finalizing_indexes", "Rebuilding search indexes")
         with timing.timed("finalize"):
             _finalize_ingest(rebuild_bm25=rebuild_bm25, refresh_vocab=refresh_vocab)
 
@@ -814,6 +869,8 @@ def _ingest_paths_locked(
     if auto_repair and SETTINGS.post_ingest_repair_enabled and not cancelled:
         from imagecb.repair import repair_index_issues
 
+        if phase_callback:
+            phase_callback("repairing_index", "Checking and repairing index consistency")
         with timing.timed("post_repair"):
             repair_stats = repair_index_issues(
                 workers=workers,
@@ -856,6 +913,7 @@ def ingest_paths_batched(
     auto_repair: bool = True,
     should_cancel: Optional[Callable[[], bool]] = None,
     progress_callback: Optional[Callable[[dict], None]] = None,
+    phase_callback: Optional[Callable[[str, Optional[str]], None]] = None,
 ) -> dict:
     """Ingest source files in file batches; rebuild BM25 once at the end."""
     if not _ingest_lock.acquire(blocking=False):
@@ -919,6 +977,7 @@ def ingest_paths_batched(
                     auto_repair=False,
                     should_cancel=should_cancel,
                     progress_callback=_batch_progress,
+                    phase_callback=phase_callback,
                     _hold_ingest_lock=False,
                 )
             _merge_stats(total, batch_stats)
@@ -951,6 +1010,8 @@ def ingest_paths_batched(
             )
 
         if defer_bm25 and total["images_seen"] > 0:
+            if phase_callback:
+                phase_callback("finalizing_indexes", "Rebuilding search indexes")
             with summary.timed("finalize"):
                 _finalize_ingest(rebuild_bm25=True, refresh_vocab=True)
 
@@ -961,6 +1022,8 @@ def ingest_paths_batched(
         ):
             from imagecb.repair import repair_index_issues
 
+            if phase_callback:
+                phase_callback("repairing_index", "Checking and repairing index consistency")
             with summary.timed("post_repair"):
                 repair_stats = repair_index_issues(
                     workers=workers,

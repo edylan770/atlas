@@ -165,6 +165,9 @@ export interface IngestJob {
   stats: Record<string, unknown>;
   stage_errors: string[];
   error?: string | null;
+  phase?: string | null;
+  status_detail?: string | null;
+  runner_id?: string | null;
   created_at?: string | null;
   started_at?: string | null;
   finished_at?: string | null;

@@ -1,6 +1,9 @@
 services:
   imagecb:
-    build: .
+    build:
+      context: .
+      args:
+        APP_BUILD_ID: ${APP_BUILD_ID:-development}
     ports:
       - "8080:8080"
     env_file:

@@ -4,7 +4,9 @@ from __future__ import annotations
 
 import json
 import logging
+import os
 import shutil
+import socket
 import threading
 import uuid
 from datetime import datetime
@@ -49,6 +51,9 @@ def job_to_dict(job: IngestJob) -> dict:
         "stats": _loads(job.stats_json, {}),
         "stage_errors": _loads(job.stage_errors_json, []),
         "error": job.error,
+        "phase": job.phase,
+        "status_detail": job.status_detail,
+        "runner_id": job.runner_id,
         "created_at": _iso(job.created_at),
         "started_at": _iso(job.started_at),
         "finished_at": _iso(job.finished_at),
@@ -70,6 +75,21 @@ def ensure_job_schema() -> None:
     # IngestJob is registered on the shared metadata before create_all runs.
     engine = get_engine()
     IngestJob.__table__.create(engine, checkfirst=True)
+    # create_all does not add columns to an existing deployment database.
+    with engine.begin() as connection:
+        columns = {
+            row[1]
+            for row in connection.exec_driver_sql(
+                "PRAGMA table_info(ingest_jobs)"
+            ).fetchall()
+        }
+        for name, ddl in (
+            ("phase", "ALTER TABLE ingest_jobs ADD COLUMN phase VARCHAR"),
+            ("status_detail", "ALTER TABLE ingest_jobs ADD COLUMN status_detail TEXT"),
+            ("runner_id", "ALTER TABLE ingest_jobs ADD COLUMN runner_id VARCHAR"),
+        ):
+            if name not in columns:
+                connection.exec_driver_sql(ddl)
 
 
 def create_job(
@@ -89,6 +109,8 @@ def create_job(
         stats_json="{}",
         stage_errors_json=json.dumps(stage_errors or []),
         files_total=len(files),
+        phase="queued",
+        status_detail="Waiting for the ingest worker",
         created_at=now,
         heartbeat_at=now,
     )
@@ -133,11 +155,15 @@ def request_cancel(job_id: str) -> Optional[dict]:
         if row.status == "queued":
             cancelled_while_queued = True
             row.status = "cancelled"
+            row.phase = "cancelled"
+            row.status_detail = "Cancelled before the worker started"
             row.cancel_requested_at = now
             row.finished_at = now
             row.heartbeat_at = now
         elif row.status == "running":
             row.status = "cancel_requested"
+            row.phase = "cancel_requested"
+            row.status_detail = "Cancellation requested"
             row.cancel_requested_at = now
             row.heartbeat_at = now
         result = job_to_dict(row)
@@ -162,14 +188,19 @@ def _recover_interrupted_jobs() -> None:
         for row in rows:
             if row.status == "cancel_requested":
                 row.status = "cancelled"
+                row.phase = "cancelled"
+                row.status_detail = "Cancelled during server restart"
                 row.finished_at = now
             else:
                 row.status = "queued"
                 row.error = "Recovered after server restart"
+                row.phase = "queued"
+                row.status_detail = "Recovered after server restart"
+            row.runner_id = None
             row.heartbeat_at = now
 
 
-def _claim_next_job() -> Optional[tuple[str, list[Path], dict]]:
+def _claim_next_job(runner_id: Optional[str] = None) -> Optional[tuple[str, list[Path], dict]]:
     now = datetime.utcnow()
     with session_scope() as session:
         row = session.execute(
@@ -181,6 +212,9 @@ def _claim_next_job() -> Optional[tuple[str, list[Path], dict]]:
         if row is None:
             return None
         row.status = "running"
+        row.phase = "claimed"
+        row.status_detail = "Claimed by the ingest worker"
+        row.runner_id = runner_id
         row.started_at = row.started_at or now
         row.heartbeat_at = now
         row.error = None
@@ -208,7 +242,34 @@ def _update_progress(job_id: str, progress: dict) -> None:
             progress.get("images_processed", row.images_processed)
         )
         row.stats_json = json.dumps(progress.get("stats", {}))
+        if progress.get("phase"):
+            row.phase = str(progress["phase"])
+        if progress.get("status_detail") is not None:
+            row.status_detail = str(progress["status_detail"])
         row.heartbeat_at = datetime.utcnow()
+
+
+def _set_phase(job_id: str, phase: str, detail: Optional[str] = None) -> None:
+    logger.info(
+        "Ingest job lifecycle job_id=%s phase=%s detail=%s",
+        job_id,
+        phase,
+        detail or "",
+    )
+    try:
+        _update_progress(
+            job_id,
+            {"phase": phase, "status_detail": detail or phase.replace("_", " ")},
+        )
+    except Exception:  # noqa: BLE001
+        logger.exception("Could not persist ingest phase job_id=%s phase=%s", job_id, phase)
+
+
+def _touch_heartbeat(job_id: str) -> None:
+    with session_scope() as session:
+        row = session.get(IngestJob, job_id)
+        if row is not None and row.status in {"running", "cancel_requested"}:
+            row.heartbeat_at = datetime.utcnow()
 
 
 def _finish_job(
@@ -224,6 +285,8 @@ def _finish_job(
         if row is None:
             return
         row.status = status
+        row.phase = status
+        row.status_detail = error or status.replace("_", " ")
         row.stats_json = json.dumps(stats or {})
         row.error = error
         row.files_done = row.files_total if status == "succeeded" else row.files_done
@@ -249,6 +312,8 @@ def _requeue_job(job_id: str, error: str) -> None:
         else:
             row.status = "queued"
             row.error = error
+            row.phase = "queued"
+            row.status_detail = error
         row.heartbeat_at = datetime.utcnow()
 
 
@@ -266,6 +331,7 @@ class IngestJobRunner:
         self._stop = threading.Event()
         self._wake = threading.Event()
         self._thread: Optional[threading.Thread] = None
+        self.runner_id = f"{socket.gethostname()}:{os.getpid()}:{uuid.uuid4().hex[:8]}"
 
     def start(self) -> None:
         if self._thread and self._thread.is_alive():
@@ -291,7 +357,7 @@ class IngestJobRunner:
 
     def _run(self) -> None:
         while not self._stop.is_set():
-            claimed = _claim_next_job()
+            claimed = _claim_next_job(self.runner_id)
             if claimed is None:
                 self._wake.wait(timeout=1)
                 self._wake.clear()
@@ -301,7 +367,20 @@ class IngestJobRunner:
     def _execute(self, job_id: str, files: list[Path], options: dict) -> None:
         from imagecb.ingest import IngestInProgressError, ingest_paths_batched
 
+        heartbeat_stop = threading.Event()
+
+        def heartbeat() -> None:
+            while not heartbeat_stop.wait(timeout=5):
+                _touch_heartbeat(job_id)
+
+        heartbeat_thread = threading.Thread(
+            target=heartbeat,
+            name=f"ingest-heartbeat-{job_id[:8]}",
+            daemon=True,
+        )
+        heartbeat_thread.start()
         try:
+            _set_phase(job_id, "preparing", "Preparing ingestion dependencies")
             stats = ingest_paths_batched(
                 files,
                 batch_size=max(1, int(options.get("batch_size", 25))),
@@ -311,9 +390,30 @@ class IngestJobRunner:
                 workers=int(options.get("workers") or SETTINGS.ingest_workers),
                 should_cancel=lambda: _cancel_requested(job_id),
                 progress_callback=lambda progress: _update_progress(job_id, progress),
+                phase_callback=lambda phase, detail=None: _set_phase(job_id, phase, detail),
             )
-            status = "cancelled" if stats.get("cancelled") else "succeeded"
-            _finish_job(job_id, status=status, stats=stats)
+            processed = (
+                int(stats.get("images_added", 0))
+                + int(stats.get("images_updated", 0))
+                + int(stats.get("skipped_duplicates", 0))
+            )
+            errors = int(stats.get("errors", 0))
+            if stats.get("cancelled"):
+                status = "cancelled"
+                error = None
+            elif errors and processed == 0:
+                status = "failed"
+                error = str(
+                    stats.get("last_error")
+                    or (
+                        f"All ingestion work failed ({errors} error(s)); "
+                        "check the recorded phase and dependency preflight"
+                    )
+                )
+            else:
+                status = "succeeded"
+                error = None
+            _finish_job(job_id, status=status, stats=stats, error=error)
             _cleanup_staging(job_id, status)
         except IngestInProgressError:
             _requeue_job(job_id, "Waiting for the active ingest to finish")
@@ -321,9 +421,21 @@ class IngestJobRunner:
         except Exception as exc:  # noqa: BLE001
             logger.exception("Ingest job %s failed", job_id)
             _finish_job(job_id, status="failed", error=str(exc))
+        finally:
+            heartbeat_stop.set()
+            heartbeat_thread.join(timeout=1)
 
 
 _RUNNER = IngestJobRunner()
+
+
+def runner_health() -> dict:
+    thread = _RUNNER._thread
+    return {
+        "runner_id": _RUNNER.runner_id,
+        "alive": bool(thread and thread.is_alive()),
+        "thread_name": thread.name if thread else None,
+    }
 
 
 def start_job_runner() -> None:

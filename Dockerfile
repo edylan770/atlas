@@ -1,5 +1,9 @@
+ARG APP_BUILD_ID=development
+
 # Stage 1: build React frontend
 FROM node:20-alpine AS frontend
+ARG APP_BUILD_ID
+ENV VITE_APP_BUILD_ID=${APP_BUILD_ID}
 
 WORKDIR /app/frontend
 
@@ -11,6 +15,8 @@ RUN npm run build
 
 # Stage 2: Python runtime
 FROM python:3.11-slim AS runtime
+ARG APP_BUILD_ID
+ENV APP_BUILD_ID=${APP_BUILD_ID}
 
 RUN apt-get update \
     && apt-get install -y --no-install-recommends \

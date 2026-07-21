@@ -10,7 +10,7 @@ from pathlib import Path
 from typing import Iterator, List, Optional
 from urllib.parse import quote
 
-from fastapi import APIRouter, Depends, File, Form, HTTPException, Request, UploadFile
+from fastapi import APIRouter, Depends, File, Form, HTTPException, Request, Response, UploadFile
 from fastapi.responses import FileResponse, StreamingResponse
 from PIL import Image
 
@@ -882,9 +882,11 @@ async def create_ingest_job(
 
 @router.get("/ingest/jobs", response_model=IngestJobListResponse)
 def get_ingest_jobs(
+    response: Response,
     limit: int = 100,
     _: str = Depends(require_admin),
 ) -> IngestJobListResponse:
+    response.headers["Cache-Control"] = "no-store, max-age=0"
     return IngestJobListResponse(
         jobs=[IngestJobOut.model_validate(job) for job in list_jobs(limit=limit)]
     )
@@ -893,12 +895,34 @@ def get_ingest_jobs(
 @router.get("/ingest/jobs/{job_id}", response_model=IngestJobOut)
 def get_ingest_job(
     job_id: str,
+    response: Response,
     _: str = Depends(require_admin),
 ) -> IngestJobOut:
+    response.headers["Cache-Control"] = "no-store, max-age=0"
     job = get_job(job_id)
     if job is None:
         raise HTTPException(status_code=404, detail="ingest job not found")
     return IngestJobOut.model_validate(job)
+
+
+@router.get("/admin/ingest/diagnostics")
+def get_ingest_diagnostics(
+    response: Response,
+    _: str = Depends(require_admin),
+) -> dict:
+    from imagecb.ingest_diagnostics import runtime_diagnostics
+
+    response.headers["Cache-Control"] = "no-store, max-age=0"
+    return runtime_diagnostics()
+
+
+@router.post("/admin/ingest/preflight")
+def ingest_preflight(
+    _: str = Depends(require_admin),
+) -> dict:
+    from imagecb.ingest_diagnostics import run_ingest_preflight
+
+    return run_ingest_preflight()
 
 
 @router.post("/ingest/jobs/{job_id}/cancel", response_model=IngestJobOut)

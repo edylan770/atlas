@@ -88,9 +88,9 @@ def _s3_client(region: str) -> Any:
         "s3",
         region_name=region,
         config=Config(
-            connect_timeout=10,
-            read_timeout=120,
-            retries={"max_attempts": 5, "mode": "adaptive"},
+            connect_timeout=SETTINGS.s3_connect_timeout,
+            read_timeout=SETTINGS.s3_read_timeout,
+            retries={"max_attempts": SETTINGS.s3_max_retries, "mode": "adaptive"},
         ),
     )
 
