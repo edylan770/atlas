@@ -36,6 +36,24 @@ ONBOARDING_SUGGESTIONS = [
     "Logos and icons on plain backgrounds",
 ]
 
+# Used only when the corpus has indexed rows but thin caption/tag metadata.
+_INDEXED_FALLBACK_SUGGESTIONS = [
+    "Photos of people collaborating",
+    "Charts and diagrams",
+    "Screenshots and UI mockups",
+    "Icons and logos",
+]
+
+_ASSET_TYPE_SUGGESTIONS = {
+    "photo": "Photos and real-world scenes",
+    "illustration": "Illustrations and conceptual art",
+    "diagram": "Diagrams and process visuals",
+    "icon": "Icons and simple symbols",
+    "chart": "Charts and data visualizations",
+    "screenshot": "Screenshots and product UI",
+    "logo": "Logos and brand marks",
+}
+
 _FILENAME_FILTER_RE = re.compile(
     r"^(?:images?|slides?|photos?|pictures?|content|visuals?|graphics?)\s+from\s+",
     re.IGNORECASE,
@@ -105,6 +123,51 @@ def _is_filename_filter_suggestion(text: str) -> bool:
     return False
 
 
+def _indexed_fallback_pool(ctx: CorpusContext) -> List[str]:
+    """Corpus-grounded fillers when caption/tag metadata is sparse."""
+    pool: List[str] = []
+    seen: set[str] = set()
+
+    def add(text: str) -> None:
+        s = text.strip()
+        if not s or _is_filename_filter_suggestion(s):
+            return
+        key = s.lower()
+        if key in seen:
+            return
+        seen.add(key)
+        pool.append(s)
+
+    for asset_type, _count in ctx.top_asset_types[:4]:
+        suggestion = _ASSET_TYPE_SUGGESTIONS.get(asset_type)
+        if suggestion:
+            add(suggestion)
+        else:
+            add(f"{asset_type} visuals")
+
+    for name in ctx.sample_image_names[:4]:
+        add(name)
+
+    for use in ctx.sample_use_cases[:3]:
+        add(use)
+
+    for alias in ctx.sample_aliases[:3]:
+        add(alias)
+
+    for source_type, _count in ctx.file_type_counts[:3]:
+        if source_type == "pptx":
+            add("Slide deck visuals and graphics")
+        elif source_type == "pdf":
+            add("PDF figures and document images")
+        elif source_type == "image":
+            add("Standalone uploaded images")
+
+    for item in _INDEXED_FALLBACK_SUGGESTIONS:
+        add(item)
+
+    return pool
+
+
 def _corpus_semantic_pool(ctx: CorpusContext) -> List[str]:
     pool: List[str] = []
     seen: set[str] = set()
@@ -130,6 +193,20 @@ def _corpus_semantic_pool(ctx: CorpusContext) -> List[str]:
             add(cap)
         else:
             add(cap[:57] + "...")
+
+    for name in ctx.sample_image_names[:4]:
+        add(name)
+
+    for use in ctx.sample_use_cases[:3]:
+        add(use)
+
+    for alias in ctx.sample_aliases[:3]:
+        add(alias)
+
+    for asset_type, _count in ctx.top_asset_types[:3]:
+        suggestion = _ASSET_TYPE_SUGGESTIONS.get(asset_type)
+        if suggestion:
+            add(suggestion)
 
     return pool
 
@@ -162,8 +239,14 @@ def _blend_suggestions(
             break
         add(item)
 
-    if len(out) < 2:
-        for item in ONBOARDING_SUGGESTIONS:
+    if len(out) < limit:
+        # Never show empty-corpus onboarding when images are already indexed.
+        fillers = (
+            _indexed_fallback_pool(ctx)
+            if ctx.indexed_count > 0
+            else ONBOARDING_SUGGESTIONS
+        )
+        for item in fillers:
             if len(out) >= limit:
                 break
             add(item)
@@ -178,13 +261,25 @@ def _user_payload(ctx: CorpusContext, limit: int) -> str:
             "Recommended search phrases from corpus:\n"
             + "\n".join(f"- {c}" for c in ctx.sample_recommended_cases)
         )
-    if ctx.top_tags or ctx.sample_captions:
-        topic_lines: List[str] = []
-        if ctx.top_tags:
-            topic_lines.append(f"Tags: {', '.join(ctx.top_tags)}")
-        if ctx.sample_captions:
-            topic_lines.append("Captions:")
-            topic_lines.extend(f"  - {c}" for c in ctx.sample_captions[:6])
+    topic_lines: List[str] = []
+    if ctx.top_tags:
+        topic_lines.append(f"Tags: {', '.join(ctx.top_tags)}")
+    if ctx.top_asset_types:
+        assets = ", ".join(f"{t} ({n})" for t, n in ctx.top_asset_types[:6])
+        topic_lines.append(f"Asset types: {assets}")
+    if ctx.sample_image_names:
+        topic_lines.append("Image names:")
+        topic_lines.extend(f"  - {n}" for n in ctx.sample_image_names[:6])
+    if ctx.sample_use_cases:
+        topic_lines.append("Use cases:")
+        topic_lines.extend(f"  - {u}" for u in ctx.sample_use_cases[:4])
+    if ctx.sample_aliases:
+        topic_lines.append("Search aliases:")
+        topic_lines.extend(f"  - {a}" for a in ctx.sample_aliases[:4])
+    if ctx.sample_captions:
+        topic_lines.append("Captions:")
+        topic_lines.extend(f"  - {c}" for c in ctx.sample_captions[:6])
+    if topic_lines:
         blocks.append("Corpus topics:\n" + "\n".join(topic_lines))
     blocks.append("Corpus context:\n" + context_to_prompt_text(ctx))
     blocks.append(
@@ -209,6 +304,12 @@ def _corpus_heuristic_suggestions(ctx: CorpusContext, limit: int) -> List[str]:
 
     for tag in ctx.top_tags[:4]:
         candidates.append(f"{tag} and related visuals")
+
+    for name in ctx.sample_image_names[:3]:
+        candidates.append(name)
+
+    for use in ctx.sample_use_cases[:2]:
+        candidates.append(use)
 
     return _blend_suggestions(candidates, ctx, limit)
 

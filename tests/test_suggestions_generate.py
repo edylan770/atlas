@@ -164,6 +164,27 @@ def test_heuristic_uses_recommended_cases_not_filename_filters():
     assert "report.pptx" not in " ".join(items).lower()
 
 
+def test_sparse_indexed_corpus_does_not_use_onboarding():
+    """Indexed rows with thin caption/tag metadata must not show empty-corpus chips."""
+    ctx = _ctx(
+        indexed_count=50,
+        fingerprint="sparse",
+        source_files=(SourceFileStat(name="deck.pptx", source_type="pptx", count=50),),
+        file_type_counts=(("pptx", 50),),
+        top_asset_types=(("photo", 30), ("diagram", 20)),
+        sample_image_names=("Developer Code Review", "System Architecture"),
+    )
+    mock_llm = MagicMock()
+    mock_llm.generate.side_effect = RuntimeError("bedrock down")
+    with patch.object(gen_mod, "get_suggestion_llm", return_value=mock_llm):
+        result = generate_suggestions(limit=4, ctx=ctx)
+    assert len(result.suggestions) == 4
+    assert result.suggestions != ONBOARDING_SUGGESTIONS[:4]
+    assert "Upload slides or PDFs" not in result.suggestions
+    joined = " ".join(result.suggestions).lower()
+    assert "photo" in joined or "developer" in joined or "diagram" in joined
+
+
 def test_cache_expires_after_ttl():
     ctx = _ctx(indexed_count=2, fingerprint="fp3")
     mock_llm = MagicMock()

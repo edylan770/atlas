@@ -773,12 +773,21 @@ def restore_backup(backup_id: str, *, confirm: bool = False) -> dict[str, Any]:
 
 
 def maybe_auto_restore_on_startup() -> dict[str, Any]:
-    """Restore latest non-empty S3 checkpoint when the local index is empty."""
+    """Restore preferred S3 checkpoint when it has more records than local.
+
+    Keeps the local index when it is empty only if no non-empty remote snapshot
+    exists, and when local count is greater than or equal to the preferred
+    remote snapshot (so a newer local ingest is not clobbered by a smaller
+    checkpoint). A small local smoke/bootstrap index is replaced when S3 has a
+    strictly larger snapshot.
+    """
     info = {
         "attempted": False,
         "restored": False,
         "backup_id": None,
         "total_records": None,
+        "local_count": None,
+        "remote_count": None,
         "error": None,
         "skipped": None,
     }
@@ -802,29 +811,43 @@ def maybe_auto_restore_on_startup() -> dict[str, Any]:
         _startup_restore_info = dict(info)
         return info
 
-    if local_count > 0:
-        info["skipped"] = f"local_records={local_count}"
-        info["total_records"] = local_count
+    info["local_count"] = local_count
+    info["total_records"] = local_count
+
+    try:
+        backup_id = get_preferred_restore_backup_id()
+    except Exception as exc:  # noqa: BLE001
+        info["error"] = f"preferred_backup_failed: {exc}"
+        _startup_restore_info = dict(info)
+        return info
+
+    if not backup_id:
+        info["skipped"] = "no_nonempty_checkpoint"
+        _startup_restore_info = dict(info)
+        return info
+
+    manifest = _read_manifest(backup_id)
+    remote_count = _manifest_record_count(manifest)
+    info["remote_count"] = remote_count
+    info["backup_id"] = backup_id
+
+    if remote_count <= local_count:
+        info["skipped"] = f"local_records={local_count}_remote_records={remote_count}"
         _startup_restore_info = dict(info)
         return info
 
     info["attempted"] = True
     try:
-        backup_id = get_preferred_restore_backup_id()
-        if not backup_id:
-            info["skipped"] = "no_nonempty_checkpoint"
-            _startup_restore_info = dict(info)
-            return info
-
         # Startup: runner is not up yet; restore without cancelling jobs.
         result = _restore_without_job_cancel(backup_id)
         info["restored"] = True
-        info["backup_id"] = backup_id
-        info["total_records"] = result.get("total_records")
+        info["total_records"] = result.get("total_records", remote_count)
         logger.info(
-            "Startup auto-restore complete backup_id=%s records=%s",
+            "Startup auto-restore complete backup_id=%s local=%s remote=%s records=%s",
             backup_id,
-            result.get("total_records"),
+            local_count,
+            remote_count,
+            info["total_records"],
         )
     except Exception as exc:  # noqa: BLE001
         logger.exception("Startup auto-restore failed")

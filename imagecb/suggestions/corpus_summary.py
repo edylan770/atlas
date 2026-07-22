@@ -17,6 +17,10 @@ _CAPTION_FAILED = "[caption failed]"
 _MAX_SAMPLE_CAPTIONS = 12
 _MAX_RECOMMENDED_CASES = 8
 _MAX_TOP_TAGS = 12
+_MAX_SAMPLE_NAMES = 8
+_MAX_SAMPLE_USE_CASES = 6
+_MAX_TOP_ASSET_TYPES = 8
+_MAX_SAMPLE_ALIASES = 8
 
 
 @dataclass(frozen=True)
@@ -37,6 +41,10 @@ class CorpusContext:
     sample_captions: Tuple[str, ...] = ()
     top_tags: Tuple[str, ...] = ()
     sample_recommended_cases: Tuple[str, ...] = ()
+    sample_image_names: Tuple[str, ...] = ()
+    top_asset_types: Tuple[Tuple[str, int], ...] = ()
+    sample_use_cases: Tuple[str, ...] = ()
+    sample_aliases: Tuple[str, ...] = ()
     fingerprint: str = ""
 
 
@@ -44,6 +52,20 @@ def _iso(dt: Optional[datetime]) -> Optional[str]:
     if dt is None:
         return None
     return dt.date().isoformat()
+
+
+def _dedupe_preserve(items: Sequence[str], limit: int) -> List[str]:
+    seen: set[str] = set()
+    out: List[str] = []
+    for item in items:
+        key = item.lower()
+        if key in seen:
+            continue
+        seen.add(key)
+        out.append(item)
+        if len(out) >= limit:
+            break
+    return out
 
 
 def _summarize_records(records: Sequence) -> CorpusContext:
@@ -54,10 +76,14 @@ def _summarize_records(records: Sequence) -> CorpusContext:
     source_type_by_name: dict[str, str] = {}
     type_counter: Counter[str] = Counter()
     author_counter: Counter[str] = Counter()
+    asset_type_counter: Counter[str] = Counter()
     modified_dates: List[datetime] = []
     captions: List[str] = []
     tag_counter: Counter[str] = Counter()
     recommended_cases: List[str] = []
+    image_names: List[str] = []
+    use_cases: List[str] = []
+    aliases: List[str] = []
 
     for r in records:
         src_path = r.source_file or ""
@@ -69,11 +95,20 @@ def _summarize_records(records: Sequence) -> CorpusContext:
         author = (r.author or "").strip()
         if author:
             author_counter[author] += 1
+        asset = (getattr(r, "asset_type", None) or "").strip().lower()
+        if asset:
+            asset_type_counter[asset] += 1
         if r.source_modified_at is not None:
             modified_dates.append(r.source_modified_at)
         cap = (r.caption_short or "").strip()
         if cap and cap != _CAPTION_FAILED and len(cap) <= 200:
             captions.append(cap)
+        image_name = (getattr(r, "image_name", None) or "").strip()
+        if image_name and len(image_name) <= 120:
+            image_names.append(image_name)
+        use_case = (getattr(r, "use_case", None) or "").strip()
+        if use_case and len(use_case) <= 120:
+            use_cases.append(use_case)
         for tag in deserialize_list(r.tags_json):
             t = tag.strip().lower()
             if t:
@@ -82,6 +117,10 @@ def _summarize_records(records: Sequence) -> CorpusContext:
             c = case.strip()
             if c:
                 recommended_cases.append(c)
+        for alias in deserialize_list(getattr(r, "search_aliases_json", None)):
+            a = alias.strip()
+            if a and len(a) <= 80:
+                aliases.append(a)
 
     top_sources = [
         SourceFileStat(name=n, source_type=source_type_by_name.get(n, ""), count=c)
@@ -89,32 +128,16 @@ def _summarize_records(records: Sequence) -> CorpusContext:
     ]
     top_authors = tuple(a for a, _ in author_counter.most_common(5))
     type_counts = tuple(type_counter.most_common())
+    top_asset_types = tuple(asset_type_counter.most_common(_MAX_TOP_ASSET_TYPES))
     mod_after = _iso(min(modified_dates)) if modified_dates else None
     mod_before = _iso(max(modified_dates)) if modified_dates else None
 
-    seen_cap: set[str] = set()
-    sample_caps: List[str] = []
-    for cap in captions:
-        key = cap.lower()
-        if key in seen_cap:
-            continue
-        seen_cap.add(key)
-        sample_caps.append(cap)
-        if len(sample_caps) >= _MAX_SAMPLE_CAPTIONS:
-            break
-
+    sample_caps = _dedupe_preserve(captions, _MAX_SAMPLE_CAPTIONS)
     top_tags = tuple(t for t, _ in tag_counter.most_common(_MAX_TOP_TAGS))
-
-    seen_case: set[str] = set()
-    sample_cases: List[str] = []
-    for case in recommended_cases:
-        key = case.lower()
-        if key in seen_case:
-            continue
-        seen_case.add(key)
-        sample_cases.append(case)
-        if len(sample_cases) >= _MAX_RECOMMENDED_CASES:
-            break
+    sample_cases = _dedupe_preserve(recommended_cases, _MAX_RECOMMENDED_CASES)
+    sample_names = _dedupe_preserve(image_names, _MAX_SAMPLE_NAMES)
+    sample_use = _dedupe_preserve(use_cases, _MAX_SAMPLE_USE_CASES)
+    sample_alias = _dedupe_preserve(aliases, _MAX_SAMPLE_ALIASES)
 
     parts = {
         "count": len(records),
@@ -125,6 +148,10 @@ def _summarize_records(records: Sequence) -> CorpusContext:
         "captions": sample_caps,
         "tags": list(top_tags),
         "recommended_cases": sample_cases,
+        "image_names": sample_names,
+        "asset_types": list(top_asset_types),
+        "use_cases": sample_use,
+        "aliases": sample_alias,
     }
     fp = _fingerprint_from_parts(parts)
 
@@ -138,6 +165,10 @@ def _summarize_records(records: Sequence) -> CorpusContext:
         sample_captions=tuple(sample_caps),
         top_tags=top_tags,
         sample_recommended_cases=tuple(sample_cases),
+        sample_image_names=tuple(sample_names),
+        top_asset_types=top_asset_types,
+        sample_use_cases=tuple(sample_use),
+        sample_aliases=tuple(sample_alias),
         fingerprint=fp,
     )
 
@@ -157,8 +188,23 @@ def context_to_prompt_text(ctx: CorpusContext) -> str:
     if ctx.file_type_counts:
         types = ", ".join(f"{t}={n}" for t, n in ctx.file_type_counts)
         lines.append(f"File types: {types}")
+    if ctx.top_asset_types:
+        assets = ", ".join(f"{t}={n}" for t, n in ctx.top_asset_types)
+        lines.append(f"Asset types: {assets}")
     if ctx.top_tags:
         lines.append(f"Common tags: {', '.join(ctx.top_tags)}")
+    if ctx.sample_image_names:
+        lines.append("Sample image names:")
+        for name in ctx.sample_image_names:
+            lines.append(f"  - {name}")
+    if ctx.sample_use_cases:
+        lines.append("Sample use cases:")
+        for use in ctx.sample_use_cases:
+            lines.append(f"  - {use}")
+    if ctx.sample_aliases:
+        lines.append("Sample search aliases:")
+        for alias in ctx.sample_aliases:
+            lines.append(f"  - {alias}")
     if ctx.sample_captions:
         lines.append("Sample captions:")
         for cap in ctx.sample_captions:

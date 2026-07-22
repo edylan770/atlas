@@ -266,10 +266,81 @@ def test_auto_restore_on_startup_restores_checkpoint(seeded, monkeypatch):
     assert info["attempted"] is True
     assert info["restored"] is True
     assert info["backup_id"] == index_backup.CHECKPOINT_LATEST_ID
+    assert info["local_count"] == 0
+    assert info["remote_count"] == 1
 
     with metadata_db.session_scope() as session:
         row = session.get(metadata_db.ImageRecord, "img-1")
         assert row is not None
+
+
+def test_auto_restore_when_remote_has_more_records(seeded, monkeypatch):
+    """Small local smoke index is replaced by a larger S3 checkpoint."""
+    fake = FakeS3()
+    settings = replace(
+        seeded["settings"],
+        index_checkpoint_enabled=True,
+        index_auto_restore_on_startup=True,
+    )
+    monkeypatch.setattr(blob_store, "SETTINGS", settings)
+    monkeypatch.setattr(index_backup, "SETTINGS", settings)
+    monkeypatch.setattr(metadata_db, "SETTINGS", settings)
+    monkeypatch.setattr(blob_store, "get_s3_client", lambda: fake)
+    monkeypatch.setattr(index_backup, "_index_counts", lambda: {"total_records": 1, "chroma_vectors": 0})
+    monkeypatch.setattr(index_backup, "_reopen_live_stores", lambda: metadata_db.reopen_engine())
+    monkeypatch.setattr(index_backup, "_dispose_live_stores", lambda: metadata_db.dispose_engine())
+
+    index_backup.create_checkpoint(label="fuller-corpus")
+    assert metadata_db.count_active_records() == 1
+
+    manifest_key = (
+        "private-corpus",
+        "imagecb/index-backups/checkpoint-latest/manifest.json",
+    )
+    body, content_type = fake.objects[manifest_key]
+    manifest = json.loads(body)
+    manifest["total_records"] = 50
+    fake.objects[manifest_key] = (
+        json.dumps(manifest).encode("utf-8"),
+        content_type,
+    )
+
+    info = index_backup.maybe_auto_restore_on_startup()
+    assert info["attempted"] is True
+    assert info["restored"] is True
+    assert info["local_count"] == 1
+    assert info["remote_count"] == 50
+    assert info["backup_id"] == index_backup.CHECKPOINT_LATEST_ID
+
+    with metadata_db.session_scope() as session:
+        row = session.get(metadata_db.ImageRecord, "img-1")
+        assert row is not None
+
+
+def test_auto_restore_skips_when_local_count_ge_remote(seeded, monkeypatch):
+    fake = FakeS3()
+    settings = replace(
+        seeded["settings"],
+        index_checkpoint_enabled=True,
+        index_auto_restore_on_startup=True,
+    )
+    monkeypatch.setattr(blob_store, "SETTINGS", settings)
+    monkeypatch.setattr(index_backup, "SETTINGS", settings)
+    monkeypatch.setattr(metadata_db, "SETTINGS", settings)
+    monkeypatch.setattr(blob_store, "get_s3_client", lambda: fake)
+    monkeypatch.setattr(index_backup, "_index_counts", lambda: {"total_records": 1, "chroma_vectors": 0})
+    monkeypatch.setattr(index_backup, "_reopen_live_stores", lambda: metadata_db.reopen_engine())
+    monkeypatch.setattr(index_backup, "_dispose_live_stores", lambda: metadata_db.dispose_engine())
+
+    index_backup.create_checkpoint(label="same-size")
+    assert metadata_db.count_active_records() == 1
+
+    info = index_backup.maybe_auto_restore_on_startup()
+    assert info["restored"] is False
+    assert info["attempted"] is False
+    assert info["local_count"] == 1
+    assert info["remote_count"] == 1
+    assert info["skipped"] == "local_records=1_remote_records=1"
 
 
 def test_refuse_empty_snapshot_auto_restore(seeded, monkeypatch):

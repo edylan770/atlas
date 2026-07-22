@@ -21,6 +21,10 @@ def _record(
     caption_short: str = "A bar chart",
     tags_json: str | None = '["chart", "bar"]',
     recommended_cases_json: str | None = '["Find bar charts"]',
+    image_name: str | None = "Revenue Bar Chart",
+    asset_type: str | None = "chart",
+    use_case: str | None = "Quarterly business review",
+    search_aliases_json: str | None = '["bar graph", "revenue chart"]',
     modified: datetime | None = None,
 ):
     return SimpleNamespace(
@@ -30,6 +34,10 @@ def _record(
         caption_short=caption_short,
         tags_json=tags_json,
         recommended_cases_json=recommended_cases_json,
+        image_name=image_name,
+        asset_type=asset_type,
+        use_case=use_case,
+        search_aliases_json=search_aliases_json,
         source_modified_at=modified or datetime(2024, 6, 1),
     )
 
@@ -102,3 +110,34 @@ def test_context_to_prompt_text_deemphasizes_filenames():
     assert sources_pos != -1
     assert tags_pos < sources_pos
     assert "do not suggest filename-filter" in text
+
+
+def test_summarize_records_includes_image_names_and_asset_types():
+    records = [
+        _record(
+            caption_short="",
+            tags_json=None,
+            recommended_cases_json=None,
+            image_name="Team Standup Photo",
+            asset_type="photo",
+            use_case="Culture deck",
+            search_aliases_json='["team meeting"]',
+        ),
+        _record(
+            caption_short="",
+            tags_json=None,
+            recommended_cases_json=None,
+            image_name="Architecture Diagram",
+            asset_type="diagram",
+            use_case="Tech overview",
+            search_aliases_json='["system architecture"]',
+        ),
+    ]
+    ctx = _summarize_records(records)
+    assert "Team Standup Photo" in ctx.sample_image_names
+    assert ("photo", 1) in ctx.top_asset_types
+    assert "Culture deck" in ctx.sample_use_cases
+    assert "team meeting" in ctx.sample_aliases
+    text = context_to_prompt_text(ctx)
+    assert "Asset types:" in text
+    assert "Team Standup Photo" in text
