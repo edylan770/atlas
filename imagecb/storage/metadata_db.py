@@ -8,6 +8,7 @@ at query time.
 from __future__ import annotations
 
 import json
+import threading
 import uuid
 from contextlib import contextmanager
 from datetime import datetime
@@ -109,6 +110,11 @@ class IngestJob(IngestJobBase):
 
 _engine = None
 _SessionLocal: Optional[sessionmaker] = None
+_engine_lock = threading.RLock()
+_engine_gate = threading.Condition(_engine_lock)
+_active_sessions = 0
+_stores_frozen = False
+_session_depth = threading.local()
 
 
 def _engine_url() -> str:
@@ -148,37 +154,54 @@ def _configure_sqlite_connection(dbapi_connection, _connection_record) -> None:
 
 def get_engine():
     global _engine, _SessionLocal
-    if _engine is None:
-        from sqlalchemy import event
+    with _engine_lock:
+        if _engine is None:
+            from sqlalchemy import event
 
-        _engine = create_engine(
-            _engine_url(),
-            future=True,
-            connect_args={"check_same_thread": False, "timeout": 30},
-        )
-        event.listen(_engine, "connect", _configure_sqlite_connection)
-        Base.metadata.create_all(_engine)
-        _migrate_schema(_engine)
-        from imagecb.telemetry.schema import ensure_telemetry_schema
+            _engine = create_engine(
+                _engine_url(),
+                future=True,
+                connect_args={"check_same_thread": False, "timeout": 30},
+            )
+            event.listen(_engine, "connect", _configure_sqlite_connection)
+            Base.metadata.create_all(_engine)
+            _migrate_schema(_engine)
+            from imagecb.telemetry.schema import ensure_telemetry_schema
 
-        ensure_telemetry_schema()
-        _SessionLocal = sessionmaker(bind=_engine, expire_on_commit=False, future=True)
-    return _engine
+            ensure_telemetry_schema()
+            _SessionLocal = sessionmaker(bind=_engine, expire_on_commit=False, future=True)
+        return _engine
 
 
 def dispose_engine() -> None:
-    """Close the shared SQLAlchemy engine so SQLite files can be replaced."""
-    global _engine, _SessionLocal
-    if _engine is not None:
-        _engine.dispose()
-    _engine = None
-    _SessionLocal = None
+    """Close the shared SQLAlchemy engine so SQLite files can be replaced.
+
+    Blocks new sessions and waits for in-flight ones. Callers that replace
+    on-disk store files must keep the freeze until ``reopen_engine()``.
+    """
+    global _engine, _SessionLocal, _stores_frozen
+    with _engine_gate:
+        _stores_frozen = True
+        while _active_sessions > 0:
+            _engine_gate.wait(timeout=0.5)
+        if _engine is not None:
+            _engine.dispose()
+        _engine = None
+        _SessionLocal = None
 
 
 def reopen_engine():
-    """Dispose any prior engine and open a fresh connection to SQLITE_PATH."""
-    dispose_engine()
-    return get_engine()
+    """Open a fresh engine after dispose and allow sessions again."""
+    global _engine, _SessionLocal, _stores_frozen
+    with _engine_gate:
+        if _engine is not None:
+            _engine.dispose()
+        _engine = None
+        _SessionLocal = None
+        get_engine()
+        _stores_frozen = False
+        _engine_gate.notify_all()
+        return _engine
 
 
 def is_active(record: ImageRecord) -> bool:
@@ -187,9 +210,20 @@ def is_active(record: ImageRecord) -> bool:
 
 @contextmanager
 def session_scope() -> Session:
-    get_engine()
-    assert _SessionLocal is not None
-    session = _SessionLocal()
+    global _active_sessions
+    depth = int(getattr(_session_depth, "n", 0) or 0)
+    with _engine_gate:
+        # Nested scopes on the same thread must not wait on freeze while they
+        # still hold an outer session (that would deadlock dispose_engine).
+        if depth == 0:
+            while _stores_frozen:
+                _engine_gate.wait(timeout=0.5)
+        get_engine()
+        assert _SessionLocal is not None
+        session = _SessionLocal()
+        if depth == 0:
+            _active_sessions += 1
+        _session_depth.n = depth + 1
     try:
         yield session
         session.commit()
@@ -198,6 +232,11 @@ def session_scope() -> Session:
         raise
     finally:
         session.close()
+        with _engine_gate:
+            _session_depth.n = max(0, int(getattr(_session_depth, "n", 1) or 1) - 1)
+            if _session_depth.n == 0:
+                _active_sessions = max(0, _active_sessions - 1)
+                _engine_gate.notify_all()
 
 
 def new_image_id() -> str:

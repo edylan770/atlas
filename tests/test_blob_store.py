@@ -171,3 +171,35 @@ def test_s3_delete_surfaces_operational_failures(code):
             blob_store.delete("s3://private-corpus/image.png")
 
     assert exc_info.value is error
+
+
+def test_presign_upload_uses_browser_endpoint():
+    settings = replace(
+        SETTINGS,
+        blob_storage_backend="s3",
+        s3_bucket="private-corpus",
+        s3_region="us-east-1",
+        s3_presign_endpoint_url="http://localhost:9000",
+    )
+
+    class PresignClient:
+        def generate_presigned_url(self, ClientMethod, Params, ExpiresIn, HttpMethod):
+            assert ClientMethod == "put_object"
+            assert HttpMethod == "PUT"
+            assert Params["Bucket"] == "private-corpus"
+            return (
+                f"http://localhost:9000/{Params['Bucket']}/{Params['Key']}"
+                f"?content-type={Params['ContentType']}&Expires={ExpiresIn}"
+            )
+
+    with patch("imagecb.storage.blob_store.SETTINGS", settings), patch(
+        "imagecb.storage.blob_store.get_presign_s3_client",
+        return_value=PresignClient(),
+    ):
+        url, headers = blob_store.presign_upload(
+            "atlas/staging/job/file.png",
+            content_type="image/png",
+        )
+
+    assert url.startswith("http://localhost:9000/private-corpus/atlas/staging/")
+    assert headers == {"Content-Type": "image/png"}

@@ -23,6 +23,8 @@ def isolated_jobs(tmp_path, monkeypatch):
         metadata_db._engine.dispose()
     metadata_db._engine = None
     metadata_db._SessionLocal = None
+    metadata_db._stores_frozen = False
+    metadata_db._active_sessions = 0
 
     configured = replace(
         SETTINGS,
@@ -39,6 +41,8 @@ def isolated_jobs(tmp_path, monkeypatch):
         metadata_db._engine.dispose()
     metadata_db._engine = None
     metadata_db._SessionLocal = None
+    metadata_db._stores_frozen = False
+    metadata_db._active_sessions = 0
 
 
 def test_job_cancel_is_durable_and_idempotent(isolated_jobs, tmp_path):

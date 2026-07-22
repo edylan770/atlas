@@ -136,24 +136,39 @@ def s3_uri(key: str) -> str:
     return f"s3://{SETTINGS.s3_bucket}/{key}"
 
 
-@lru_cache(maxsize=4)
-def _s3_client(region: str) -> Any:
+@lru_cache(maxsize=8)
+def _s3_client(region: str, endpoint_url: str = "") -> Any:
     import boto3
     from botocore.config import Config
 
-    return boto3.client(
-        "s3",
-        region_name=region,
-        config=Config(
-            connect_timeout=SETTINGS.s3_connect_timeout,
-            read_timeout=SETTINGS.s3_read_timeout,
-            retries={"max_attempts": SETTINGS.s3_max_retries, "mode": "adaptive"},
-        ),
-    )
+    config_kwargs: dict[str, Any] = {
+        "connect_timeout": SETTINGS.s3_connect_timeout,
+        "read_timeout": SETTINGS.s3_read_timeout,
+        "retries": {"max_attempts": SETTINGS.s3_max_retries, "mode": "adaptive"},
+    }
+    if endpoint_url:
+        # MinIO and other path-style endpoints need this; AWS virtual-host is fine otherwise.
+        config_kwargs["s3"] = {"addressing_style": "path"}
+    kwargs: dict[str, Any] = {
+        "service_name": "s3",
+        "region_name": region,
+        "config": Config(**config_kwargs),
+    }
+    if endpoint_url:
+        # Explicit endpoint wins over AWS_ENDPOINT_URL_S3 (needed so browser
+        # presigns can target localhost while the app still talks to minio:9000).
+        kwargs["endpoint_url"] = endpoint_url
+    return boto3.client(**kwargs)
 
 
 def get_s3_client() -> Any:
-    return _s3_client(SETTINGS.s3_region)
+    return _s3_client(SETTINGS.s3_region, "")
+
+
+def get_presign_s3_client() -> Any:
+    """Client used only to sign browser-facing upload URLs."""
+    endpoint = SETTINGS.s3_presign_endpoint_url or ""
+    return _s3_client(SETTINGS.s3_region, endpoint)
 
 
 def presign_upload(
@@ -171,7 +186,7 @@ def presign_upload(
         params["ContentType"] = content_type
         headers["Content-Type"] = content_type
     expiry = max(60, min(expires_in or SETTINGS.s3_presign_expiry_sec, 86400))
-    url = get_s3_client().generate_presigned_url(
+    url = get_presign_s3_client().generate_presigned_url(
         "put_object",
         Params=params,
         ExpiresIn=expiry,

@@ -91,6 +91,8 @@ def _seed_index(tmp_path: Path) -> dict:
                 "'s3://private-corpus/imagecb/uploads/x/y/file.jpg', 'image')"
             )
         metadata_db.dispose_engine()
+    metadata_db._stores_frozen = False
+    metadata_db._active_sessions = 0
     return {
         "settings": settings,
         "sqlite_path": sqlite_path,
@@ -167,11 +169,13 @@ def test_backup_restore_round_trip(seeded, monkeypatch):
     )
     monkeypatch.setattr(index_backup, "_reopen_live_stores", lambda: metadata_db.reopen_engine())
     monkeypatch.setattr(index_backup, "_dispose_live_stores", lambda: metadata_db.dispose_engine())
+    monkeypatch.setattr(index_backup, "_index_counts", lambda: {"total_records": 1, "chroma_vectors": 1})
 
     result = index_backup.create_backup(label="unit-test")
     backup_id = result["backup_id"]
     assert result["ok"] is True
     assert result["label"] == "unit-test"
+    assert result["total_records"] == 1
 
     backups = index_backup.list_backups()
     assert len(backups) == 1
@@ -182,6 +186,7 @@ def test_backup_restore_round_trip(seeded, monkeypatch):
     assert ("private-corpus", archive_key) in fake.objects
     manifest = json.loads(fake.objects[("private-corpus", manifest_key)][0])
     assert manifest["archive_sha256"] == result["archive_sha256"]
+    assert manifest["total_records"] == 1
 
     # Corrupt live index, then restore.
     metadata_db.dispose_engine()
@@ -202,6 +207,129 @@ def test_backup_restore_round_trip(seeded, monkeypatch):
         row = session.get(metadata_db.ImageRecord, "img-1")
         assert row is not None
         assert row.content_hash == "hash-1"
+
+
+def test_create_checkpoint_does_not_cancel_jobs(seeded, monkeypatch):
+    fake = FakeS3()
+    settings = replace(seeded["settings"], index_checkpoint_enabled=True)
+    cancel_calls: list[str] = []
+
+    monkeypatch.setattr(blob_store, "SETTINGS", settings)
+    monkeypatch.setattr(index_backup, "SETTINGS", settings)
+    monkeypatch.setattr(metadata_db, "SETTINGS", settings)
+    monkeypatch.setattr(blob_store, "get_s3_client", lambda: fake)
+    monkeypatch.setattr(index_backup, "_index_counts", lambda: {"total_records": 1, "chroma_vectors": 0})
+    monkeypatch.setattr(
+        index_backup,
+        "_cancel_active_jobs",
+        lambda: cancel_calls.append("cancelled") or [],
+    )
+
+    result = index_backup.create_checkpoint(label="cp-test", job_id="job-1")
+    assert result["ok"] is True
+    assert result["quiesced"] is False
+    assert result["cancelled_job_ids"] == []
+    assert cancel_calls == []
+    assert result["latest_id"] == index_backup.CHECKPOINT_LATEST_ID
+    assert ("private-corpus", "imagecb/index-backups/checkpoint-latest/manifest.json") in fake.objects
+    manifest = json.loads(
+        fake.objects[("private-corpus", "imagecb/index-backups/checkpoint-latest/manifest.json")][0]
+    )
+    assert manifest["total_records"] == 1
+    assert manifest["kind"] == "checkpoint"
+
+
+def test_auto_restore_on_startup_restores_checkpoint(seeded, monkeypatch):
+    fake = FakeS3()
+    settings = replace(
+        seeded["settings"],
+        index_checkpoint_enabled=True,
+        index_auto_restore_on_startup=True,
+    )
+    monkeypatch.setattr(blob_store, "SETTINGS", settings)
+    monkeypatch.setattr(index_backup, "SETTINGS", settings)
+    monkeypatch.setattr(metadata_db, "SETTINGS", settings)
+    monkeypatch.setattr(blob_store, "get_s3_client", lambda: fake)
+    monkeypatch.setattr(index_backup, "_index_counts", lambda: {"total_records": 1, "chroma_vectors": 0})
+    monkeypatch.setattr(index_backup, "_reopen_live_stores", lambda: metadata_db.reopen_engine())
+    monkeypatch.setattr(index_backup, "_dispose_live_stores", lambda: metadata_db.dispose_engine())
+
+    index_backup.create_checkpoint(label="before-wipe")
+
+    metadata_db.dispose_engine()
+    seeded["sqlite_path"].unlink()
+    # Recreate empty schema so count_active_records == 0
+    metadata_db.reopen_engine()
+    assert metadata_db.count_active_records() == 0
+
+    info = index_backup.maybe_auto_restore_on_startup()
+    assert info["attempted"] is True
+    assert info["restored"] is True
+    assert info["backup_id"] == index_backup.CHECKPOINT_LATEST_ID
+
+    with metadata_db.session_scope() as session:
+        row = session.get(metadata_db.ImageRecord, "img-1")
+        assert row is not None
+
+
+def test_refuse_empty_snapshot_auto_restore(seeded, monkeypatch):
+    fake = FakeS3()
+    settings = replace(
+        seeded["settings"],
+        index_checkpoint_enabled=True,
+        index_auto_restore_on_startup=True,
+    )
+    monkeypatch.setattr(blob_store, "SETTINGS", settings)
+    monkeypatch.setattr(index_backup, "SETTINGS", settings)
+    monkeypatch.setattr(metadata_db, "SETTINGS", settings)
+    monkeypatch.setattr(blob_store, "get_s3_client", lambda: fake)
+    monkeypatch.setattr(index_backup, "_index_counts", lambda: {"total_records": 0, "chroma_vectors": 0})
+
+    index_backup.create_checkpoint(label="empty")
+
+    metadata_db.dispose_engine()
+    seeded["sqlite_path"].unlink()
+    metadata_db.reopen_engine()
+
+    info = index_backup.maybe_auto_restore_on_startup()
+    assert info["restored"] is False
+    assert info.get("skipped") == "no_nonempty_checkpoint" or info.get("attempted") is True
+
+
+def test_restore_backup_refuses_explicit_empty_manifest(seeded, monkeypatch):
+    settings = seeded["settings"]
+    monkeypatch.setattr(index_backup, "SETTINGS", settings)
+    monkeypatch.setattr(blob_store, "SETTINGS", settings)
+
+    class _FakeManifest:
+        pass
+
+    monkeypatch.setattr(
+        index_backup,
+        "_read_manifest",
+        lambda _id: {
+            "total_records": 0,
+            "archive_key": "imagecb/index-backups/empty/archive.tar.gz",
+            "archive_sha256": "abc",
+        },
+    )
+    with pytest.raises(index_backup.IndexBackupError, match="empty snapshot"):
+        index_backup.restore_backup("empty", confirm=True)
+
+
+def test_maybe_checkpoint_progress_records_error(seeded, monkeypatch):
+    settings = replace(seeded["settings"], index_checkpoint_enabled=True, blob_storage_backend="s3")
+    monkeypatch.setattr(index_backup, "SETTINGS", settings)
+    monkeypatch.setattr(
+        index_backup,
+        "create_checkpoint",
+        lambda **_: (_ for _ in ()).throw(index_backup.IndexBackupError("boom")),
+    )
+    stats = {"images_added": 10, "images_updated": 0, "_checkpoint_at": 0}
+    result = index_backup.maybe_checkpoint_progress(stats, force=True)
+    assert result is None
+    assert stats["checkpoint_errors"] == 1
+    assert "boom" in stats["last_checkpoint_error"]
 
 
 def test_restore_requires_confirm(seeded, monkeypatch):

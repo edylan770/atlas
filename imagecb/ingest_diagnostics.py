@@ -47,6 +47,8 @@ def runtime_diagnostics() -> dict:
         if stat
         else f"{sqlite_path}:missing"
     )
+    from imagecb.storage.index_backup import last_checkpoint_info, startup_restore_info
+
     return {
         "build_id": os.environ.get("APP_BUILD_ID", "development"),
         "runtime_id": f"{socket.gethostname()}:{os.getpid()}",
@@ -63,6 +65,11 @@ def runtime_diagnostics() -> dict:
         "sqlite_identity": sqlite_identity,
         "database_url": engine.url.render_as_string(hide_password=True),
         "runner": runner_health(),
+        "index_checkpoint_enabled": SETTINGS.index_checkpoint_enabled,
+        "index_checkpoint_every_n": SETTINGS.index_checkpoint_every_n,
+        "index_auto_restore_on_startup": SETTINGS.index_auto_restore_on_startup,
+        "last_checkpoint": last_checkpoint_info(),
+        "startup_restore": startup_restore_info(),
     }
 
 

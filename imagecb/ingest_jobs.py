@@ -144,9 +144,11 @@ def create_job(
     )
     with session_scope() as session:
         session.add(record)
+        session.flush()
+        created = job_to_dict(record)
     if status == "queued":
         wake_worker()
-    return get_job(job_id) or {}
+    return created
 
 
 def finalize_s3_job(job_id: str, files: list[str]) -> Optional[dict]:
@@ -529,6 +531,7 @@ class IngestJobRunner:
 
     def _execute(self, job_id: str, files: list[str], options: dict) -> None:
         from imagecb.ingest import IngestInProgressError, ingest_paths_batched
+        from imagecb.storage.index_backup import maybe_checkpoint_progress
 
         heartbeat_stop = threading.Event()
 
@@ -543,6 +546,13 @@ class IngestJobRunner:
         )
         heartbeat_thread.start()
         try:
+            _set_phase(job_id, "checkpointing_index", "Saving durable index checkpoint")
+            maybe_checkpoint_progress(
+                {"images_added": 0, "images_updated": 0, "_checkpoint_at": 0},
+                job_id=job_id,
+                force=True,
+                label=f"job-start:{job_id}",
+            )
             _set_phase(job_id, "preparing", "Preparing ingestion dependencies")
             stats = ingest_paths_batched(
                 files,
@@ -554,6 +564,7 @@ class IngestJobRunner:
                 should_cancel=lambda: _cancel_requested(job_id),
                 progress_callback=lambda progress: _update_progress(job_id, progress),
                 phase_callback=lambda phase, detail=None: _set_phase(job_id, phase, detail),
+                checkpoint_job_id=job_id,
             )
             processed = (
                 int(stats.get("images_added", 0))
@@ -577,6 +588,13 @@ class IngestJobRunner:
                 status = "succeeded"
                 error = None
             _finish_job(job_id, status=status, stats=stats, error=error)
+            if status == "succeeded":
+                maybe_checkpoint_progress(
+                    stats,
+                    job_id=job_id,
+                    force=True,
+                    label=f"job-success:{job_id}",
+                )
             _cleanup_staging(job_id, status)
         except IngestInProgressError:
             _requeue_job(job_id, "Waiting for the active ingest to finish")

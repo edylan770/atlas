@@ -115,6 +115,12 @@ class Settings:
     s3_presign_expiry_sec: int = field(
         default_factory=lambda: int(_env("S3_PRESIGN_EXPIRY_SEC", "3600") or "3600")
     )
+    # Host the browser must reach for presigned PUTs. When set (e.g. MinIO
+    # playground: http://localhost:9000), only URL signing uses this endpoint;
+    # server-side S3 calls still follow AWS_ENDPOINT_URL_S3 / the default chain.
+    s3_presign_endpoint_url: Optional[str] = field(
+        default_factory=lambda: (_env("S3_PRESIGN_ENDPOINT_URL") or "").rstrip("/") or None
+    )
 
     # OCR
     tesseract_cmd: Optional[str] = field(default_factory=lambda: _env("TESSERACT_CMD"))
@@ -159,7 +165,7 @@ class Settings:
     )
     # Ingest performance
     ingest_workers: int = field(
-        default_factory=lambda: int(_env("INGEST_WORKERS", "4") or "4")
+        default_factory=lambda: int(_env("INGEST_WORKERS", "2") or "2")
     )
     ingest_max_image_side: int = field(
         default_factory=lambda: int(_env("INGEST_MAX_IMAGE_SIDE", "1024") or "1024")
@@ -206,6 +212,27 @@ class Settings:
     )
     index_reconcile_after_ingest: bool = field(
         default_factory=lambda: (_env("INDEX_RECONCILE_AFTER_INGEST", "true") or "true").lower()
+        in ("1", "true", "yes", "on")
+    )
+
+    # S3 index durability: checkpoint local SQLite/Chroma to S3 and restore on boot
+    # when the ephemeral host volume comes back empty.
+    index_checkpoint_enabled: bool = field(
+        default_factory=lambda: (
+            _env("INDEX_CHECKPOINT_ENABLED")
+            or (
+                "true"
+                if (_env("BLOB_STORAGE_BACKEND", "local") or "local").lower() == "s3"
+                else "false"
+            )
+        ).lower()
+        in ("1", "true", "yes", "on")
+    )
+    index_checkpoint_every_n: int = field(
+        default_factory=lambda: int(_env("INDEX_CHECKPOINT_EVERY_N", "10") or "10")
+    )
+    index_auto_restore_on_startup: bool = field(
+        default_factory=lambda: (_env("INDEX_AUTO_RESTORE_ON_STARTUP", "true") or "true").lower()
         in ("1", "true", "yes", "on")
     )
 

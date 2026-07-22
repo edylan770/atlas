@@ -197,6 +197,25 @@ export interface IngestDiagnostics {
     alive: boolean;
     thread_name?: string | null;
   };
+  index_checkpoint_enabled?: boolean;
+  index_checkpoint_every_n?: number;
+  index_auto_restore_on_startup?: boolean;
+  last_checkpoint?: {
+    backup_id?: string | null;
+    total_records?: number | null;
+    chroma_vectors?: number | null;
+    label?: string | null;
+    created_at?: string | null;
+    error?: string | null;
+  };
+  startup_restore?: {
+    attempted?: boolean;
+    restored?: boolean;
+    backup_id?: string | null;
+    total_records?: number | null;
+    error?: string | null;
+    skipped?: string | null;
+  };
 }
 
 export interface IngestPreflight {

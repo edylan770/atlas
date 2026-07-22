@@ -780,6 +780,9 @@ function CorpusPage() {
               This page lists metadata from SQLite on the app host — it does not
               scan the S3 bucket. Image bytes may still live in S3, and old chat
               turns in the browser can show images even when this list is empty.
+              If a large ingest crashed, the app should auto-restore the latest
+              S3 index checkpoint on startup; check Ingestions diagnostics for
+              startup restore status before re-uploading.
             </p>
             {((corpusHealth?.total_records ?? corpusHealth?.total_images ?? 0) === 0 &&
               (corpusHealth?.chroma_vectors ?? 0) === 0) && (
@@ -1202,16 +1205,54 @@ function IngestionsPage() {
                 SQLite path: {diagnostics.sqlite_path}
               </span>
             )}
+            <span>
+              Checkpointing:{" "}
+              {diagnostics.index_checkpoint_enabled ? "enabled" : "disabled"}
+              {diagnostics.index_checkpoint_every_n != null
+                ? ` (every ${diagnostics.index_checkpoint_every_n})`
+                : ""}
+            </span>
+            <span>
+              Auto-restore:{" "}
+              {diagnostics.index_auto_restore_on_startup ? "enabled" : "disabled"}
+            </span>
+            {diagnostics.last_checkpoint?.backup_id && (
+              <span className="sm:col-span-2">
+                Last checkpoint: {diagnostics.last_checkpoint.backup_id}
+                {diagnostics.last_checkpoint.total_records != null
+                  ? ` (${diagnostics.last_checkpoint.total_records} records)`
+                  : ""}
+              </span>
+            )}
+            {diagnostics.last_checkpoint?.error && (
+              <span className="sm:col-span-2 text-red-600">
+                Last checkpoint error: {diagnostics.last_checkpoint.error}
+              </span>
+            )}
+            {diagnostics.startup_restore && (
+              <span className="sm:col-span-2">
+                Startup restore:{" "}
+                {diagnostics.startup_restore.restored
+                  ? `restored ${diagnostics.startup_restore.backup_id ?? ""} (${diagnostics.startup_restore.total_records ?? "?"} records)`
+                  : diagnostics.startup_restore.error
+                    ? `failed — ${diagnostics.startup_restore.error}`
+                    : diagnostics.startup_restore.skipped
+                      ? `skipped (${diagnostics.startup_restore.skipped})`
+                      : diagnostics.startup_restore.attempted
+                        ? "attempted"
+                        : "not attempted"}
+              </span>
+            )}
           </div>
         )}
         {diagnostics && (
           <p className="text-xs text-navy-500">
-            Search indexes live on the host data volume (SQLite/Chroma under{" "}
+            Live search indexes are a local cache under{" "}
             <code className="rounded bg-navy-50 px-1">DATA_DIR</code>
-            ), not in S3. On AWS, confirm{" "}
-            <code className="rounded bg-navy-50 px-1">./data → /app/data</code>{" "}
-            persists across container recreate; an empty path here with chat
-            history still showing images usually means a lost local index.
+            . With S3 durability enabled, ingest checkpoints that cache to S3 and
+            empty startups restore <code className="rounded bg-navy-50 px-1">checkpoint-latest</code>.
+            Prefer a persistent host volume plus checkpoints; an empty path here
+            with chat history still showing images usually means a lost local index.
           </p>
         )}
         {diagnostics && diagnostics.build_id !== frontendBuildId && (

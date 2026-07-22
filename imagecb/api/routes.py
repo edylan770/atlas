@@ -965,13 +965,25 @@ def create_s3_ingest_job(
         "batch_size": 25,
         "direct_s3": True,
     }
-    job = create_job(
-        job_id,
-        [],
-        options,
-        status="staging",
-        upload_manifest=manifest,
-    )
+    try:
+        job = create_job(
+            job_id,
+            [],
+            options,
+            status="staging",
+            upload_manifest=manifest,
+        )
+    except Exception as exc:  # noqa: BLE001
+        logger.exception("Could not create direct-upload ingest job")
+        raise HTTPException(
+            status_code=500,
+            detail=f"Could not prepare S3 upload: failed to create ingest job ({exc})",
+        ) from exc
+    if not job.get("job_id"):
+        raise HTTPException(
+            status_code=500,
+            detail="Could not prepare S3 upload: ingest job was not persisted",
+        )
     return S3IngestJobResponse(
         job=IngestJobOut.model_validate(job),
         uploads=uploads,

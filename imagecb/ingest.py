@@ -644,20 +644,26 @@ def _run_ingest_pool(
         )
 
     def _report_progress() -> None:
-        if progress_callback is None:
-            return
-        processed = (
-            stats["images_added"]
-            + stats["images_updated"]
-            + stats["skipped_duplicates"]
-            + stats["errors"]
-        )
-        progress_callback(
-            {
-                "images_seen": stats.get("images_seen", 0),
-                "images_processed": processed,
-                "stats": dict(stats),
-            }
+        if progress_callback is not None:
+            processed = (
+                stats["images_added"]
+                + stats["images_updated"]
+                + stats["skipped_duplicates"]
+                + stats["errors"]
+            )
+            progress_callback(
+                {
+                    "images_seen": stats.get("images_seen", 0),
+                    "images_processed": processed,
+                    "stats": dict(stats),
+                }
+            )
+        from imagecb.storage.index_backup import maybe_checkpoint_progress
+
+        maybe_checkpoint_progress(
+            stats,
+            job_id=stats.get("_checkpoint_job_id"),
+            force=False,
         )
 
     max_in_flight = max(workers * 2, workers)
@@ -749,6 +755,7 @@ def ingest_paths(
     should_cancel: Optional[Callable[[], bool]] = None,
     progress_callback: Optional[Callable[[dict], None]] = None,
     phase_callback: Optional[Callable[[str, Optional[str]], None]] = None,
+    checkpoint_job_id: Optional[str] = None,
     _hold_ingest_lock: bool = True,
 ) -> dict:
     """Ingest a list of source files. Returns a stats dict."""
@@ -774,6 +781,7 @@ def ingest_paths(
             should_cancel=should_cancel,
             progress_callback=progress_callback,
             phase_callback=phase_callback,
+            checkpoint_job_id=checkpoint_job_id,
         )
     finally:
         if acquired:
@@ -796,6 +804,7 @@ def _ingest_paths_locked(
     should_cancel: Optional[Callable[[], bool]] = None,
     progress_callback: Optional[Callable[[dict], None]] = None,
     phase_callback: Optional[Callable[[str, Optional[str]], None]] = None,
+    checkpoint_job_id: Optional[str] = None,
 ) -> dict:
     paths = list(paths)
     workers = workers if workers is not None else SETTINGS.ingest_workers
@@ -811,6 +820,8 @@ def _ingest_paths_locked(
     image_timeout_sec = max(30, image_timeout_sec)
 
     stats = _empty_stats(workers=workers)
+    if checkpoint_job_id:
+        stats["_checkpoint_job_id"] = checkpoint_job_id
     stats["files"] = len(paths)
     if not paths:
         return stats
@@ -876,6 +887,16 @@ def _ingest_paths_locked(
     stats["images_seen"] = images_seen
 
     if images_seen > 0:
+        from imagecb.storage.index_backup import maybe_checkpoint_progress
+
+        if phase_callback:
+            phase_callback("checkpointing_index", "Saving durable index checkpoint")
+        maybe_checkpoint_progress(
+            stats,
+            job_id=checkpoint_job_id or stats.get("_checkpoint_job_id"),
+            force=True,
+            label=f"pre-finalize:{checkpoint_job_id or 'manual'}",
+        )
         if phase_callback:
             phase_callback("finalizing_indexes", "Rebuilding search indexes")
         with timing.timed("finalize"):
@@ -939,6 +960,7 @@ def ingest_paths_batched(
     should_cancel: Optional[Callable[[], bool]] = None,
     progress_callback: Optional[Callable[[dict], None]] = None,
     phase_callback: Optional[Callable[[str, Optional[str]], None]] = None,
+    checkpoint_job_id: Optional[str] = None,
 ) -> dict:
     """Ingest source files in file batches; rebuild BM25 once at the end."""
     if not _ingest_lock.acquire(blocking=False):
@@ -950,6 +972,8 @@ def ingest_paths_batched(
         workers = max(1, workers)
 
         total = _empty_stats(workers=workers)
+        if checkpoint_job_id:
+            total["_checkpoint_job_id"] = checkpoint_job_id
         total["files"] = len(paths)
         if not paths:
             return total
@@ -1003,9 +1027,20 @@ def ingest_paths_batched(
                     should_cancel=should_cancel,
                     progress_callback=_batch_progress,
                     phase_callback=phase_callback,
+                    checkpoint_job_id=checkpoint_job_id,
                     _hold_ingest_lock=False,
                 )
             _merge_stats(total, batch_stats)
+            if batch_stats.get("_checkpoint_at") is not None:
+                total["_checkpoint_at"] = batch_stats["_checkpoint_at"]
+            if batch_stats.get("last_checkpoint_id"):
+                total["last_checkpoint_id"] = batch_stats["last_checkpoint_id"]
+            if batch_stats.get("checkpoint_errors"):
+                total["checkpoint_errors"] = int(total.get("checkpoint_errors", 0) or 0) + int(
+                    batch_stats.get("checkpoint_errors") or 0
+                )
+            if batch_stats.get("last_checkpoint_error"):
+                total["last_checkpoint_error"] = batch_stats["last_checkpoint_error"]
             completed_files += len(chunk)
             if progress_callback is not None:
                 progress_callback(
@@ -1035,6 +1070,16 @@ def ingest_paths_batched(
             )
 
         if defer_bm25 and total["images_seen"] > 0:
+            from imagecb.storage.index_backup import maybe_checkpoint_progress
+
+            if phase_callback:
+                phase_callback("checkpointing_index", "Saving durable index checkpoint")
+            maybe_checkpoint_progress(
+                total,
+                job_id=checkpoint_job_id,
+                force=True,
+                label=f"pre-finalize:{checkpoint_job_id or 'batched'}",
+            )
             if phase_callback:
                 phase_callback("finalizing_indexes", "Rebuilding search indexes")
             with summary.timed("finalize"):

@@ -57,6 +57,19 @@ def _maybe_start_bootstrap_ingest(total_records: int) -> None:
 async def _lifespan(_app: FastAPI):
     from imagecb.ingest_jobs import start_job_runner, stop_job_runner
     from imagecb.repair import assess_index_health, reconcile_index_safe
+    from imagecb.storage.index_backup import maybe_auto_restore_on_startup
+
+    restore_info = maybe_auto_restore_on_startup()
+    if restore_info.get("restored"):
+        logger.info(
+            "Startup restored index from S3 backup_id=%s records=%s",
+            restore_info.get("backup_id"),
+            restore_info.get("total_records"),
+        )
+    elif restore_info.get("attempted") and restore_info.get("error"):
+        logger.warning("Startup auto-restore failed: %s", restore_info.get("error"))
+    elif restore_info.get("skipped"):
+        logger.info("Startup auto-restore skipped: %s", restore_info.get("skipped"))
 
     report = assess_index_health(include_weak=True)
     logger.info(
@@ -87,6 +100,8 @@ def create_app() -> FastAPI:
             "http://localhost:5173",
             "http://127.0.0.1:8080",
             "http://localhost:8080",
+            "http://127.0.0.1:8081",
+            "http://localhost:8081",
         ],
         allow_credentials=True,
         allow_methods=["*"],

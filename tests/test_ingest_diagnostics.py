@@ -42,6 +42,8 @@ def test_runtime_diagnostics_redacts_credentials(tmp_path, monkeypatch):
         metadata_db._engine.dispose()
     metadata_db._engine = None
     metadata_db._SessionLocal = None
+    metadata_db._stores_frozen = False
+    metadata_db._active_sessions = 0
     configured = replace(
         SETTINGS,
         data_dir=tmp_path,
@@ -63,6 +65,8 @@ def test_runtime_diagnostics_redacts_credentials(tmp_path, monkeypatch):
     metadata_db._engine.dispose()
     metadata_db._engine = None
     metadata_db._SessionLocal = None
+    metadata_db._stores_frozen = False
+    metadata_db._active_sessions = 0
 
 
 def test_admin_diagnostics_requires_authentication():
