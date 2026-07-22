@@ -166,6 +166,21 @@ def get_engine():
     return _engine
 
 
+def dispose_engine() -> None:
+    """Close the shared SQLAlchemy engine so SQLite files can be replaced."""
+    global _engine, _SessionLocal
+    if _engine is not None:
+        _engine.dispose()
+    _engine = None
+    _SessionLocal = None
+
+
+def reopen_engine():
+    """Dispose any prior engine and open a fresh connection to SQLITE_PATH."""
+    dispose_engine()
+    return get_engine()
+
+
 def is_active(record: ImageRecord) -> bool:
     return record.deleted_at is None
 

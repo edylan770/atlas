@@ -83,6 +83,53 @@ def ingest_log_key(run_id: str, when: Optional[datetime] = None) -> str:
     return _key(SETTINGS.s3_prefix, "ingest-logs", f"{stamp}_{safe_id}.txt")
 
 
+def index_backup_prefix(backup_id: Optional[str] = None) -> str:
+    """S3 prefix for index snapshot vault objects."""
+    if backup_id:
+        return _key(SETTINGS.s3_prefix, "index-backups", safe_filename(backup_id))
+    return _key(SETTINGS.s3_prefix, "index-backups")
+
+
+def index_backup_key(backup_id: str, filename: str) -> str:
+    return _key(index_backup_prefix(backup_id), safe_filename(filename))
+
+
+def list_keys(prefix: str, *, max_keys: Optional[int] = None) -> list[str]:
+    """List object keys under a prefix in the configured S3 bucket."""
+    if SETTINGS.blob_storage_backend != "s3" or not SETTINGS.s3_bucket:
+        raise ValueError("Listing objects requires BLOB_STORAGE_BACKEND=s3 and S3_BUCKET")
+    client = get_s3_client()
+    keys: list[str] = []
+    token: Optional[str] = None
+    while True:
+        kwargs: dict[str, Any] = {
+            "Bucket": SETTINGS.s3_bucket,
+            "Prefix": prefix,
+        }
+        if token:
+            kwargs["ContinuationToken"] = token
+        page_size = 1000
+        if max_keys is not None:
+            remaining = max_keys - len(keys)
+            if remaining <= 0:
+                break
+            page_size = min(1000, remaining)
+        kwargs["MaxKeys"] = page_size
+        response = client.list_objects_v2(**kwargs)
+        for item in response.get("Contents") or []:
+            key = item.get("Key")
+            if key:
+                keys.append(key)
+                if max_keys is not None and len(keys) >= max_keys:
+                    return keys
+        if not response.get("IsTruncated"):
+            break
+        token = response.get("NextContinuationToken")
+        if not token:
+            break
+    return keys
+
+
 def s3_uri(key: str) -> str:
     if not SETTINGS.s3_bucket:
         raise ValueError("S3_BUCKET is not configured")

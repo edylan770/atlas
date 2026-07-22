@@ -256,6 +256,59 @@ export function repairIndex(includeWeak = false): Promise<IndexRepairResult> {
   );
 }
 
+export interface IndexBackupInfo {
+  id: string;
+  created_at?: string | null;
+  label?: string | null;
+  size_bytes?: number | null;
+  sha256?: string | null;
+  prefix?: string;
+  s3_uri?: string;
+  artifacts?: Record<string, unknown>;
+  build_id?: string | null;
+}
+
+export interface IndexBackupResult {
+  ok: boolean;
+  backup_id: string;
+  s3_uri?: string;
+  archive_bytes?: number;
+  archive_sha256?: string;
+  label?: string | null;
+  quiesced?: boolean;
+  cancelled_job_ids?: string[];
+}
+
+export interface IndexRestoreResult {
+  ok: boolean;
+  backup_id: string;
+  s3_uri?: string;
+  archive_sha256?: string;
+  quiesced?: boolean;
+  restart_required?: boolean;
+  cancelled_job_ids?: string[];
+}
+
+export function listIndexBackups(): Promise<{ backups: IndexBackupInfo[] }> {
+  return adminRequest("/api/admin/index/backups");
+}
+
+export function backupIndex(label?: string): Promise<IndexBackupResult> {
+  return adminRequest("/api/admin/index/backup", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(label ? { label } : {}),
+  });
+}
+
+export function restoreIndex(backupId: string): Promise<IndexRestoreResult> {
+  return adminRequest("/api/admin/index/restore", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ backup_id: backupId, confirm: true }),
+  });
+}
+
 export function repairCaptions(
   scope: "failed" | "weak",
 ): Promise<RepairCaptionsResult> {

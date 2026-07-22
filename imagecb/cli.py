@@ -289,6 +289,83 @@ def reconcile_index_cmd(
         )
 
 
+@app.command(name="list-index-backups")
+def list_index_backups_cmd(
+    verbose: bool = typer.Option(False, "--verbose", "-v"),
+) -> None:
+    """List completed search-index snapshots in the S3 vault."""
+    _configure_logging(verbose)
+    from imagecb.storage.index_backup import IndexBackupError, list_backups
+
+    try:
+        backups = list_backups()
+    except IndexBackupError as exc:
+        typer.secho(str(exc), fg=typer.colors.RED, err=True)
+        raise typer.Exit(code=1) from exc
+    if not backups:
+        typer.echo("No completed index backups found.")
+        return
+    for item in backups:
+        label = f" label={item.get('label')}" if item.get("label") else ""
+        typer.echo(
+            f"{item['id']}  created={item.get('created_at')}  "
+            f"bytes={item.get('size_bytes')}{label}"
+        )
+
+
+@app.command(name="backup-index")
+def backup_index_cmd(
+    label: Optional[str] = typer.Option(
+        None,
+        "--label",
+        help="Optional label stored in the snapshot manifest.",
+    ),
+    verbose: bool = typer.Option(False, "--verbose", "-v"),
+) -> None:
+    """Quiesce ingest and upload a consistent index snapshot to S3."""
+    _configure_logging(verbose)
+    from imagecb.storage.index_backup import IndexBackupError, create_backup
+
+    try:
+        result = create_backup(label=label)
+    except IndexBackupError as exc:
+        typer.secho(str(exc), fg=typer.colors.RED, err=True)
+        raise typer.Exit(code=1) from exc
+    typer.echo(
+        f"Backup {result['backup_id']} uploaded ({result['archive_bytes']} bytes) "
+        f"-> {result['s3_uri']}"
+    )
+
+
+@app.command(name="restore-index")
+def restore_index_cmd(
+    backup_id: str = typer.Argument(..., help="Snapshot id from list-index-backups."),
+    yes: bool = typer.Option(
+        False,
+        "--yes",
+        help="Confirm replacing the live EC2 index with the snapshot.",
+    ),
+    verbose: bool = typer.Option(False, "--verbose", "-v"),
+) -> None:
+    """Replace the live search index with a completed S3 snapshot."""
+    _configure_logging(verbose)
+    from imagecb.storage.index_backup import IndexBackupError, restore_backup
+
+    if not yes:
+        typer.secho(
+            "Refusing to restore without --yes (this replaces the live index).",
+            fg=typer.colors.RED,
+            err=True,
+        )
+        raise typer.Exit(code=1)
+    try:
+        result = restore_backup(backup_id, confirm=True)
+    except IndexBackupError as exc:
+        typer.secho(str(exc), fg=typer.colors.RED, err=True)
+        raise typer.Exit(code=1) from exc
+    typer.echo(f"Restored backup {result['backup_id']} from {result['s3_uri']}")
+
+
 @app.command(name="validate-reranker")
 def validate_reranker_cmd(verbose: bool = typer.Option(False, "--verbose", "-v")) -> None:
     """Smoke-test Bedrock reranker access for the configured region and model."""

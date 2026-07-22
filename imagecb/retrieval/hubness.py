@@ -158,6 +158,12 @@ def get_hubness_stats() -> HubnessStats:
 
 
 def reset_cache() -> None:
-    """Clear the in-process cache (used by tests)."""
+    """Clear the in-process cache (used by tests and index restore)."""
     global _index
     _index = None
+
+
+def reload_index() -> HubnessIndex:
+    """Drop the cached hubness stats and reload from HUBNESS_PATH."""
+    reset_cache()
+    return _get_index()

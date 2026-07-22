@@ -122,6 +122,82 @@ def admin_index_repair(
     return {"ok": True, **stats}
 
 
+class IndexBackupRequest(BaseModel):
+    label: Optional[str] = None
+
+
+class IndexRestoreRequest(BaseModel):
+    backup_id: str = Field(..., min_length=1)
+    confirm: bool = False
+
+
+@router.get("/index/backups")
+def admin_index_backups(
+    _: str = Depends(require_admin),
+):
+    from imagecb.storage.index_backup import IndexBackupError, list_backups
+
+    try:
+        return {"backups": list_backups()}
+    except IndexBackupError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+
+
+@router.post("/index/backup")
+def admin_index_backup(
+    body: IndexBackupRequest = IndexBackupRequest(),
+    actor: str = Depends(require_admin),
+):
+    from imagecb.storage.index_backup import IndexBackupError, create_backup
+
+    try:
+        result = create_backup(label=body.label)
+    except IndexBackupError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    except Exception as exc:  # noqa: BLE001
+        logger.exception("Index backup failed")
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
+    audit.append_audit(
+        actor=actor,
+        action="index_backup",
+        target_type="index",
+        target_id=str(result.get("backup_id") or "unknown"),
+        details={
+            "archive_bytes": result.get("archive_bytes"),
+            "label": result.get("label"),
+            "s3_uri": result.get("s3_uri"),
+        },
+    )
+    return result
+
+
+@router.post("/index/restore")
+def admin_index_restore(
+    body: IndexRestoreRequest,
+    actor: str = Depends(require_admin),
+):
+    from imagecb.storage.index_backup import IndexBackupError, restore_backup
+
+    try:
+        result = restore_backup(body.backup_id, confirm=body.confirm)
+    except IndexBackupError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    except Exception as exc:  # noqa: BLE001
+        logger.exception("Index restore failed")
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
+    audit.append_audit(
+        actor=actor,
+        action="index_restore",
+        target_type="index",
+        target_id=body.backup_id,
+        details={
+            "archive_sha256": result.get("archive_sha256"),
+            "s3_uri": result.get("s3_uri"),
+        },
+    )
+    return result
+
+
 @router.get("/corpus/images")
 def admin_corpus_images(
     sort: Optional[str] = Query(None),

@@ -43,6 +43,21 @@ def _get_collection(name: str = _IMAGE_COLLECTION):
     return col
 
 
+def reset_client() -> None:
+    """Drop the cached PersistentClient so chroma_dir can be replaced on disk."""
+    global _client
+    _client = None
+    _collections.clear()
+
+
+def reopen_client() -> None:
+    """Reset and lazily reopen Chroma against the current CHROMA_DIR."""
+    reset_client()
+    _get_collection(_IMAGE_COLLECTION)
+    if SETTINGS.caption_text_lane_enabled:
+        _get_collection(_CAPTION_TEXT_COLLECTION)
+
+
 def _upsert(
     name: str,
     *,

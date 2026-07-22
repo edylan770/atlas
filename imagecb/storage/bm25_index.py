@@ -125,6 +125,18 @@ def get_index() -> BM25Index:
     return _index
 
 
+def reset_cache() -> None:
+    """Clear the in-process BM25 singleton (used after index restore)."""
+    global _index
+    _index = None
+
+
+def reload_index() -> BM25Index:
+    """Drop the cached index and reload from BM25_PATH."""
+    reset_cache()
+    return get_index()
+
+
 def is_loaded() -> bool:
     return get_index().is_loaded()
 

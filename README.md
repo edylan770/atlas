@@ -220,6 +220,7 @@ Object layout under the prefix:
 - `uploads/` — original source files
 - `staging/` — direct browser uploads awaiting validation/ingestion
 - `images/` — generated display PNGs
+- `index-backups/` — versioned search-index snapshots (SQLite/Chroma/BM25/hubness)
 - `ingest-logs/` — per-run timing `.txt` reports (disable with `INGEST_TIMING_LOG=false`)
 
 Attach an EC2 instance role granting `s3:GetObject`, `s3:PutObject`, and
@@ -251,6 +252,14 @@ For reliable large browser uploads, configure the EC2 path as follows:
 
 - Put the Compose `./data` directory on a persistent, sized gp3 EBS volume.
   Search indexes and temporary extractor files still use this volume.
+- Use Admin → Corpus → **Backup index to S3** / **Restore from S3** (or
+  `python -m imagecb.cli backup-index` / `restore-index`) to store versioned
+  snapshots of SQLite, Chroma, BM25, and hubness under
+  `imagecb/index-backups/{id}/`. S3 is a vault only—the live index always
+  stays on the EC2 `./data` mount. Incomplete uploads are ignored until
+  `manifest.json` is written. Grant the instance role `s3:GetObject`,
+  `s3:PutObject`, `s3:DeleteObject`, and `s3:ListBucket` for
+  `imagecb/index-backups/*` as well as the existing blob prefixes.
 - Send container logs and EC2 disk/memory metrics to CloudWatch. Alarm on ALB
   5xx/target latency, low disk space, container restarts, and ingest
   heartbeats that remain stale for more than a few minutes.

@@ -9,6 +9,9 @@ import {
   runIngestPreflight,
   reconcileIndex,
   repairIndex,
+  listIndexBackups,
+  backupIndex,
+  restoreIndex,
   purgeUnrecoverable,
   fetchCorpusImages,
   fetchDeleted,
@@ -25,6 +28,7 @@ import {
   type CaptionQualityFilter,
   type CorpusHealth,
   type CorpusImage,
+  type IndexBackupInfo,
   type IngestDiagnostics,
   type IngestPreflight,
   type SearchQualityItem,
@@ -222,10 +226,13 @@ function CorpusPage() {
   const [bulkRepairResult, setBulkRepairResult] = useState<string | null>(null);
   const [bulkRepairError, setBulkRepairError] = useState<string | null>(null);
   const [indexAction, setIndexAction] = useState<
-    "reconcile" | "repair" | "purge" | null
+    "reconcile" | "repair" | "purge" | "backup" | "restore" | null
   >(null);
   const [indexActionResult, setIndexActionResult] = useState<string | null>(null);
   const [indexActionError, setIndexActionError] = useState<string | null>(null);
+  const [indexBackups, setIndexBackups] = useState<IndexBackupInfo[]>([]);
+  const [selectedBackupId, setSelectedBackupId] = useState("");
+  const [backupsLoading, setBackupsLoading] = useState(false);
 
   const loadHealth = useCallback(() => {
     fetchCorpusHealth()
@@ -374,6 +381,86 @@ function CorpusPage() {
               : ""),
         );
       }
+      reloadAll();
+    } catch (e) {
+      setIndexActionError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setIndexAction(null);
+    }
+  };
+
+  const loadIndexBackups = useCallback(async () => {
+    setBackupsLoading(true);
+    try {
+      const result = await listIndexBackups();
+      setIndexBackups(result.backups);
+      setSelectedBackupId((prev) => {
+        if (prev && result.backups.some((b) => b.id === prev)) return prev;
+        return result.backups[0]?.id ?? "";
+      });
+    } catch (e) {
+      setIndexBackups([]);
+      setSelectedBackupId("");
+      setIndexActionError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setBackupsLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    void loadIndexBackups();
+  }, [loadIndexBackups]);
+
+  const handleBackupIndex = async () => {
+    if (
+      !window.confirm(
+        "Backup the live search index to S3? Ingest will pause briefly while SQLite, Chroma, BM25, and hubness are packaged. Image blobs are not included.",
+      )
+    ) {
+      return;
+    }
+    setIndexActionError(null);
+    setIndexActionResult(null);
+    setIndexAction("backup");
+    try {
+      const result = await backupIndex();
+      setIndexActionResult(
+        `Backup ${result.backup_id} uploaded` +
+          (result.archive_bytes != null
+            ? ` (${result.archive_bytes} bytes)`
+            : "") +
+          (result.s3_uri ? ` → ${result.s3_uri}` : ""),
+      );
+      await loadIndexBackups();
+      reloadAll();
+    } catch (e) {
+      setIndexActionError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setIndexAction(null);
+    }
+  };
+
+  const handleRestoreIndex = async () => {
+    if (!selectedBackupId) {
+      setIndexActionError("Select a completed S3 backup first.");
+      return;
+    }
+    if (
+      !window.confirm(
+        `Replace the live EC2 search index with backup ${selectedBackupId}? Ingest will pause; this overwrites local SQLite/Chroma/BM25/hubness from the S3 vault.`,
+      )
+    ) {
+      return;
+    }
+    setIndexActionError(null);
+    setIndexActionResult(null);
+    setIndexAction("restore");
+    try {
+      const result = await restoreIndex(selectedBackupId);
+      setIndexActionResult(
+        `Restored backup ${result.backup_id}` +
+          (result.s3_uri ? ` from ${result.s3_uri}` : ""),
+      );
       reloadAll();
     } catch (e) {
       setIndexActionError(e instanceof Error ? e.message : String(e));
@@ -544,6 +631,51 @@ function CorpusPage() {
           >
             {indexAction === "purge" ? "Purging…" : "Purge unrecoverable"}
           </button>
+          <button
+            type="button"
+            className="rounded-md border border-navy-300 bg-white px-3 py-1.5 text-xs font-medium text-navy-800 hover:bg-navy-50 disabled:opacity-50"
+            disabled={indexAction !== null || bulkRepairScope !== null}
+            onClick={() => void handleBackupIndex()}
+          >
+            {indexAction === "backup" ? "Backing up…" : "Backup index to S3"}
+          </button>
+          <select
+            className="max-w-xs rounded-md border border-navy-300 bg-white px-2 py-1.5 text-xs text-navy-800 disabled:opacity-50"
+            value={selectedBackupId}
+            disabled={
+              indexAction !== null ||
+              bulkRepairScope !== null ||
+              backupsLoading ||
+              indexBackups.length === 0
+            }
+            onChange={(e) => setSelectedBackupId(e.target.value)}
+            aria-label="Select index backup"
+          >
+            {indexBackups.length === 0 ? (
+              <option value="">
+                {backupsLoading ? "Loading backups…" : "No S3 backups yet"}
+              </option>
+            ) : (
+              indexBackups.map((backup) => (
+                <option key={backup.id} value={backup.id}>
+                  {backup.id}
+                  {backup.label ? ` (${backup.label})` : ""}
+                </option>
+              ))
+            )}
+          </select>
+          <button
+            type="button"
+            className="rounded-md border border-navy-300 bg-white px-3 py-1.5 text-xs font-medium text-navy-800 hover:bg-navy-50 disabled:opacity-50"
+            disabled={
+              indexAction !== null ||
+              bulkRepairScope !== null ||
+              !selectedBackupId
+            }
+            onClick={() => void handleRestoreIndex()}
+          >
+            {indexAction === "restore" ? "Restoring…" : "Restore from S3"}
+          </button>
           {indexActionResult && (
             <p className="text-xs text-navy-600">{indexActionResult}</p>
           )}
@@ -551,6 +683,10 @@ function CorpusPage() {
             <p className="text-xs text-red-600">{indexActionError}</p>
           )}
         </div>
+        <p className="mt-2 text-xs text-navy-500">
+          S3 holds versioned index snapshots only (SQLite, Chroma, BM25, hubness).
+          Backup/restore pauses ingest briefly; image blobs stay under uploads/images.
+        </p>
       </section>
 
       <section>
