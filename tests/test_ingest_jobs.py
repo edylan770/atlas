@@ -516,3 +516,139 @@ def test_direct_s3_finalize_verifies_every_object_before_queueing():
         "direct-job",
         ["s3://test-bucket/staging/a.png", "s3://test-bucket/staging/b.png"],
     )
+
+
+def _ok_chunk_stats(**overrides):
+    stats = {
+        "images_seen": 1,
+        "images_added": 1,
+        "images_updated": 0,
+        "skipped_duplicates": 0,
+        "errors": 0,
+        "timeouts": 0,
+        "cancelled": False,
+        "elapsed_sec": 0.1,
+    }
+    stats.update(overrides)
+    return stats
+
+
+def test_runner_requeues_remaining_files_after_chunk(isolated_jobs, tmp_path, monkeypatch):
+    from imagecb.storage.metadata_db import IngestJob, session_scope
+
+    configured = replace(isolated_jobs.SETTINGS, ingest_job_chunk_size=25)
+    monkeypatch.setattr(isolated_jobs, "SETTINGS", configured)
+
+    sources = []
+    for i in range(60):
+        path = tmp_path / f"img-{i}.png"
+        path.write_bytes(b"png")
+        sources.append(path)
+
+    isolated_jobs.create_job("job-chunk", sources, {"workers": 1})
+    claimed = isolated_jobs._claim_next_job("chunk-runner")
+    assert claimed is not None
+    assert len(claimed[1]) == 60
+
+    with patch("imagecb.ingest.ingest_paths_batched", return_value=_ok_chunk_stats()) as ingest, patch(
+        "imagecb.storage.index_backup.maybe_checkpoint_progress", return_value=None
+    ), patch.object(isolated_jobs, "_cleanup_staging") as cleanup:
+        isolated_jobs.IngestJobRunner()._execute(*claimed)
+
+    assert ingest.call_count == 1
+    assert len(ingest.call_args.args[0]) == 25
+    cleanup.assert_not_called()
+
+    job = isolated_jobs.get_job("job-chunk")
+    assert job is not None
+    assert job["status"] == "queued"
+    assert job["files_total"] == 60
+    assert job["files_done"] == 25
+    assert "35 file(s) remaining" in (job["status_detail"] or "")
+    assert job["options"]["original_files_total"] == 60
+
+    with session_scope() as session:
+        row = session.get(IngestJob, "job-chunk")
+        assert row is not None
+        remaining = isolated_jobs._loads(row.files_json, [])
+        assert len(remaining) == 35
+
+
+def test_runner_completes_after_final_chunk_and_cleans_once(isolated_jobs, tmp_path, monkeypatch):
+    configured = replace(isolated_jobs.SETTINGS, ingest_job_chunk_size=25)
+    monkeypatch.setattr(isolated_jobs, "SETTINGS", configured)
+
+    sources = []
+    for i in range(60):
+        path = tmp_path / f"fin-{i}.png"
+        path.write_bytes(b"png")
+        sources.append(path)
+
+    isolated_jobs.create_job("job-chunk-final", sources, {"workers": 1})
+    runner = isolated_jobs.IngestJobRunner()
+
+    with patch("imagecb.storage.index_backup.maybe_checkpoint_progress", return_value=None), patch.object(
+        isolated_jobs, "_cleanup_staging"
+    ) as cleanup:
+        # Chunk 1: 60 -> 35 remaining
+        claimed = isolated_jobs._claim_next_job("chunk-runner")
+        assert claimed is not None
+        with patch("imagecb.ingest.ingest_paths_batched", return_value=_ok_chunk_stats()):
+            runner._execute(*claimed)
+        assert isolated_jobs.get_job("job-chunk-final")["status"] == "queued"
+        cleanup.assert_not_called()
+
+        # Chunk 2: 35 -> 10 remaining
+        claimed = isolated_jobs._claim_next_job("chunk-runner")
+        assert claimed is not None
+        assert len(claimed[1]) == 35
+        with patch("imagecb.ingest.ingest_paths_batched", return_value=_ok_chunk_stats()):
+            runner._execute(*claimed)
+        assert isolated_jobs.get_job("job-chunk-final")["status"] == "queued"
+        cleanup.assert_not_called()
+
+        # Chunk 3: final 10
+        claimed = isolated_jobs._claim_next_job("chunk-runner")
+        assert claimed is not None
+        assert len(claimed[1]) == 10
+        with patch("imagecb.ingest.ingest_paths_batched", return_value=_ok_chunk_stats()):
+            runner._execute(*claimed)
+
+    job = isolated_jobs.get_job("job-chunk-final")
+    assert job is not None
+    assert job["status"] == "succeeded"
+    assert job["files_done"] == 60
+    assert job["stats"]["chunks_completed"] == 3
+    assert job["stats"]["images_added"] == 3
+    cleanup.assert_called_once_with("job-chunk-final", "succeeded")
+
+
+def test_cancelled_chunk_does_not_requeue_remainder(isolated_jobs, tmp_path, monkeypatch):
+    configured = replace(isolated_jobs.SETTINGS, ingest_job_chunk_size=25)
+    monkeypatch.setattr(isolated_jobs, "SETTINGS", configured)
+
+    sources = []
+    for i in range(40):
+        path = tmp_path / f"cancel-{i}.png"
+        path.write_bytes(b"png")
+        sources.append(path)
+
+    isolated_jobs.create_job("job-chunk-cancel", sources, {"workers": 1})
+    claimed = isolated_jobs._claim_next_job("chunk-runner")
+    assert claimed is not None
+
+    with patch(
+        "imagecb.ingest.ingest_paths_batched",
+        return_value=_ok_chunk_stats(cancelled=True, images_added=0, images_seen=2),
+    ), patch("imagecb.storage.index_backup.maybe_checkpoint_progress", return_value=None), patch.object(
+        isolated_jobs, "_cleanup_staging"
+    ) as cleanup:
+        isolated_jobs.IngestJobRunner()._execute(*claimed)
+
+    job = isolated_jobs.get_job("job-chunk-cancel")
+    assert job is not None
+    assert job["status"] == "cancelled"
+    assert job["finished_at"] is not None
+    cleanup.assert_called_once_with("job-chunk-cancel", "cancelled")
+    # Should not be claimable again
+    assert isolated_jobs._claim_next_job("chunk-runner") is None

@@ -176,6 +176,11 @@ class Settings:
     ingest_batch_size: int = field(
         default_factory=lambda: int(_env("INGEST_BATCH_SIZE", "0") or "0")
     )
+    # Max source files processed per worker claim; remainder is requeued on the
+    # same job_id so one large folder upload runs as short memory-friendly cycles.
+    ingest_job_chunk_size: int = field(
+        default_factory=lambda: int(_env("INGEST_JOB_CHUNK_SIZE", "25") or "25")
+    )
     ingest_image_timeout_sec: int = field(
         default_factory=lambda: int(_env("INGEST_IMAGE_TIMEOUT_SEC", "300") or "300")
     )

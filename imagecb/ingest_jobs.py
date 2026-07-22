@@ -456,6 +456,92 @@ def _finish_job(
         row.heartbeat_at = now
 
 
+_CHUNK_STAT_KEYS = (
+    "images_seen",
+    "images_added",
+    "images_updated",
+    "skipped_duplicates",
+    "errors",
+    "timeouts",
+    "captions_weak",
+    "captions_failed",
+    "checkpoint_errors",
+)
+
+
+def _merge_chunk_stats(prior: dict, chunk: dict) -> dict:
+    """Accumulate numeric ingest stats across job chunks."""
+    out = dict(prior or {})
+    for key in _CHUNK_STAT_KEYS:
+        out[key] = int(out.get(key, 0) or 0) + int((chunk or {}).get(key, 0) or 0)
+    out["elapsed_sec"] = round(
+        float(out.get("elapsed_sec", 0) or 0) + float((chunk or {}).get("elapsed_sec", 0) or 0),
+        1,
+    )
+    out["chunks_completed"] = int(out.get("chunks_completed", 0) or 0) + 1
+    if (chunk or {}).get("last_error"):
+        out["last_error"] = chunk["last_error"]
+    if (chunk or {}).get("last_checkpoint_id"):
+        out["last_checkpoint_id"] = chunk["last_checkpoint_id"]
+    if (chunk or {}).get("last_checkpoint_records") is not None:
+        out["last_checkpoint_records"] = chunk["last_checkpoint_records"]
+    if (chunk or {}).get("last_checkpoint_error"):
+        out["last_checkpoint_error"] = chunk["last_checkpoint_error"]
+    if (chunk or {}).get("post_repair") is not None:
+        out["post_repair"] = chunk["post_repair"]
+    return out
+
+
+def _persist_job_options(job_id: str, options: dict, *, files_total: Optional[int] = None) -> None:
+    with session_scope() as session:
+        row = session.get(IngestJob, job_id)
+        if row is None:
+            return
+        row.options_json = json.dumps(options)
+        if files_total is not None:
+            row.files_total = int(files_total)
+
+
+def _requeue_with_remaining(
+    job_id: str,
+    *,
+    remaining: list[str],
+    cumulative_stats: dict,
+    original_files_total: int,
+    options: dict,
+) -> bool:
+    """Requeue the same job with remaining files. Returns False if cancel won."""
+    files_done = max(0, int(original_files_total) - len(remaining))
+    now = datetime.utcnow()
+    with _job_update_lock:
+        with session_scope() as session:
+            row = session.get(IngestJob, job_id)
+            if row is None:
+                return False
+            if row.status == "cancel_requested":
+                return False
+            row.files_json = json.dumps(list(remaining))
+            row.files_total = int(original_files_total)
+            row.files_done = files_done
+            row.options_json = json.dumps(options)
+            row.stats_json = json.dumps(cumulative_stats)
+            row.images_seen = int(cumulative_stats.get("images_seen", 0) or 0)
+            row.images_processed = int(
+                (cumulative_stats.get("images_added", 0) or 0)
+                + (cumulative_stats.get("images_updated", 0) or 0)
+                + (cumulative_stats.get("skipped_duplicates", 0) or 0)
+                + (cumulative_stats.get("errors", 0) or 0)
+            )
+            row.status = "queued"
+            row.phase = "queued"
+            row.status_detail = f"Chunk complete; {len(remaining)} file(s) remaining"
+            row.runner_id = None
+            row.error = None
+            row.finished_at = None
+            row.heartbeat_at = now
+    return True
+
+
 def _requeue_job(job_id: str, error: str) -> None:
     with session_scope() as session:
         row = session.get(IngestJob, job_id)
@@ -546,56 +632,149 @@ class IngestJobRunner:
         )
         heartbeat_thread.start()
         try:
-            _set_phase(job_id, "checkpointing_index", "Saving durable index checkpoint")
+            options = dict(options or {})
+            prior_stats: dict = {}
+            with session_scope() as session:
+                row = session.get(IngestJob, job_id)
+                if row is not None:
+                    prior_stats = _loads(row.stats_json, {}) or {}
+                    stored_options = _loads(row.options_json, {}) or {}
+                    for key, value in stored_options.items():
+                        options.setdefault(key, value)
+
+            original_total = int(options.get("original_files_total") or 0)
+            if original_total <= 0:
+                original_total = len(files)
+                options["original_files_total"] = original_total
+                _persist_job_options(job_id, options, files_total=original_total)
+            else:
+                _persist_job_options(job_id, options, files_total=original_total)
+
+            chunk_size = max(1, int(SETTINGS.ingest_job_chunk_size))
+            if options.get("chunk_size") is not None:
+                chunk_size = max(1, int(options["chunk_size"]))
+            current = list(files[:chunk_size])
+            remaining = list(files[chunk_size:])
+            already_done = max(0, original_total - len(files))
+
+            _set_phase(
+                job_id,
+                "checkpointing_index",
+                f"Saving durable index checkpoint before chunk "
+                f"({already_done + 1}-{already_done + len(current)} of {original_total})",
+            )
             maybe_checkpoint_progress(
-                {"images_added": 0, "images_updated": 0, "_checkpoint_at": 0},
+                dict(prior_stats)
+                if prior_stats
+                else {"images_added": 0, "images_updated": 0, "_checkpoint_at": 0},
                 job_id=job_id,
                 force=True,
-                label=f"job-start:{job_id}",
+                label=f"chunk-start:{job_id}:{already_done}",
             )
-            _set_phase(job_id, "preparing", "Preparing ingestion dependencies")
+            _set_phase(
+                job_id,
+                "preparing",
+                f"Preparing chunk of {len(current)} file(s) "
+                f"({already_done + len(current)}/{original_total})",
+            )
+
+            def progress_callback(progress: dict) -> None:
+                adjusted = dict(progress)
+                adjusted["files_done"] = already_done + int(progress.get("files_done", 0) or 0)
+                chunk_stats = progress.get("stats") or {}
+                merged = _merge_chunk_stats(prior_stats, chunk_stats)
+                # progress merge uses a provisional +1 chunk; undo for live preview
+                merged["chunks_completed"] = int(prior_stats.get("chunks_completed", 0) or 0)
+                adjusted["stats"] = merged
+                adjusted["images_seen"] = int(merged.get("images_seen", 0) or 0)
+                adjusted["images_processed"] = int(
+                    (merged.get("images_added", 0) or 0)
+                    + (merged.get("images_updated", 0) or 0)
+                    + (merged.get("skipped_duplicates", 0) or 0)
+                    + (merged.get("errors", 0) or 0)
+                )
+                _update_progress(job_id, adjusted)
+
             stats = ingest_paths_batched(
-                files,
+                current,
                 batch_size=max(1, int(options.get("batch_size", 25))),
                 skip_caption=bool(options.get("skip_caption", False)),
                 skip_ocr=bool(options.get("skip_ocr", False)),
                 force=bool(options.get("force", False)),
                 workers=int(options.get("workers") or SETTINGS.ingest_workers),
                 should_cancel=lambda: _cancel_requested(job_id),
-                progress_callback=lambda progress: _update_progress(job_id, progress),
+                progress_callback=progress_callback,
                 phase_callback=lambda phase, detail=None: _set_phase(job_id, phase, detail),
                 checkpoint_job_id=job_id,
             )
-            processed = (
+            cumulative = _merge_chunk_stats(prior_stats, stats)
+            chunk_processed = (
                 int(stats.get("images_added", 0))
                 + int(stats.get("images_updated", 0))
                 + int(stats.get("skipped_duplicates", 0))
             )
-            errors = int(stats.get("errors", 0))
+            chunk_errors = int(stats.get("errors", 0))
             if stats.get("cancelled"):
                 status = "cancelled"
                 error = None
-            elif errors and processed == 0:
+            elif chunk_errors and chunk_processed == 0:
                 status = "failed"
                 error = str(
                     stats.get("last_error")
                     or (
-                        f"All ingestion work failed ({errors} error(s)); "
+                        f"All ingestion work failed ({chunk_errors} error(s)); "
                         "check the recorded phase and dependency preflight"
                     )
                 )
             else:
                 status = "succeeded"
                 error = None
-            _finish_job(job_id, status=status, stats=stats, error=error)
-            if status == "succeeded":
+
+            if status in {"cancelled", "failed"}:
+                _finish_job(job_id, status=status, stats=cumulative, error=error)
+                if status == "cancelled":
+                    _cleanup_staging(job_id, status)
+                return
+
+            # Chunk succeeded (possibly with some per-file errors).
+            if remaining:
+                if _cancel_requested(job_id):
+                    _finish_job(job_id, status="cancelled", stats=cumulative)
+                    _cleanup_staging(job_id, "cancelled")
+                    return
                 maybe_checkpoint_progress(
-                    stats,
+                    cumulative,
                     job_id=job_id,
                     force=True,
-                    label=f"job-success:{job_id}",
+                    label=f"chunk-complete:{job_id}:{already_done + len(current)}",
                 )
-            _cleanup_staging(job_id, status)
+                requeued = _requeue_with_remaining(
+                    job_id,
+                    remaining=remaining,
+                    cumulative_stats=cumulative,
+                    original_files_total=original_total,
+                    options=options,
+                )
+                if not requeued:
+                    _finish_job(job_id, status="cancelled", stats=cumulative)
+                    _cleanup_staging(job_id, "cancelled")
+                    return
+                logger.info(
+                    "Ingest job %s chunk complete; requeued with %s file(s) remaining",
+                    job_id,
+                    len(remaining),
+                )
+                self.wake()
+                return
+
+            _finish_job(job_id, status="succeeded", stats=cumulative, error=None)
+            maybe_checkpoint_progress(
+                cumulative,
+                job_id=job_id,
+                force=True,
+                label=f"job-success:{job_id}",
+            )
+            _cleanup_staging(job_id, "succeeded")
         except IngestInProgressError:
             _requeue_job(job_id, "Waiting for the active ingest to finish")
             self._stop.wait(timeout=1)
