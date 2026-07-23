@@ -38,6 +38,15 @@ def _event_dict(row: SearchEvent, *, category: str) -> dict:
         served = json.loads(row.served_image_ids_json or "[]")
     except json.JSONDecodeError:
         served = []
+    timings: dict = {}
+    raw_timings = getattr(row, "timings_json", None)
+    if raw_timings:
+        try:
+            loaded = json.loads(raw_timings)
+            if isinstance(loaded, dict):
+                timings = loaded
+        except json.JSONDecodeError:
+            timings = {}
     user_message = (row.query_text or "").strip()
     return {
         "search_event_id": row.id,
@@ -53,6 +62,11 @@ def _event_dict(row: SearchEvent, *, category: str) -> dict:
         "top_score": row.top_score,
         "top_score_kind": row.top_score_kind,
         "parsed_semantic_query": row.parsed_semantic_query,
+        "total_ms": getattr(row, "total_ms", None),
+        "ask_ms": getattr(row, "ask_ms", None),
+        "reply_ms": getattr(row, "reply_ms", None),
+        "timings": timings,
+        "timing_log": getattr(row, "timing_log", None),
         "category": category,
     }
 

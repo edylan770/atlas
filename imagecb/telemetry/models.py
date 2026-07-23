@@ -23,6 +23,16 @@ class SearchEvent(Base):
     top_score = Column(Float, nullable=True)
     top_score_kind = Column(String, nullable=True)  # rerank | dense
     parsed_semantic_query = Column(Text, nullable=True)
+    # End-to-end request latency (ms); prefer request_total from query timing.
+    total_ms = Column(Float, nullable=True)
+    # session.ask wall time until results are ready (ms).
+    ask_ms = Column(Float, nullable=True)
+    # Conversational reply generation / stream (ms).
+    reply_ms = Column(Float, nullable=True)
+    # Full {step: ms} map from QueryTimingSession.
+    timings_json = Column(Text, nullable=True)
+    # Blob URI/path of durable query timing .txt report.
+    timing_log = Column(Text, nullable=True)
 
 
 class InteractionEvent(Base):

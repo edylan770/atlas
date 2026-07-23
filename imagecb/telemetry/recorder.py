@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import json
 import uuid
-from typing import List, Literal, Optional, Sequence
+from typing import Dict, List, Literal, Optional, Sequence
 
 from imagecb.retrieval.query_parser import QuerySpec
 from imagecb.retrieval.rerank import RankedResult
@@ -28,6 +28,11 @@ def record_search_from_results(
     search_kind: SearchKind,
     results: Sequence[RankedResult],
     spec: Optional[QuerySpec] = None,
+    total_ms: Optional[float] = None,
+    ask_ms: Optional[float] = None,
+    reply_ms: Optional[float] = None,
+    timings_ms: Optional[Dict[str, float]] = None,
+    timing_log: Optional[str] = None,
 ) -> str:
     """Persist a search event and return its id."""
     ensure_telemetry_schema()
@@ -56,9 +61,45 @@ def record_search_from_results(
                 top_score=top_score,
                 top_score_kind=top_score_kind,
                 parsed_semantic_query=semantic,
+                total_ms=total_ms,
+                ask_ms=ask_ms,
+                reply_ms=reply_ms,
+                timings_json=json.dumps(timings_ms) if timings_ms is not None else None,
+                timing_log=timing_log,
             )
         )
     return event_id
+
+
+def attach_search_timings(
+    search_event_id: str,
+    *,
+    total_ms: Optional[float] = None,
+    ask_ms: Optional[float] = None,
+    reply_ms: Optional[float] = None,
+    timings_ms: Optional[Dict[str, float]] = None,
+    timing_log: Optional[str] = None,
+) -> None:
+    """Update an existing search event with latency fields (e.g. after stream completes)."""
+    ensure_telemetry_schema()
+    from sqlalchemy import select
+
+    with session_scope() as s:
+        row = s.execute(
+            select(SearchEvent).where(SearchEvent.id == search_event_id)
+        ).scalar_one_or_none()
+        if row is None:
+            return
+        if total_ms is not None:
+            row.total_ms = total_ms
+        if ask_ms is not None:
+            row.ask_ms = ask_ms
+        if reply_ms is not None:
+            row.reply_ms = reply_ms
+        if timings_ms is not None:
+            row.timings_json = json.dumps(timings_ms)
+        if timing_log is not None:
+            row.timing_log = timing_log
 
 
 def get_served_image_ids(search_event_id: str) -> List[str]:

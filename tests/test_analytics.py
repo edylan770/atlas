@@ -109,3 +109,43 @@ def test_display_query_similar_uses_query_text():
     all_rows = data["weak_result"] + data["no_interaction"] + data["zero_result"]
     row = next(r for r in all_rows if r["search_event_id"] == eid)
     assert row["display_query"] == "[similar image search]"
+
+
+def test_event_dict_includes_timing_fields():
+    eid = str(uuid.uuid4())
+    with session_scope() as s:
+        s.add(
+            SearchEvent(
+                id=eid,
+                query_text="slow query",
+                user_id="u",
+                session_id=None,
+                search_kind="chat",
+                served_image_ids_json="[]",
+                result_count=0,
+                top_score=None,
+                top_score_kind=None,
+                total_ms=12345.0,
+                ask_ms=8000.0,
+                reply_ms=4000.0,
+                timings_json=json.dumps({"parse_query": 5000.0, "embed_visual": 2000.0}),
+                timing_log="s3://bucket/prefix/query-logs/x.txt",
+            )
+        )
+    data = analytics.search_quality_lists(limit=100)
+    row = next(r for r in data["zero_result"] if r["search_event_id"] == eid)
+    assert row["total_ms"] == 12345.0
+    assert row["ask_ms"] == 8000.0
+    assert row["reply_ms"] == 4000.0
+    assert row["timings"]["parse_query"] == 5000.0
+    assert row["timing_log"].endswith("query-logs/x.txt")
+
+
+def test_search_events_timing_columns_exist():
+    from sqlalchemy import inspect
+
+    engine = get_engine()
+    ensure_telemetry_schema()
+    cols = {c["name"] for c in inspect(engine).get_columns("search_events")}
+    for name in ("total_ms", "ask_ms", "reply_ms", "timings_json", "timing_log"):
+        assert name in cols

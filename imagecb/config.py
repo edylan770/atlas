@@ -188,6 +188,14 @@ class Settings:
         default_factory=lambda: (_env("INGEST_TIMING_LOG", "true") or "true").lower()
         in ("1", "true", "yes", "on")
     )
+    query_timing_log: bool = field(
+        default_factory=lambda: (_env("QUERY_TIMING_LOG", "true") or "true").lower()
+        in ("1", "true", "yes", "on")
+    )
+    query_timing_persist: bool = field(
+        default_factory=lambda: (_env("QUERY_TIMING_PERSIST", "true") or "true").lower()
+        in ("1", "true", "yes", "on")
+    )
 
     # Optional bootstrap corpus: directory ingested in a background thread on
     # startup when the index is empty. Used to seed a small smoke-test set on a

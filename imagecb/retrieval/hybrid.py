@@ -12,13 +12,17 @@ from __future__ import annotations
 
 import logging
 from dataclasses import dataclass
-from typing import Dict, List, Optional, Sequence
+from contextlib import nullcontext
+from typing import TYPE_CHECKING, Dict, List, Optional, Sequence
 
 from imagecb.config import SETTINGS
 from imagecb.models.embedder import get_embedder, get_text_embedder
 from imagecb.retrieval.query_build import dense_query_text, resolve_retrieval_top_k
 from imagecb.retrieval.query_parser import QuerySpec
 from imagecb.storage import bm25_index, metadata_db, vector_store
+
+if TYPE_CHECKING:
+    from imagecb.query_timing import QueryTimingSession
 
 logger = logging.getLogger(__name__)
 
@@ -140,6 +144,7 @@ def search(
     dense_top_k: Optional[int] = None,
     sparse_top_k: Optional[int] = None,
     rrf_k: Optional[int] = None,
+    timing: Optional["QueryTimingSession"] = None,
 ) -> SearchOutcome:
     """Run dense + sparse search and merge with RRF."""
     default_dense, default_sparse = resolve_retrieval_top_k(spec)
@@ -147,12 +152,18 @@ def search(
     sparse_k = sparse_top_k if sparse_top_k is not None else default_sparse
     rrf = rrf_k or SETTINGS.rrf_k
 
-    allowed = _apply_metadata_filter(spec, restrict_to)
-    active_ids = set(metadata_db.get_active_image_ids())
-    if allowed is None:
-        allowed = list(active_ids)
-    else:
-        allowed = [i for i in allowed if i in active_ids]
+    def _timed(step: str):
+        if timing is not None:
+            return timing.timed(step)
+        return nullcontext()
+
+    with _timed("metadata_filter"):
+        allowed = _apply_metadata_filter(spec, restrict_to)
+        active_ids = set(metadata_db.get_active_image_ids())
+        if allowed is None:
+            allowed = list(active_ids)
+        else:
+            allowed = [i for i in allowed if i in active_ids]
     if not allowed:
         return SearchOutcome(candidates=[])
 
@@ -166,8 +177,10 @@ def search(
 
     # Visual dense: cross-modal query embedding -> image vectors
     try:
-        query_emb = get_embedder().embed_text([query_text])[0]
-        dense_hits = vector_store.query(query_emb, top_k=dense_k, allowed_ids=allowed)
+        with _timed("embed_visual"):
+            query_emb = get_embedder().embed_text([query_text])[0]
+        with _timed("chroma_visual"):
+            dense_hits = vector_store.query(query_emb, top_k=dense_k, allowed_ids=allowed)
     except Exception as exc:  # noqa: BLE001
         visual_failed = True
         logger.warning("Visual dense search failed (%s): %s", type(exc).__name__, exc)
@@ -177,19 +190,22 @@ def search(
     text_hits: List[tuple[str, float]] = []
     if SETTINGS.caption_text_lane_enabled:
         try:
-            text_query_emb = get_text_embedder().embed_query(query_text)
-            text_hits = vector_store.query_text(
-                text_query_emb, top_k=dense_k, allowed_ids=allowed
-            )
+            with _timed("embed_text"):
+                text_query_emb = get_text_embedder().embed_query(query_text)
+            with _timed("chroma_text"):
+                text_hits = vector_store.query_text(
+                    text_query_emb, top_k=dense_k, allowed_ids=allowed
+                )
         except Exception as exc:  # noqa: BLE001
             text_failed = True
             logger.warning("Caption-text search failed (%s): %s", type(exc).__name__, exc)
 
     # Sparse via BM25
     try:
-        sparse_hits = bm25_index.get_index().query(
-            query_text, top_k=sparse_k, allowed_ids=allowed
-        )
+        with _timed("bm25"):
+            sparse_hits = bm25_index.get_index().query(
+                query_text, top_k=sparse_k, allowed_ids=allowed
+            )
     except Exception as exc:  # noqa: BLE001
         sparse_failed = True
         logger.warning("Sparse search failed (%s): %s", type(exc).__name__, exc)
@@ -200,38 +216,39 @@ def search(
         text_failed or not SETTINGS.caption_text_lane_enabled
     )
 
-    merged = rrf_merge_lanes(dense_hits, text_hits, sparse_hits, rrf, sparse_weight=0.0)
+    with _timed("rrf_rank"):
+        merged = rrf_merge_lanes(dense_hits, text_hits, sparse_hits, rrf, sparse_weight=0.0)
 
-    # must_avoid_keywords post-filter: drop any candidate whose text contains
-    # an avoided keyword. We look it up from SQLite to keep memory bounded.
-    if spec.must_avoid_keywords and merged:
-        ids = [c.image_id for c in merged]
-        records = {r.image_id: r for r in metadata_db.get_records(ids)}
-        avoid = [k.lower() for k in spec.must_avoid_keywords if k]
-        kept: List[Candidate] = []
-        for c in merged:
-            r = records.get(c.image_id)
-            if r is None:
+        # must_avoid_keywords post-filter: drop any candidate whose text contains
+        # an avoided keyword. We look it up from SQLite to keep memory bounded.
+        if spec.must_avoid_keywords and merged:
+            ids = [c.image_id for c in merged]
+            records = {r.image_id: r for r in metadata_db.get_records(ids)}
+            avoid = [k.lower() for k in spec.must_avoid_keywords if k]
+            kept: List[Candidate] = []
+            for c in merged:
+                r = records.get(c.image_id)
+                if r is None:
+                    kept.append(c)
+                    continue
+                blob = " ".join(
+                    filter(
+                        None,
+                        [
+                            r.caption_short,
+                            r.caption_detailed,
+                            r.scene,
+                            r.text_overlay_summary,
+                            r.ocr_text,
+                            r.slide_title,
+                            r.slide_notes,
+                        ],
+                    )
+                ).lower()
+                if any(a in blob for a in avoid):
+                    continue
                 kept.append(c)
-                continue
-            blob = " ".join(
-                filter(
-                    None,
-                    [
-                        r.caption_short,
-                        r.caption_detailed,
-                        r.scene,
-                        r.text_overlay_summary,
-                        r.ocr_text,
-                        r.slide_title,
-                        r.slide_notes,
-                    ],
-                )
-            ).lower()
-            if any(a in blob for a in avoid):
-                continue
-            kept.append(c)
-        merged = kept
+            merged = kept
 
     return SearchOutcome(
         candidates=merged,

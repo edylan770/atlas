@@ -47,7 +47,22 @@ function queryTooltip(row: SearchQualityItem): string {
   const parts: string[] = [];
   if (user) parts.push(`User: ${user}`);
   if (semantic && semantic !== user) parts.push(`Interpreted: ${semantic}`);
+  if (row.timings && Object.keys(row.timings).length > 0) {
+    const stages = Object.entries(row.timings)
+      .sort((a, b) => b[1] - a[1])
+      .map(([k, v]) => `${k}=${Math.round(v)}ms`)
+      .join(", ");
+    parts.push(`Timing: ${stages}`);
+  } else if (row.total_ms != null) {
+    parts.push(`Total: ${Math.round(row.total_ms)}ms`);
+  }
+  if (row.timing_log) parts.push(`Log: ${row.timing_log}`);
   return parts.join("\n") || row.display_query;
+}
+
+function formatMs(ms: number | null | undefined): string {
+  if (ms == null || Number.isNaN(ms)) return "—";
+  return `${Math.round(ms)}`;
 }
 
 function StatCard({
@@ -152,11 +167,24 @@ function QualityTable({ title, items }: { title: string; items: SearchQualityIte
               <th className="px-3 py-2">Query</th>
               <th className="px-3 py-2">Results</th>
               <th className="px-3 py-2">Top score</th>
+              <th className="px-3 py-2" title="End-to-end request (ms)">
+                Total ms
+              </th>
+              <th className="px-3 py-2" title="Parse + retrieval until results ready (ms)">
+                Ask ms
+              </th>
+              <th className="px-3 py-2" title="Conversational reply (ms)">
+                Reply ms
+              </th>
             </tr>
           </thead>
           <tbody>
             {items.map((row) => (
-              <tr key={row.search_event_id} className="border-t border-navy-100">
+              <tr
+                key={row.search_event_id}
+                className="border-t border-navy-100"
+                title={queryTooltip(row)}
+              >
                 <td className="whitespace-nowrap px-3 py-2 text-navy-800">{row.created_at}</td>
                 <td
                   className="max-w-md truncate px-3 py-2 text-navy-800"
@@ -169,6 +197,15 @@ function QualityTable({ title, items }: { title: string; items: SearchQualityIte
                   {row.top_score != null
                     ? `${row.top_score.toFixed(3)} (${row.top_score_kind})`
                     : "—"}
+                </td>
+                <td className="whitespace-nowrap px-3 py-2 text-navy-800">
+                  {formatMs(row.total_ms)}
+                </td>
+                <td className="whitespace-nowrap px-3 py-2 text-navy-800">
+                  {formatMs(row.ask_ms)}
+                </td>
+                <td className="whitespace-nowrap px-3 py-2 text-navy-800">
+                  {formatMs(row.reply_ms)}
                 </td>
               </tr>
             ))}

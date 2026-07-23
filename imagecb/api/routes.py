@@ -58,7 +58,12 @@ from imagecb.formatting.assistant_reply import (
     catalog_fields_from_record,
     provenance_from_record,
 )
-from imagecb.telemetry.recorder import record_interaction, record_search_from_results
+from imagecb.query_timing import QueryTimingSession, finalize_query_timing
+from imagecb.telemetry.recorder import (
+    attach_search_timings,
+    record_interaction,
+    record_search_from_results,
+)
 from imagecb.formatting.conversational_reply import (
     build_conversational_reply,
     iter_conversational_reply_text,
@@ -349,6 +354,9 @@ def chat(
         raise HTTPException(status_code=400, detail="message is required")
 
     session_id, session = get_or_create_session(body.session_id)
+    timing = QueryTimingSession(
+        meta={"session_id": session_id, "search_kind": "chat", "query_text": message}
+    )
 
     try:
         ask_result = session.ask(
@@ -356,6 +364,7 @@ def chat(
             top_k=body.top_k,
             min_match_percent=body.min_match_percent,
             sort=body.sort,
+            timing=timing,
         )
     except Exception as exc:  # noqa: BLE001
         logger.exception("Query failed")
@@ -380,17 +389,19 @@ def chat(
         notes,
         corpus=corpus,
     )
-    reply = build_conversational_reply(
-        message,
-        ask_result,
-        notes,
-        indexed_count=indexed_count,
-    )
-    try:
-        follow_ups = follow_up_future.result(timeout=15)
-    except Exception:  # noqa: BLE001
-        logger.exception("Follow-up suggestions failed")
-        follow_ups = []
+    with timing.timed("conversational_reply"):
+        reply = build_conversational_reply(
+            message,
+            ask_result,
+            notes,
+            indexed_count=indexed_count,
+        )
+    with timing.timed("follow_ups"):
+        try:
+            follow_ups = follow_up_future.result(timeout=15)
+        except Exception:  # noqa: BLE001
+            logger.exception("Follow-up suggestions failed")
+            follow_ups = []
     session.record_turn(message, reply.message)
     search_event_id = record_search_from_results(
         query_text=message,
@@ -399,6 +410,25 @@ def chat(
         search_kind="chat",
         results=ask_result.results,
         spec=spec,
+        ask_ms=timing.ask_ms(),
+    )
+    timing_log = finalize_query_timing(
+        timing,
+        search_event_id=search_event_id,
+        stats={
+            "session_id": session_id,
+            "query_text": message,
+            "search_kind": "chat",
+            "result_count": len(ask_result.results),
+        },
+    )
+    attach_search_timings(
+        search_event_id,
+        total_ms=timing.total_ms(),
+        ask_ms=timing.ask_ms(),
+        reply_ms=timing.reply_ms(),
+        timings_ms=timing.timings_ms(),
+        timing_log=timing_log,
     )
     return ChatResponse(
         session_id=session_id,
@@ -420,6 +450,9 @@ def chat_stream(
         raise HTTPException(status_code=400, detail="message is required")
 
     session_id, session = get_or_create_session(body.session_id)
+    timing = QueryTimingSession(
+        meta={"session_id": session_id, "search_kind": "chat", "query_text": message}
+    )
 
     try:
         ask_result = session.ask(
@@ -427,6 +460,7 @@ def chat_stream(
             top_k=body.top_k,
             min_match_percent=body.min_match_percent,
             sort=body.sort,
+            timing=timing,
         )
     except Exception as exc:  # noqa: BLE001
         logger.exception("Query failed")
@@ -453,6 +487,8 @@ def chat_stream(
         search_kind="chat",
         results=ask_result.results,
         spec=spec,
+        ask_ms=timing.ask_ms(),
+        timings_ms=timing.timings_ms(),
     )
 
     corpus = build_corpus_context()
@@ -477,28 +513,67 @@ def chat_stream(
         )
         full_message: List[str] = []
         try:
-            for chunk in iter_conversational_reply_text(
-                message,
-                ask_result,
-                notes,
-                indexed_count=indexed_count,
-            ):
-                if not chunk:
-                    continue
-                full_message.append(chunk)
-                yield _sse_event({"type": "token", "text": chunk})
+            with timing.timed("conversational_reply"):
+                for chunk in iter_conversational_reply_text(
+                    message,
+                    ask_result,
+                    notes,
+                    indexed_count=indexed_count,
+                ):
+                    if not chunk:
+                        continue
+                    full_message.append(chunk)
+                    yield _sse_event({"type": "token", "text": chunk})
         except Exception as exc:  # noqa: BLE001
             logger.exception("Chat stream failed")
             yield _sse_event({"type": "error", "detail": str(exc)})
+            timing_log = finalize_query_timing(
+                timing,
+                search_event_id=search_event_id,
+                stats={
+                    "session_id": session_id,
+                    "query_text": message,
+                    "search_kind": "chat",
+                    "result_count": len(ask_result.results),
+                    "stream_error": str(exc),
+                },
+            )
+            attach_search_timings(
+                search_event_id,
+                total_ms=timing.total_ms(),
+                ask_ms=timing.ask_ms(),
+                reply_ms=timing.reply_ms(),
+                timings_ms=timing.timings_ms(),
+                timing_log=timing_log,
+            )
             return
 
         assistant_message = "".join(full_message)
-        try:
-            follow_ups = follow_up_future.result(timeout=15)
-        except Exception:  # noqa: BLE001
-            logger.exception("Follow-up suggestions failed")
-            follow_ups = []
+        with timing.timed("follow_ups"):
+            try:
+                follow_ups = follow_up_future.result(timeout=15)
+            except Exception:  # noqa: BLE001
+                logger.exception("Follow-up suggestions failed")
+                follow_ups = []
         session.record_turn(message, assistant_message)
+        timing_log = finalize_query_timing(
+            timing,
+            search_event_id=search_event_id,
+            stats={
+                "session_id": session_id,
+                "query_text": message,
+                "search_kind": "chat",
+                "result_count": len(ask_result.results),
+            },
+        )
+        attach_search_timings(
+            search_event_id,
+            total_ms=timing.total_ms(),
+            ask_ms=timing.ask_ms(),
+            reply_ms=timing.reply_ms(),
+            timings_ms=timing.timings_ms(),
+            timing_log=timing_log,
+        )
         yield _sse_event(
             {
                 "type": "done",
@@ -685,6 +760,9 @@ def session_reset(body: SessionResetRequest) -> SessionResetResponse:
 
 @router.get("/images/{image_id}")
 def get_image(image_id: str) -> StreamingResponse:
+    import time
+
+    t0 = time.perf_counter()
     record = metadata_db.get_record(image_id)
     if record is None:
         raise HTTPException(status_code=404, detail="image not found")
@@ -707,6 +785,14 @@ def get_image(image_id: str) -> StreamingResponse:
     }
     if info.content_length is not None:
         headers["Content-Length"] = str(info.content_length)
+    elapsed_ms = round((time.perf_counter() - t0) * 1000.0, 1)
+    logger.info(
+        "image_fetch image_id=%s ms=%.1f backend=%s content_length=%s",
+        image_id,
+        elapsed_ms,
+        SETTINGS.blob_storage_backend,
+        info.content_length,
+    )
     return StreamingResponse(
         blob_store.iter_bytes(ref, fallbacks=image_fallbacks(record)),
         media_type=info.content_type,

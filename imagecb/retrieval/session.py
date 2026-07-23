@@ -10,8 +10,9 @@ BM25 is retrieved but excluded from fusion (sparse_weight=0.0 in hybrid.py).
 
 from __future__ import annotations
 
+from contextlib import nullcontext
 from dataclasses import dataclass, field
-from typing import List, Optional, Tuple
+from typing import TYPE_CHECKING, List, Optional, Tuple
 
 from imagecb.retrieval.hybrid import Candidate, normalize_rrf_score, search
 from imagecb.retrieval.query_parser import (
@@ -24,6 +25,9 @@ from imagecb.config import SETTINGS
 from imagecb.formatting.match_display import meets_min_match_percent
 from imagecb.retrieval.rerank import RankedResult, _format_provenance
 from imagecb.storage import metadata_db
+
+if TYPE_CHECKING:
+    from imagecb.query_timing import QueryTimingSession
 
 
 @dataclass
@@ -60,45 +64,56 @@ class ChatSession:
         top_k: Optional[int] = None,
         min_match_percent: int = 0,
         sort: Optional[str] = None,
+        timing: Optional["QueryTimingSession"] = None,
     ) -> AskResult:
-        history_summary = summarize_history(self.history)
-        session_ctx = build_session_context(self.last_spec, self.last_results)
-        spec = parse_query(text, history_summary, session_context=session_ctx)
+        def _timed(step: str):
+            if timing is not None:
+                return timing.timed(step)
+            return nullcontext()
 
-        if top_k is not None:
-            spec.top_k = max(1, min(int(top_k), 50))
+        with _timed("ask_total"):
+            history_summary = summarize_history(self.history)
+            session_ctx = build_session_context(self.last_spec, self.last_results)
+            with _timed("parse_query"):
+                spec = parse_query(text, history_summary, session_context=session_ctx)
 
-        outcome = search(spec)
-        candidates = outcome.candidates
+            if top_k is not None:
+                spec.top_k = max(1, min(int(top_k), 50))
 
-        relaxed_min_score = False
+            outcome = search(spec, timing=timing)
+            candidates = outcome.candidates
 
-        # Rank by 2-lane RRF fused score (visual dense + caption-text dense).
-        ranked = _rank_by_fused_score(candidates, spec.top_k)
-        results, relaxed_min_score = _apply_min_match(ranked, candidates, spec.top_k, min_match_percent)
+            relaxed_min_score = False
 
-        from imagecb.retrieval.sort import resolve_sort, sort_ranked_results
+            # Rank by 2-lane RRF fused score (visual dense + caption-text dense).
+            with _timed("rrf_rank"):
+                ranked = _rank_by_fused_score(candidates, spec.top_k)
+                results, relaxed_min_score = _apply_min_match(
+                    ranked, candidates, spec.top_k, min_match_percent
+                )
 
-        resolved_sort = resolve_sort(sort, is_search=True)
-        results = sort_ranked_results(results, resolved_sort)
+                from imagecb.retrieval.sort import resolve_sort, sort_ranked_results
 
-        self.last_spec = spec
-        self.last_results = list(results)
-        self.last_candidate_ids = [r.image_id for r in results] or [
-            c.image_id for c in candidates
-        ]
+                resolved_sort = resolve_sort(sort, is_search=True)
+                results = sort_ranked_results(results, resolved_sort)
 
-        return AskResult(
-            spec=spec,
-            results=results,
-            min_match_percent=min_match_percent,
-            candidate_count=len(candidates),
-            relaxed_min_score=relaxed_min_score,
-            dense_failed=outcome.dense_failed,
-            sparse_failed=outcome.sparse_failed,
-            visual_fallback=False,
-            low_confidence_visual=False,
-        )
+            self.last_spec = spec
+            self.last_results = list(results)
+            self.last_candidate_ids = [r.image_id for r in results] or [
+                c.image_id for c in candidates
+            ]
+
+            return AskResult(
+                spec=spec,
+                results=results,
+                min_match_percent=min_match_percent,
+                candidate_count=len(candidates),
+                relaxed_min_score=relaxed_min_score,
+                dense_failed=outcome.dense_failed,
+                sparse_failed=outcome.sparse_failed,
+                visual_fallback=False,
+                low_confidence_visual=False,
+            )
 
     def record_turn(self, user_text: str, assistant_message: str) -> None:
         """Append a turn using the full assistant reply for better follow-up context."""

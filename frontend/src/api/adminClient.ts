@@ -83,6 +83,11 @@ export interface SearchQualityItem {
   result_count: number;
   top_score: number | null;
   top_score_kind: string | null;
+  total_ms?: number | null;
+  ask_ms?: number | null;
+  reply_ms?: number | null;
+  timings?: Record<string, number>;
+  timing_log?: string | null;
   category: string;
 }
 

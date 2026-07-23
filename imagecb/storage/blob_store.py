@@ -83,6 +83,12 @@ def ingest_log_key(run_id: str, when: Optional[datetime] = None) -> str:
     return _key(SETTINGS.s3_prefix, "ingest-logs", f"{stamp}_{safe_id}.txt")
 
 
+def query_log_key(run_id: str, when: Optional[datetime] = None) -> str:
+    stamp = (when or datetime.now(timezone.utc)).strftime("%Y%m%d_%H%M%S")
+    safe_id = safe_filename(run_id).replace(" ", "_")[:32]
+    return _key(SETTINGS.s3_prefix, "query-logs", f"{stamp}_{safe_id}.txt")
+
+
 def index_backup_prefix(backup_id: Optional[str] = None) -> str:
     """S3 prefix for index snapshot vault objects."""
     if backup_id:
