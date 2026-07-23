@@ -1,9 +1,9 @@
-"""Tests for LLM suggestion generation and cache."""
+"""Tests for suggestion generation and cache (heuristics on request path)."""
 
 from __future__ import annotations
 
 import time
-from unittest.mock import MagicMock, patch
+from unittest.mock import patch
 
 import pytest
 
@@ -74,55 +74,36 @@ def test_empty_corpus_returns_onboarding_without_llm():
     assert result.cached is False
 
 
-def test_llm_success_populates_suggestions():
+def test_indexed_corpus_uses_heuristics_without_llm():
     ctx = _ctx(
         indexed_count=10,
-        source_files=(SourceFileStat(name="deck.pptx", source_type="pptx", count=5),),
         fingerprint="abc123",
-    )
-    mock_llm = MagicMock()
-    mock_llm.generate.return_value = '{"suggestions": ["A", "B", "C", "D"]}'
-    with patch.object(gen_mod, "get_suggestion_llm", return_value=mock_llm):
-        r1 = generate_suggestions(limit=4, ctx=ctx)
-    assert r1.suggestions == ["A", "B", "C", "D"]
-    assert "images from" not in " ".join(r1.suggestions).lower()
-    assert r1.cached is False
-    mock_llm.generate.assert_called_once()
-    payload = mock_llm.generate.call_args[0][0]
-    assert "Recent user queries" not in payload
-    assert "Recent chat titles" not in payload
-
-
-def test_llm_strips_filename_filter_from_output():
-    ctx = _ctx(
         sample_recommended_cases=("Healthcare technology", "Cybersecurity alerts"),
         top_tags=("healthcare", "cybersecurity"),
-        source_files=(SourceFileStat(name="report.pptx", source_type="pptx", count=5),),
-        fingerprint="fp-strip",
+        source_files=(SourceFileStat(name="deck.pptx", source_type="pptx", count=5),),
     )
-    mock_llm = MagicMock()
-    mock_llm.generate.return_value = (
-        '{"suggestions": ["holographic data analytics", "images from report.pptx", '
-        '"healthcare technology", "cybersecurity alerts"]}'
-    )
-    with patch.object(gen_mod, "get_suggestion_llm", return_value=mock_llm):
+    with patch.object(gen_mod, "get_suggestion_llm") as mock_llm:
         result = generate_suggestions(limit=4, ctx=ctx)
-    assert "images from report.pptx" not in result.suggestions
-    assert "report.pptx" not in " ".join(result.suggestions).lower()
+    mock_llm.assert_not_called()
     assert len(result.suggestions) == 4
+    assert "Healthcare technology" in result.suggestions
+    assert "images from" not in " ".join(result.suggestions).lower()
+    assert result.cached is False
 
 
 def test_cache_hit_on_second_call():
-    ctx = _ctx(indexed_count=5, fingerprint="fp1")
-    mock_llm = MagicMock()
-    mock_llm.generate.return_value = '{"suggestions": ["One", "Two", "Three", "Four"]}'
-    with patch.object(gen_mod, "get_suggestion_llm", return_value=mock_llm):
+    ctx = _ctx(
+        indexed_count=5,
+        fingerprint="fp1",
+        sample_recommended_cases=("One", "Two", "Three", "Four"),
+    )
+    with patch.object(gen_mod, "get_suggestion_llm") as mock_llm:
         r1 = generate_suggestions(limit=4, ctx=ctx)
         r2 = generate_suggestions(limit=4, ctx=ctx)
+    mock_llm.assert_not_called()
     assert r1.cached is False
     assert r2.cached is True
     assert r2.suggestions == r1.suggestions
-    mock_llm.generate.assert_called_once()
 
 
 def test_cache_key_differs_by_limit():
@@ -130,25 +111,6 @@ def test_cache_key_differs_by_limit():
     key_a = gen_mod._cache_key(ctx, 4)
     key_b = gen_mod._cache_key(ctx, 6)
     assert key_a != key_b
-
-
-def test_llm_failure_uses_corpus_heuristic():
-    ctx = _ctx(
-        indexed_count=3,
-        fingerprint="fp2",
-        sample_recommended_cases=("Find bar charts", "Show quarterly revenue"),
-        top_tags=("chart", "revenue"),
-        source_files=(SourceFileStat(name="deck.pptx", source_type="pptx", count=2),),
-    )
-    mock_llm = MagicMock()
-    mock_llm.generate.side_effect = RuntimeError("bedrock down")
-    with patch.object(gen_mod, "get_suggestion_llm", return_value=mock_llm):
-        result = generate_suggestions(limit=4, ctx=ctx)
-    assert len(result.suggestions) == 4
-    assert "Q3_Review.pptx" not in " ".join(result.suggestions)
-    assert "images from" not in " ".join(result.suggestions).lower()
-    assert "Find bar charts" in result.suggestions
-    assert result.cached is False
 
 
 def test_heuristic_uses_recommended_cases_not_filename_filters():
@@ -174,10 +136,9 @@ def test_sparse_indexed_corpus_does_not_use_onboarding():
         top_asset_types=(("photo", 30), ("diagram", 20)),
         sample_image_names=("Developer Code Review", "System Architecture"),
     )
-    mock_llm = MagicMock()
-    mock_llm.generate.side_effect = RuntimeError("bedrock down")
-    with patch.object(gen_mod, "get_suggestion_llm", return_value=mock_llm):
+    with patch.object(gen_mod, "get_suggestion_llm") as mock_llm:
         result = generate_suggestions(limit=4, ctx=ctx)
+    mock_llm.assert_not_called()
     assert len(result.suggestions) == 4
     assert result.suggestions != ONBOARDING_SUGGESTIONS[:4]
     assert "Upload slides or PDFs" not in result.suggestions
@@ -186,12 +147,17 @@ def test_sparse_indexed_corpus_does_not_use_onboarding():
 
 
 def test_cache_expires_after_ttl():
-    ctx = _ctx(indexed_count=2, fingerprint="fp3")
-    mock_llm = MagicMock()
-    mock_llm.generate.return_value = '{"suggestions": ["X", "Y", "Z", "W"]}'
+    ctx = _ctx(
+        indexed_count=2,
+        fingerprint="fp3",
+        sample_recommended_cases=("X", "Y", "Z", "W"),
+    )
     key = gen_mod._cache_key(ctx, 4)
-    with patch.object(gen_mod, "get_suggestion_llm", return_value=mock_llm):
-        generate_suggestions(limit=4, ctx=ctx)
-        gen_mod._cache[key] = (time.monotonic() - 10_000, ["X", "Y", "Z", "W"])
-        generate_suggestions(limit=4, ctx=ctx)
-    assert mock_llm.generate.call_count == 2
+    with patch.object(gen_mod, "get_suggestion_llm") as mock_llm:
+        r1 = generate_suggestions(limit=4, ctx=ctx)
+        gen_mod._cache[key] = (time.monotonic() - 10_000, list(r1.suggestions))
+        r2 = generate_suggestions(limit=4, ctx=ctx)
+    mock_llm.assert_not_called()
+    assert r1.cached is False
+    assert r2.cached is False
+    assert r2.suggestions == r1.suggestions

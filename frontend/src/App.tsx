@@ -341,25 +341,29 @@ export default function App() {
       return;
     }
 
+    let active = true;
     const controller = new AbortController();
 
     setSuggestionsLoading(true);
-    fetchSuggestions()
+    fetchSuggestions(4, { signal: controller.signal })
       .then((res) => {
-        if (controller.signal.aborted) return;
+        if (!active) return;
         setSuggestions(res.suggestions);
       })
       .catch(() => {
-        if (controller.signal.aborted) return;
+        if (!active) return;
         setSuggestions([]);
       })
       .finally(() => {
-        if (!controller.signal.aborted) {
+        if (active) {
           setSuggestionsLoading(false);
         }
       });
 
-    return () => controller.abort();
+    return () => {
+      active = false;
+      controller.abort();
+    };
   }, [turns.length, indexedCount]);
 
   const selectConversation = useCallback(

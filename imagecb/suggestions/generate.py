@@ -425,10 +425,8 @@ def generate_suggestions(
                 cached=True,
             )
 
-    try:
-        items = _llm_suggestions(corpus, n)
-    except Exception:  # noqa: BLE001
-        items = _corpus_heuristic_suggestions(corpus, n)
+    # Heuristics only on the request path — avoid blocking on Bedrock/OpenAI.
+    items = _corpus_heuristic_suggestions(corpus, n)
 
     _cache[key] = (now, items)
     return SuggestionsResult(suggestions=items, cached=False)

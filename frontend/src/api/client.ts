@@ -63,11 +63,15 @@ export async function fetchStatus(): Promise<StatusResponse> {
   return request<StatusResponse>("/api/status");
 }
 
-export async function fetchSuggestions(limit = 4): Promise<SuggestionsResponse> {
+export async function fetchSuggestions(
+  limit = 4,
+  init?: RequestInit,
+): Promise<SuggestionsResponse> {
   return request<SuggestionsResponse>("/api/suggestions", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ limit }),
+    ...init,
   });
 }
 
