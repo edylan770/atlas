@@ -192,7 +192,7 @@ function renderResults(results) {
         .map((c) => `<span class="chip-tag">${escapeHtml(c)}</span>`)
         .join("");
       const thumb = card.has_image_file
-        ? `<img class="result-thumb-img" src="${escapeHtml(card.image_url)}" alt="" loading="lazy" data-image-id="${escapeHtml(card.image_id)}" data-rank="${card.rank}" />`
+        ? `<img class="result-thumb-img" src="${escapeHtml(card.thumb_url || card.image_url)}" alt="" loading="lazy" data-image-id="${escapeHtml(card.image_id)}" data-rank="${card.rank}" />`
         : '<div class="no-img">Image unavailable</div>';
       const hint = card.match_hint
         ? `<p class="result-hint" title="${escapeHtml(card.match_hint)}">${escapeHtml(card.match_hint)}</p>`

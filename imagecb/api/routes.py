@@ -123,10 +123,16 @@ def _resolve_sort_param(sort: Optional[str], *, is_search: bool) -> ResultSort:
 
 def _result_card_from_dict(d: dict) -> ResultCardOut:
     prov = d.get("provenance") or {}
+    image_id = str(d.get("image_id", ""))
+    image_url = str(d.get("image_url", ""))
+    thumb_url = str(d.get("thumb_url") or "")
+    if not thumb_url and image_id:
+        thumb_url = f"/api/images/{image_id}/thumb"
     return ResultCardOut(
         rank=int(d.get("rank", 0)),
-        image_id=str(d.get("image_id", "")),
-        image_url=str(d.get("image_url", "")),
+        image_id=image_id,
+        image_url=image_url,
+        thumb_url=thumb_url,
         provenance=ProvenanceOut(
             source_name=str(prov.get("source_name", "")),
             source_type=str(prov.get("source_type", "")),
@@ -184,10 +190,12 @@ def _deck_suggest_response(result: DeckSuggestResult) -> DeckSuggestResponse:
 
 def _result_card_out(card) -> ResultCardOut:
     prov = card.provenance
+    thumb_url = getattr(card, "thumb_url", "") or f"/api/images/{card.image_id}/thumb"
     return ResultCardOut(
         rank=card.rank,
         image_id=card.image_id,
         image_url=card.image_url,
+        thumb_url=thumb_url,
         provenance=ProvenanceOut(
             source_name=prov.source_name,
             source_type=prov.source_type,
@@ -758,6 +766,44 @@ def session_reset(body: SessionResetRequest) -> SessionResetResponse:
     return SessionResetResponse(session_id=body.session_id)
 
 
+@router.get("/images/{image_id}/thumb")
+def get_image_thumb(image_id: str) -> StreamingResponse:
+    """Serve the display thumbnail, falling back to the full image if missing."""
+    import time
+
+    t0 = time.perf_counter()
+    record = metadata_db.get_record(image_id)
+    if record is None:
+        raise HTTPException(status_code=404, detail="image not found")
+
+    thumb = blob_store.thumb_ref(image_id)
+    if blob_store.thumb_exists(image_id):
+        try:
+            info = blob_store.describe(thumb)
+            headers = {
+                "Content-Disposition": f"inline; filename*=UTF-8''{quote(info.filename)}",
+            }
+            if info.content_length is not None:
+                headers["Content-Length"] = str(info.content_length)
+            elapsed_ms = round((time.perf_counter() - t0) * 1000.0, 1)
+            logger.info(
+                "thumb_fetch image_id=%s ms=%.1f backend=%s content_length=%s",
+                image_id,
+                elapsed_ms,
+                SETTINGS.blob_storage_backend,
+                info.content_length,
+            )
+            return StreamingResponse(
+                blob_store.iter_bytes(thumb),
+                media_type=info.content_type or "image/jpeg",
+                headers=headers,
+            )
+        except Exception:
+            logger.exception("Failed to stream thumb for %s; falling back to full image", image_id)
+
+    return get_image(image_id)
+
+
 @router.get("/images/{image_id}")
 def get_image(image_id: str) -> StreamingResponse:
     import time
@@ -841,6 +887,7 @@ def corpus_catalog(limit: int = 40, sort: Optional[str] = None) -> CorpusCatalog
             CatalogItemOut(
                 image_id=r.image_id,
                 image_url=f"/api/images/{r.image_id}",
+                thumb_url=f"/api/images/{r.image_id}/thumb",
                 image_name=image_name,
                 use_case=use_case,
                 tags=tags,

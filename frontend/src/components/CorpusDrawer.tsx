@@ -335,7 +335,7 @@ export function CorpusDrawer({
                 >
                   <div className="flex gap-3">
                     <img
-                      src={item.image_url}
+                      src={item.thumb_url || item.image_url}
                       alt={item.image_name}
                       className="h-14 w-14 shrink-0 rounded-md object-cover bg-navy-200"
                       loading="lazy"

@@ -372,6 +372,7 @@ def _serialize(results: Sequence[RankedResult]) -> List[Dict]:
                 "rank": card.rank,
                 "image_id": card.image_id,
                 "image_url": card.image_url,
+                "thumb_url": card.thumb_url or f"/api/images/{card.image_id}/thumb",
                 "match_percent": card.match_percent,
                 "image_name": card.image_name or card.provenance.source_name,
                 "caption": card.caption,

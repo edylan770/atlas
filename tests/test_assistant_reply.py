@@ -215,5 +215,6 @@ def test_build_assistant_reply_cards(_mock_resolve):
     assert reply.message
     assert len(reply.results) == 1
     assert reply.results[0].image_url == "/api/images/id-1"
+    assert reply.results[0].thumb_url == "/api/images/id-1/thumb"
     assert reply.results[0].provenance.source_name == "Q3_Review.pptx"
     assert reply.results[0].match_percent == 94

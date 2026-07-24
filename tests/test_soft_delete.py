@@ -88,6 +88,9 @@ def test_reingest_restores_soft_deleted_hash():
         "imagecb.ingest._cache_image",
         return_value=f"/tmp/{image_id}.png",
     ), patch(
+        "imagecb.ingest._cache_thumb",
+        return_value=f"/tmp/thumbs/{image_id}.jpg",
+    ), patch(
         "imagecb.ingest._caption_and_embed",
         return_value=(CaptionJSON.empty(), np.zeros(4)),
     ), patch(

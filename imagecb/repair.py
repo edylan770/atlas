@@ -40,7 +40,8 @@ from imagecb.paths import (
     resolve_source_file,
     source_exists,
 )
-from imagecb.storage import bm25_index, metadata_db, vector_store
+from imagecb.images import make_thumbnail
+from imagecb.storage import blob_store, bm25_index, metadata_db, vector_store
 from imagecb.storage.metadata_db import ImageRecord, get_all_records, get_records, session_scope
 
 logger = logging.getLogger(__name__)
@@ -611,6 +612,44 @@ def repair_failed_captions(
 
     if rebuild_bm25:
         bm25_index.rebuild_from_records(get_all_records())
+    stats["elapsed_sec"] = round(time.perf_counter() - t0, 1)
+    return stats
+
+
+def regenerate_missing_thumbs() -> dict:
+    """Create display thumbnails for active images that are missing one.
+
+    Deterministic key per image_id — existing thumbs are skipped so this never
+    creates duplicate thumbnail files for the same image.
+    """
+    records = get_all_records(include_deleted=False)
+    stats: dict = {
+        "scanned": len(records),
+        "created": 0,
+        "skipped": 0,
+        "failed": 0,
+        "errors": [],
+    }
+    t0 = time.perf_counter()
+    for record in records:
+        image_id = record.image_id
+        if blob_store.thumb_exists(image_id):
+            stats["skipped"] += 1
+            continue
+        img = _load_cached_image(record)
+        if img is None:
+            stats["failed"] += 1
+            if len(stats["errors"]) < 20:
+                stats["errors"].append({"image_id": image_id, "error": "image blob not found"})
+            continue
+        try:
+            blob_store.persist_image_thumb(image_id, make_thumbnail(img))
+            stats["created"] += 1
+        except Exception as exc:  # noqa: BLE001
+            stats["failed"] += 1
+            logger.warning("Thumb regenerate failed for %s: %s", image_id, exc)
+            if len(stats["errors"]) < 20:
+                stats["errors"].append({"image_id": image_id, "error": str(exc)})
     stats["elapsed_sec"] = round(time.perf_counter() - t0, 1)
     return stats
 

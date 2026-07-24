@@ -95,6 +95,7 @@ def find_duplicate_clusters(
                     "caption_short": rec.caption_short if rec else None,
                     "source_file": Path(rec.source_file).name if rec and rec.source_file else None,
                     "image_url": f"/api/images/{iid}",
+                    "thumb_url": f"/api/images/{iid}/thumb",
                 }
             )
         clusters_out.append(

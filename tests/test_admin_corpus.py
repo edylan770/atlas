@@ -51,6 +51,7 @@ def test_list_corpus_images():
     assert iid in ids
     row = next(img for img in images if img["image_id"] == iid)
     assert row["image_url"] == f"/api/images/{iid}"
+    assert row["thumb_url"] == f"/api/images/{iid}/thumb"
 
 
 def test_corpus_images_endpoint(admin_client):

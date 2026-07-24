@@ -43,7 +43,8 @@ from imagecb.models.embedder import BedrockEmbedder, get_embedder, get_text_embe
 from imagecb.models.ocr import extract_text as ocr_extract
 from imagecb.models.vlm import CaptionJSON, VLMCaptioner, get_captioner
 from imagecb.storage import blob_store, bm25_index, vector_store
-from imagecb.storage.blob_store import persist_image_png, persist_source
+from imagecb.images import make_thumbnail
+from imagecb.storage.blob_store import persist_image_png, persist_image_thumb, persist_source
 from imagecb.storage.metadata_db import (
     ImageRecord,
     existing_hashes,
@@ -155,6 +156,11 @@ def _cache_image(img: Image.Image, image_id: str) -> str:
     buf = io.BytesIO()
     img.convert("RGB").save(buf, format="PNG")
     return persist_image_png(image_id, buf.getvalue())
+
+
+def _cache_thumb(img: Image.Image, image_id: str) -> str:
+    """Write the single display thumbnail for ``image_id`` (overwrite-safe)."""
+    return persist_image_thumb(image_id, make_thumbnail(img))
 
 
 def _default_image_name(extracted: ExtractedImage) -> str:
@@ -307,6 +313,7 @@ def _ingest_one_image(
         if phase_callback:
             phase_callback("image_blob_write", "Persisting the display image")
         cached_path = _cache_image(extracted.image, image_id)
+        _cache_thumb(extracted.image, image_id)
         steps["cache_image"] = time.perf_counter() - t0
 
         if should_cancel and should_cancel():

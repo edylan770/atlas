@@ -240,6 +240,26 @@ def admin_repair_captions(
     return {"ok": True, **result}
 
 
+@router.post("/corpus/regenerate-missing-thumbs")
+def admin_regenerate_missing_thumbs(actor: str = Depends(require_admin)):
+    from imagecb.repair import regenerate_missing_thumbs
+
+    result = regenerate_missing_thumbs()
+    audit.append_audit(
+        actor=actor,
+        action="regenerate_missing_thumbs",
+        target_type="corpus",
+        target_id="thumbs",
+        details={
+            "scanned": result.get("scanned", 0),
+            "created": result.get("created", 0),
+            "skipped": result.get("skipped", 0),
+            "failed": result.get("failed", 0),
+        },
+    )
+    return {"ok": True, **result}
+
+
 @router.post("/corpus/purge-unrecoverable")
 def admin_purge_unrecoverable(
     actor: str = Depends(require_admin),

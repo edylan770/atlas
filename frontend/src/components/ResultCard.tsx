@@ -113,7 +113,7 @@ export function ResultCard({
       <div className="relative h-28 bg-navy-50 sm:h-32">
         {card.has_image_file ? (
           <img
-            src={card.image_url}
+            src={card.thumb_url || card.image_url}
             alt={card.caption || card.provenance.source_name}
             className="h-full w-full object-contain"
             loading="lazy"

@@ -240,6 +240,7 @@ Object layout under the prefix:
 - `uploads/` — original source files
 - `staging/` — browser uploads awaiting validation
 - `images/` — display PNGs
+- `thumbs/` — JPEG display thumbnails (`{image_id}.jpg`)
 - `index-backups/` — versioned index snapshots
 - `ingest-logs/` / `query-logs/` — timing reports when enabled
 

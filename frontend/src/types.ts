@@ -14,6 +14,7 @@ export interface ResultCard {
   rank: number;
   image_id: string;
   image_url: string;
+  thumb_url?: string;
   provenance: Provenance;
   caption: string;
   match_hint?: string | null;
@@ -33,6 +34,7 @@ export interface ResultCard {
 export interface CatalogItem {
   image_id: string;
   image_url: string;
+  thumb_url?: string;
   image_name: string;
   use_case: string;
   tags: string[];

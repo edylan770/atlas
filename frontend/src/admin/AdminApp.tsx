@@ -21,6 +21,7 @@ import {
   regenerateCaption,
   reindexImage,
   repairCaptions,
+  regenerateMissingThumbnails,
   restoreImage,
   softDeleteImage,
   cancelIngestJob,
@@ -262,6 +263,9 @@ function CorpusPage() {
   );
   const [bulkRepairResult, setBulkRepairResult] = useState<string | null>(null);
   const [bulkRepairError, setBulkRepairError] = useState<string | null>(null);
+  const [thumbRegenPending, setThumbRegenPending] = useState(false);
+  const [thumbRegenResult, setThumbRegenResult] = useState<string | null>(null);
+  const [thumbRegenError, setThumbRegenError] = useState<string | null>(null);
   const [indexAction, setIndexAction] = useState<
     "reconcile" | "repair" | "purge" | "backup" | "restore" | null
   >(null);
@@ -536,6 +540,30 @@ function CorpusPage() {
     }
   };
 
+  const handleRegenerateMissingThumbs = async () => {
+    if (
+      !window.confirm(
+        "Generate JPEG thumbnails for any indexed images that are missing one? Existing thumbnails are skipped.",
+      )
+    ) {
+      return;
+    }
+    setThumbRegenError(null);
+    setThumbRegenResult(null);
+    setThumbRegenPending(true);
+    try {
+      const result = await regenerateMissingThumbnails();
+      setThumbRegenResult(
+        `Thumbnails: created ${result.created}, skipped ${result.skipped}, failed ${result.failed} (scanned ${result.scanned})`,
+      );
+      reloadAll();
+    } catch (e) {
+      setThumbRegenError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setThumbRegenPending(false);
+    }
+  };
+
   const handleSoftDelete = async (imageId: string) => {
     await softDeleteImage(imageId);
     reloadAll();
@@ -775,6 +803,7 @@ function CorpusPage() {
             className="rounded-md bg-brand-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-brand-700 disabled:opacity-50"
             disabled={
               bulkRepairScope !== null ||
+              thumbRegenPending ||
               hasPendingActions ||
               (corpusHealth?.failed_caption_count ?? 0) === 0
             }
@@ -789,6 +818,7 @@ function CorpusPage() {
             className="rounded-md border border-amber-300 bg-amber-50 px-3 py-1.5 text-xs font-medium text-amber-900 hover:bg-amber-100 disabled:opacity-50"
             disabled={
               bulkRepairScope !== null ||
+              thumbRegenPending ||
               hasPendingActions ||
               (corpusHealth?.weak_caption_count ?? 0) === 0
             }
@@ -798,11 +828,31 @@ function CorpusPage() {
               ? "Repairing weak…"
               : `Repair all weak (${corpusHealth?.weak_caption_count ?? 0})`}
           </button>
+          <button
+            type="button"
+            className="rounded-md border border-navy-300 bg-white px-3 py-1.5 text-xs font-medium text-navy-800 hover:bg-navy-50 disabled:opacity-50"
+            disabled={
+              thumbRegenPending ||
+              bulkRepairScope !== null ||
+              hasPendingActions
+            }
+            onClick={() => void handleRegenerateMissingThumbs()}
+          >
+            {thumbRegenPending
+              ? "Generating thumbnails…"
+              : "Regenerate missing thumbnails"}
+          </button>
           {bulkRepairResult && (
             <p className="text-xs text-navy-600">{bulkRepairResult}</p>
           )}
           {bulkRepairError && (
             <p className="text-xs text-red-600">{bulkRepairError}</p>
+          )}
+          {thumbRegenResult && (
+            <p className="text-xs text-navy-600">{thumbRegenResult}</p>
+          )}
+          {thumbRegenError && (
+            <p className="text-xs text-red-600">{thumbRegenError}</p>
           )}
         </div>
         {corpusError && (
@@ -877,7 +927,7 @@ function CorpusPage() {
                 >
                   <div className="aspect-video bg-navy-50">
                     <img
-                      src={img.image_url}
+                      src={img.thumb_url || img.image_url}
                       alt={img.caption_short || img.image_id}
                       className="h-full w-full object-contain"
                       loading="lazy"

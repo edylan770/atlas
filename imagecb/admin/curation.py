@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import logging
 from datetime import datetime
 from pathlib import Path
 from typing import List, Optional, Sequence
@@ -28,6 +29,8 @@ from imagecb.telemetry.models import InteractionEvent, SearchEvent
 from imagecb.telemetry.schema import ensure_telemetry_schema
 from imagecb.admin.audit import append_audit
 from imagecb.caption.quality import needs_regeneration
+
+logger = logging.getLogger(__name__)
 
 _VALID_CAPTION_QUALITY_FILTERS = frozenset({"all", "ok", "weak", "failed"})
 
@@ -79,6 +82,23 @@ def _delete_record_blobs(
     skipped = 0
 
     if blob_store.delete(record.image_path, fallbacks=image_fallbacks(record)):
+        deleted += 1
+    else:
+        skipped += 1
+
+    # One deterministic thumb per image_id — remove local sidecar and/or S3 object.
+    local_thumb = SETTINGS.image_cache_dir / "thumbs" / f"{record.image_id}.jpg"
+    thumb_removed = False
+    if local_thumb.is_file():
+        local_thumb.unlink()
+        thumb_removed = True
+    if SETTINGS.blob_storage_backend == "s3":
+        try:
+            if blob_store.delete(blob_store.thumb_ref(record.image_id)):
+                thumb_removed = True
+        except Exception as exc:  # noqa: BLE001 — purge must not fail on thumb cleanup
+            logger.warning("Could not delete S3 thumb for %s: %s", record.image_id, exc)
+    if thumb_removed:
         deleted += 1
     else:
         skipped += 1
@@ -316,6 +336,7 @@ def list_corpus_images(
                 "source_type": r.source_type,
                 "author": r.author,
                 "image_url": f"/api/images/{r.image_id}",
+                "thumb_url": f"/api/images/{r.image_id}/thumb",
                 "caption_quality": quality,
                 "needs_regeneration": needs_regeneration(quality),
                 "created_at": created_at,
@@ -342,6 +363,7 @@ def list_orphans(*, never_interacted: bool = False) -> List[dict]:
                 "source_file": Path(r.source_file or "").name,
                 "source_type": r.source_type,
                 "image_url": f"/api/images/{r.image_id}",
+                "thumb_url": f"/api/images/{r.image_id}/thumb",
             }
         )
     return out

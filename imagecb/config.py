@@ -170,6 +170,12 @@ class Settings:
     ingest_max_image_side: int = field(
         default_factory=lambda: int(_env("INGEST_MAX_IMAGE_SIDE", "1024") or "1024")
     )
+    thumb_max_side: int = field(
+        default_factory=lambda: int(_env("THUMB_MAX_SIDE", "256") or "256")
+    )
+    thumb_jpeg_quality: int = field(
+        default_factory=lambda: int(_env("THUMB_JPEG_QUALITY", "80") or "80")
+    )
     ingest_batch_upsert: int = field(
         default_factory=lambda: int(_env("INGEST_BATCH_UPSERT", "16") or "16")
     )
@@ -358,6 +364,7 @@ class Settings:
         self.data_dir.mkdir(parents=True, exist_ok=True)
         self.chroma_dir.mkdir(parents=True, exist_ok=True)
         self.image_cache_dir.mkdir(parents=True, exist_ok=True)
+        (self.image_cache_dir / "thumbs").mkdir(parents=True, exist_ok=True)
         self.uploads_dir.mkdir(parents=True, exist_ok=True)
         self.sqlite_path.parent.mkdir(parents=True, exist_ok=True)
         self.bm25_path.parent.mkdir(parents=True, exist_ok=True)

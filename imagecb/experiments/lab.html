@@ -257,7 +257,7 @@
         body.innerHTML = entry.results
           .map((r) => {
             const img = r.has_image_file
-              ? `<img loading="lazy" src="${escapeHtml(r.image_url)}" alt="" />`
+              ? `<img loading="lazy" src="${escapeHtml(r.thumb_url || r.image_url)}" alt="" />`
               : `<div class="noimg">no image</div>`;
             return `
               <div class="card">

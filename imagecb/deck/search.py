@@ -67,6 +67,7 @@ def result_cards_to_dicts(cards: List[ResultCard]) -> List[dict]:
                 "rank": c.rank,
                 "image_id": c.image_id,
                 "image_url": c.image_url,
+                "thumb_url": c.thumb_url or f"/api/images/{c.image_id}/thumb",
                 "provenance": {
                     "source_name": prov.source_name,
                     "source_type": prov.source_type,

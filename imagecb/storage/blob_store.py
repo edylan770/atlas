@@ -77,6 +77,17 @@ def image_key(image_id: str) -> str:
     return _key(SETTINGS.s3_prefix, "images", f"{image_id}.png")
 
 
+def thumb_key(image_id: str) -> str:
+    return _key(SETTINGS.s3_prefix, "thumbs", f"{image_id}.jpg")
+
+
+def thumb_ref(image_id: str) -> str:
+    """Canonical durable reference for an image's display thumbnail."""
+    if SETTINGS.blob_storage_backend == "s3":
+        return s3_uri(thumb_key(image_id))
+    return str((SETTINGS.image_cache_dir / "thumbs" / f"{image_id}.jpg").resolve())
+
+
 def ingest_log_key(run_id: str, when: Optional[datetime] = None) -> str:
     stamp = (when or datetime.now(timezone.utc)).strftime("%Y%m%d_%H%M%S")
     safe_id = safe_filename(run_id).replace(" ", "_")
@@ -265,6 +276,8 @@ def put_bytes(
     namespace = relative.parts[-2] if len(relative.parts) >= 2 else ""
     if namespace == "images":
         path = SETTINGS.image_cache_dir / relative.name
+    elif namespace == "thumbs":
+        path = SETTINGS.image_cache_dir / "thumbs" / relative.name
     elif namespace == "uploads":
         path = SETTINGS.uploads_dir / relative.name
     else:
@@ -293,6 +306,20 @@ def persist_image_png(image_id: str, data: bytes) -> str:
     out_path.parent.mkdir(parents=True, exist_ok=True)
     out_path.write_bytes(data)
     return str(out_path.resolve())
+
+
+def persist_image_thumb(image_id: str, data: bytes) -> str:
+    """Write the display thumbnail (JPEG). Overwrites the same key — one thumb per id."""
+    if SETTINGS.blob_storage_backend == "s3":
+        return put_bytes(data, thumb_key(image_id), content_type="image/jpeg")
+    out_path = SETTINGS.image_cache_dir / "thumbs" / f"{image_id}.jpg"
+    out_path.parent.mkdir(parents=True, exist_ok=True)
+    out_path.write_bytes(data)
+    return str(out_path.resolve())
+
+
+def thumb_exists(image_id: str) -> bool:
+    return exists(thumb_ref(image_id))
 
 
 def _local_candidate(ref: str | Path) -> Optional[Path]:

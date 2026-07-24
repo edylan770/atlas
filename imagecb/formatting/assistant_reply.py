@@ -84,6 +84,7 @@ class ResultCard:
     needs_regeneration: bool = False
     created_at: Optional[str] = None
     asset_type: str = ""
+    thumb_url: str = ""
 
 
 @dataclass
@@ -182,6 +183,7 @@ def build_result_cards(
                 rank=rank,
                 image_id=r.image_id,
                 image_url=f"{image_url_prefix}/{r.image_id}",
+                thumb_url=f"{image_url_prefix}/{r.image_id}/thumb",
                 provenance=prov,
                 caption=cap,
                 match_hint=_short_match_hint(r),

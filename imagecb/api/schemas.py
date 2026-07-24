@@ -21,6 +21,7 @@ class ResultCardOut(BaseModel):
     rank: int
     image_id: str
     image_url: str
+    thumb_url: str = ""
     provenance: ProvenanceOut
     caption: str
     match_hint: Optional[str] = None
@@ -44,6 +45,7 @@ class ResultCardOut(BaseModel):
 class CatalogItemOut(BaseModel):
     image_id: str
     image_url: str
+    thumb_url: str = ""
     image_name: str
     use_case: str = ""
     tags: List[str] = Field(default_factory=list)

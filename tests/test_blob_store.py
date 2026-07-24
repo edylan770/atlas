@@ -70,6 +70,46 @@ def test_local_image_persistence(tmp_path):
     assert ref.endswith("abc.png")
 
 
+def test_local_thumb_persistence_and_exists(tmp_path):
+    settings = replace(
+        SETTINGS,
+        blob_storage_backend="local",
+        image_cache_dir=tmp_path / "images",
+    )
+    with patch("imagecb.storage.blob_store.SETTINGS", settings):
+        ref = blob_store.persist_image_thumb("abc", b"jpeg-data")
+        assert blob_store.thumb_exists("abc") is True
+        assert blob_store.read_bytes(ref) == b"jpeg-data"
+        # Overwrite same key — still a single file
+        blob_store.persist_image_thumb("abc", b"jpeg-data-2")
+        assert (tmp_path / "images" / "thumbs" / "abc.jpg").read_bytes() == b"jpeg-data-2"
+        assert list((tmp_path / "images" / "thumbs").glob("abc*")) == [
+            tmp_path / "images" / "thumbs" / "abc.jpg"
+        ]
+        assert blob_store.delete(ref) is True
+        assert blob_store.thumb_exists("abc") is False
+
+
+def test_s3_thumb_key_and_persist():
+    fake = FakeS3()
+    settings = replace(
+        SETTINGS,
+        blob_storage_backend="s3",
+        s3_bucket="private-corpus",
+        s3_prefix="atlas",
+        s3_region="us-east-1",
+    )
+    with patch("imagecb.storage.blob_store.SETTINGS", settings), patch(
+        "imagecb.storage.blob_store.get_s3_client",
+        return_value=fake,
+    ):
+        assert blob_store.thumb_key("xyz") == "atlas/thumbs/xyz.jpg"
+        ref = blob_store.persist_image_thumb("xyz", b"thumb-bytes")
+        assert ref == "s3://private-corpus/atlas/thumbs/xyz.jpg"
+        assert blob_store.thumb_exists("xyz") is True
+        assert blob_store.read_bytes(ref) == b"thumb-bytes"
+
+
 def test_private_s3_put_describe_read_and_stream(tmp_path):
     fake = FakeS3()
     settings = replace(

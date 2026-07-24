@@ -101,6 +101,7 @@ export interface CorpusImage {
   source_type?: string;
   author?: string | null;
   image_url: string;
+  thumb_url?: string;
   caption_quality?: string;
   needs_regeneration?: boolean;
   created_at?: string | null;
@@ -152,6 +153,16 @@ export interface RepairCaptionsResult {
   errors: number;
   elapsed_sec?: number;
   scope?: string;
+}
+
+export interface RegenerateMissingThumbsResult {
+  ok: boolean;
+  scanned: number;
+  created: number;
+  skipped: number;
+  failed: number;
+  elapsed_sec?: number;
+  errors?: { image_id: string; error: string }[];
 }
 
 export interface PurgeUnrecoverableResult {
@@ -340,6 +351,12 @@ export function repairCaptions(
     `/api/admin/corpus/repair-captions?scope=${encodeURIComponent(scope)}`,
     { method: "POST" },
   );
+}
+
+export function regenerateMissingThumbnails(): Promise<RegenerateMissingThumbsResult> {
+  return adminRequest("/api/admin/corpus/regenerate-missing-thumbs", {
+    method: "POST",
+  });
 }
 
 export function purgeUnrecoverable(
