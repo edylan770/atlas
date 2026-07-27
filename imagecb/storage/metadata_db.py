@@ -204,10 +204,6 @@ def reopen_engine():
         return _engine
 
 
-def is_active(record: ImageRecord) -> bool:
-    return record.deleted_at is None
-
-
 @contextmanager
 def session_scope() -> Session:
     global _active_sessions
@@ -351,11 +347,6 @@ def list_catalog_records(limit: int = 50, sort: str = "newest") -> List[ImageRec
         return list(rows)
 
 
-def get_recent_records(limit: int = 50) -> List[ImageRecord]:
-    """Most recently ingested images (for corpus catalog UI)."""
-    return list_catalog_records(limit, sort="newest")
-
-
 def filter_image_ids(
     *,
     file_types: Optional[Iterable[str]] = None,
@@ -406,10 +397,6 @@ def filter_image_ids(
                 continue
             result.append(r.image_id)
         return result
-
-
-def record_from_dict(d: dict) -> ImageRecord:
-    return ImageRecord(**d)
 
 
 def serialize_list(values: Sequence[str]) -> str:

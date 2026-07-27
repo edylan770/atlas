@@ -85,11 +85,6 @@ def _truncate_preview(text: str, *, max_len: int) -> str:
     return text[: max_len - 3] + "..."
 
 
-def extract_slides_from_path(path: Path) -> List[SlideContent]:
-    data = path.read_bytes()
-    return extract_slides_from_bytes(data)
-
-
 def extract_slides_from_bytes(data: bytes) -> List[SlideContent]:
     try:
         from pptx import Presentation
@@ -126,7 +121,3 @@ def extract_slides_from_bytes(data: bytes) -> List[SlideContent]:
     return slides
 
 
-def extract_slides(source: Union[Path, bytes]) -> List[SlideContent]:
-    if isinstance(source, Path):
-        return extract_slides_from_path(source)
-    return extract_slides_from_bytes(source)

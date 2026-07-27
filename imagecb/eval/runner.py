@@ -155,15 +155,3 @@ def run_eval(
     return result
 
 
-def run_eval_from_path(
-    golden_path,
-    *,
-    mode: RunMode = "all",
-    k_values: Sequence[int] = (1, 3, 5, 10),
-    case_id: str | None = None,
-    validate_ids: bool = True,
-) -> EvalRunResult:
-    from pathlib import Path
-
-    golden = load_golden_set(Path(golden_path), validate_ids=validate_ids)
-    return run_eval(golden, mode=mode, k_values=k_values, case_id=case_id)

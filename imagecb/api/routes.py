@@ -42,8 +42,6 @@ from imagecb.api.schemas import (
     InteractionResponse,
     ProvenanceOut,
     ResultCardOut,
-    SessionResetRequest,
-    SessionResetResponse,
     SimilarRequest,
     SimilarResponse,
     SlideSuggestionOut,
@@ -51,7 +49,7 @@ from imagecb.api.schemas import (
     SuggestionsRequest,
     SuggestionsResponse,
 )
-from imagecb.api.sessions import get_or_create_session, get_session, reset_session
+from imagecb.api.sessions import get_or_create_session, get_session
 from imagecb.config import SETTINGS
 from imagecb.caption.quality import needs_regeneration
 from imagecb.formatting.assistant_reply import (
@@ -423,8 +421,6 @@ def chat(
         relaxed_min_score=ask_result.relaxed_min_score,
         dense_failed=ask_result.dense_failed,
         sparse_failed=ask_result.sparse_failed,
-        visual_fallback=ask_result.visual_fallback,
-        low_confidence_visual=ask_result.low_confidence_visual,
     )
     corpus = build_corpus_context()
     indexed_count = corpus.indexed_count
@@ -520,8 +516,6 @@ def chat_stream(
         relaxed_min_score=ask_result.relaxed_min_score,
         dense_failed=ask_result.dense_failed,
         sparse_failed=ask_result.sparse_failed,
-        visual_fallback=ask_result.visual_fallback,
-        low_confidence_visual=ask_result.low_confidence_visual,
     )
 
     result_cards = build_result_cards(ask_result.results)
@@ -807,14 +801,6 @@ async def similar(
         parsed_query=_parsed_with_notes(spec, notes),
         search_event_id=search_event_id,
     )
-
-
-@router.post("/session/reset", response_model=SessionResetResponse)
-def session_reset(body: SessionResetRequest) -> SessionResetResponse:
-    session = reset_session(body.session_id)
-    if session is None:
-        raise HTTPException(status_code=404, detail="session not found")
-    return SessionResetResponse(session_id=body.session_id)
 
 
 def _thumb_response_headers(

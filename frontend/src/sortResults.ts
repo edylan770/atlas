@@ -1,4 +1,4 @@
-import type { CatalogItem, ResultCard, ResultSort } from "./types";
+import type { ResultCard, ResultSort } from "./types";
 
 function recordName(item: {
   image_name?: string | null;
@@ -54,37 +54,6 @@ export function sortResultCards(results: ResultCard[], sort: ResultSort): Result
   return withRanks(copy);
 }
 
-export function sortCatalogItems(items: CatalogItem[], sort: ResultSort): CatalogItem[] {
-  if (sort === "relevance") {
-    sort = "newest";
-  }
-  if (items.length === 0) {
-    return items;
-  }
-  const copy = [...items];
-  if (sort === "newest") {
-    copy.sort((a, b) => {
-      const cmp = recordCreated(b).localeCompare(recordCreated(a));
-      return cmp !== 0 ? cmp : a.image_id.localeCompare(b.image_id);
-    });
-  } else if (sort === "oldest") {
-    copy.sort((a, b) => {
-      const cmp = recordCreated(a).localeCompare(recordCreated(b));
-      return cmp !== 0 ? cmp : a.image_id.localeCompare(b.image_id);
-    });
-  } else if (sort === "name") {
-    copy.sort((a, b) => {
-      const cmp = recordName(a).localeCompare(recordName(b));
-      return cmp !== 0 ? cmp : a.image_id.localeCompare(b.image_id);
-    });
-  } else if (sort === "source") {
-    copy.sort((a, b) => {
-      const cmp = recordSource(a).localeCompare(recordSource(b));
-      return cmp !== 0 ? cmp : a.image_id.localeCompare(b.image_id);
-    });
-  }
-  return copy;
-}
 
 export interface CorpusSortable {
   image_id: string;
@@ -93,37 +62,6 @@ export interface CorpusSortable {
   created_at?: string | null;
 }
 
-export function sortCorpusImages<T extends CorpusSortable>(items: T[], sort: ResultSort): T[] {
-  if (sort === "relevance") {
-    sort = "newest";
-  }
-  if (items.length === 0) {
-    return items;
-  }
-  const copy = [...items];
-  if (sort === "newest") {
-    copy.sort((a, b) => {
-      const cmp = recordCreated(b).localeCompare(recordCreated(a));
-      return cmp !== 0 ? cmp : a.image_id.localeCompare(b.image_id);
-    });
-  } else if (sort === "oldest") {
-    copy.sort((a, b) => {
-      const cmp = recordCreated(a).localeCompare(recordCreated(b));
-      return cmp !== 0 ? cmp : a.image_id.localeCompare(b.image_id);
-    });
-  } else if (sort === "name") {
-    copy.sort((a, b) => {
-      const cmp = recordName(a).localeCompare(recordName(b));
-      return cmp !== 0 ? cmp : a.image_id.localeCompare(b.image_id);
-    });
-  } else if (sort === "source") {
-    copy.sort((a, b) => {
-      const cmp = (a.source_file ?? "").toLowerCase().localeCompare((b.source_file ?? "").toLowerCase());
-      return cmp !== 0 ? cmp : a.image_id.localeCompare(b.image_id);
-    });
-  }
-  return copy;
-}
 
 export function defaultSearchSort(): ResultSort {
   return "relevance";

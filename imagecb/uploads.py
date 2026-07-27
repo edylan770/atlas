@@ -18,20 +18,6 @@ logger = logging.getLogger(__name__)
 UploadInput = Union[str, Path, dict]
 
 
-def gradio_file_path(item: UploadInput) -> Path:
-    """Resolve a Gradio File value to a local path."""
-    if isinstance(item, (str, Path)):
-        return Path(item)
-    if isinstance(item, dict):
-        path = item.get("path") or item.get("name")
-        if path:
-            return Path(path)
-    name = getattr(item, "name", None) or getattr(item, "path", None)
-    if name:
-        return Path(name)
-    raise ValueError(f"Cannot resolve upload path from {type(item)!r}")
-
-
 def is_supported_extension(path: Path) -> bool:
     return path.suffix.lower() in SUPPORTED_EXTS
 
@@ -51,45 +37,6 @@ def unique_dest(dest_dir: Path, filename: str) -> Path:
         if not candidate.exists():
             return candidate
         n += 1
-
-
-def save_upload(src: UploadInput, *, dest_dir: Path | None = None) -> Path:
-    """Copy one uploaded file into the staging directory."""
-    src_path = gradio_file_path(src)
-    if not src_path.is_file():
-        raise FileNotFoundError(f"Upload not found on disk: {src_path}")
-    if not is_supported_extension(src_path):
-        raise ValueError(
-            f"Unsupported file type '{src_path.suffix}'. "
-            f"Supported: {', '.join(sorted(SUPPORTED_EXTS))}"
-        )
-    target_dir = dest_dir if dest_dir is not None else SETTINGS.uploads_dir
-    dest = unique_dest(target_dir, src_path.name)
-    shutil.copy2(src_path, dest)
-    logger.info("Staged upload %s -> %s", src_path.name, dest)
-    return dest
-
-
-def save_uploads(
-    items: Sequence[UploadInput],
-    *,
-    dest_dir: Path | None = None,
-) -> Tuple[List[Path], List[str]]:
-    """Stage multiple uploads. Returns (saved paths, error messages)."""
-    saved: List[Path] = []
-    errors: List[str] = []
-    for item in items or []:
-        try:
-            saved.append(save_upload(item, dest_dir=dest_dir))
-        except (OSError, ValueError) as exc:
-            name = "unknown"
-            try:
-                name = gradio_file_path(item).name
-            except ValueError:
-                pass
-            errors.append(f"{name}: {exc}")
-            logger.warning("Failed to stage upload %s: %s", name, exc)
-    return saved, errors
 
 
 def cleanup_staged_uploads(paths: Sequence[Path]) -> None:

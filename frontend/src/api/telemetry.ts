@@ -4,9 +4,6 @@ export function getUserId(): string | null {
   return localStorage.getItem(USER_ID_KEY);
 }
 
-export function setUserId(id: string): void {
-  localStorage.setItem(USER_ID_KEY, id);
-}
 
 function telemetryHeaders(): HeadersInit {
   const headers: Record<string, string> = {

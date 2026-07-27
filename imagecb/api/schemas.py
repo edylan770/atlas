@@ -135,14 +135,6 @@ class InteractionResponse(BaseModel):
     ok: bool = True
 
 
-class SessionResetRequest(BaseModel):
-    session_id: str
-
-
-class SessionResetResponse(BaseModel):
-    session_id: str
-
-
 class SuggestionsRequest(BaseModel):
     limit: int = Field(default=4, ge=2, le=8)
 

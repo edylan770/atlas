@@ -140,20 +140,6 @@ def serve_web(
 
 
 @app.command()
-def serve(
-    host: str = typer.Option("127.0.0.1", help="Bind host."),
-    port: int = typer.Option(7860, help="Bind port."),
-    share: bool = typer.Option(False, help="Create a public Gradio share link."),
-    verbose: bool = typer.Option(False, "--verbose", "-v"),
-) -> None:
-    """Launch the legacy Gradio chat UI."""
-    _configure_logging(verbose)
-    from imagecb.app import launch
-
-    launch(host=host, port=port, share=share)
-
-
-@app.command()
 def status(
     verbose: bool = typer.Option(False, "--verbose", "-v", help="Show affected source files and image IDs."),
 ) -> None:

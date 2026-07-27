@@ -101,11 +101,6 @@ export interface ChatStreamCallbacks {
   onError: (detail: string) => void;
 }
 
-export interface ChatMessage {
-  role: "user" | "assistant";
-  content: string;
-  turnId?: string;
-}
 
 export interface ConversationTurn {
   id: string;

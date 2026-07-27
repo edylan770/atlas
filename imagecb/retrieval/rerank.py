@@ -14,7 +14,6 @@ from typing import List, Literal, Optional, Sequence, TYPE_CHECKING
 
 from imagecb.caption.asset_type import format_asset_type_label
 from imagecb.config import SETTINGS
-from imagecb.formatting.match_display import meets_min_match_percent
 from imagecb.models.reranker import get_reranker
 from imagecb.retrieval.hybrid import Candidate
 from imagecb.storage import metadata_db
@@ -275,6 +274,8 @@ def rerank(
     from imagecb.retrieval.dedupe import dedupe_results
 
     if min_match_percent > 0:
+        from imagecb.formatting.match_display import meets_min_match_percent
+
         above = [
             r
             for r in ranked

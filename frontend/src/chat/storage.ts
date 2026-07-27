@@ -67,19 +67,6 @@ export function saveStoredState(state: StoredState): void {
 }
 
 /** Server session ids are in-memory only; stale ids after API restart get a new session on next send. */
-export function turnsToMessages(turns: ConversationTurn[]) {
-  const messages: { role: "user" | "assistant"; content: string; turnId: string }[] =
-    [];
-  for (const turn of turns) {
-    messages.push({ role: "user", content: turn.userContent, turnId: turn.id });
-    messages.push({
-      role: "assistant",
-      content: turn.assistantContent,
-      turnId: turn.id,
-    });
-  }
-  return messages;
-}
 
 export function lastTurn(turns: ConversationTurn[]): ConversationTurn | null {
   return turns.length > 0 ? turns[turns.length - 1]! : null;

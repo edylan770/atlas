@@ -69,13 +69,6 @@ def get_or_create_session(session_id: str | None) -> tuple[str, ChatSession]:
     return create_session()
 
 
-def reset_session(session_id: str) -> ChatSession | None:
-    session = get_session(session_id)
-    if session is None:
-        return None
-    session.reset()
-    return session
-
 
 def session_count() -> int:
     with _lock:

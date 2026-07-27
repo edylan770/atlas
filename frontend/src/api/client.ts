@@ -1,12 +1,10 @@
 import { getAdminApiKey } from "./adminClient";
 import { getUserId } from "./telemetry";
 import type {
-  ChatResponse,
   ChatStreamCallbacks,
   ChatStreamMetadata,
   CorpusCatalogResponse,
   IngestJob,
-  IngestResponse,
   ParsedQuery,
   ResultSort,
   SimilarResponse,
@@ -75,25 +73,6 @@ export async function fetchSuggestions(
   });
 }
 
-export async function sendChat(
-  message: string,
-  sessionId: string | null,
-  topK: number,
-  minMatchPercent: number,
-  sort?: ResultSort,
-): Promise<ChatResponse> {
-  return request<ChatResponse>("/api/chat", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({
-      message,
-      session_id: sessionId,
-      top_k: topK,
-      min_match_percent: minMatchPercent,
-      sort,
-    }),
-  });
-}
 
 type StreamEvent =
   | {
@@ -213,13 +192,6 @@ export async function sendChatStream(
   }
 }
 
-export async function resetSession(sessionId: string): Promise<void> {
-  await request("/api/session/reset", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ session_id: sessionId }),
-  });
-}
 
 export interface IngestFlags {
   skipCaption: boolean;
@@ -228,58 +200,6 @@ export interface IngestFlags {
   workers?: number;
 }
 
-export async function ingestFiles(
-  files: File[],
-  flags: IngestFlags,
-): Promise<IngestResponse> {
-  const form = new FormData();
-  for (const f of files) {
-    form.append("files", f);
-  }
-  form.append("skip_caption", String(flags.skipCaption));
-  form.append("skip_ocr", String(flags.skipOcr));
-  form.append("force", String(flags.force));
-  if (flags.workers != null) {
-    form.append("workers", String(flags.workers));
-  }
-  const key = getAdminApiKey();
-  if (!key) {
-    throw new Error("Admin API key required for ingest (set in Admin settings)");
-  }
-  return request<IngestResponse>("/api/ingest", {
-    method: "POST",
-    headers: { "X-Admin-Api-Key": key },
-    body: form,
-  });
-}
-
-export async function createIngestJob(
-  files: File[],
-  flags: IngestFlags,
-  options: { start?: boolean; signal?: AbortSignal } = {},
-): Promise<IngestJob> {
-  const supported = filterSupportedFiles(files);
-  if (supported.length === 0) {
-    throw new Error("No supported files selected.");
-  }
-  const form = new FormData();
-  for (const file of supported) form.append("files", file);
-  form.append("skip_caption", String(flags.skipCaption));
-  form.append("skip_ocr", String(flags.skipOcr));
-  form.append("force", String(flags.force));
-  if (flags.workers != null) form.append("workers", String(flags.workers));
-  form.append("start", String(options.start !== false));
-  const key = getAdminApiKey();
-  if (!key) {
-    throw new Error("Admin API key required for ingest (set in Admin settings)");
-  }
-  return request<IngestJob>("/api/ingest/jobs", {
-    method: "POST",
-    headers: { "X-Admin-Api-Key": key },
-    body: form,
-    signal: options.signal,
-  });
-}
 
 export async function createEmptyIngestJob(
   flags: IngestFlags,
@@ -397,28 +317,6 @@ function uploadIngestJobBatch(
   });
 }
 
-export async function appendIngestJobFiles(
-  jobId: string,
-  files: File[],
-  options: { signal?: AbortSignal } = {},
-): Promise<IngestJob> {
-  const supported = filterSupportedFiles(files);
-  if (supported.length === 0) {
-    throw new Error("No supported files selected.");
-  }
-  const form = new FormData();
-  for (const file of supported) form.append("files", file);
-  const key = getAdminApiKey();
-  if (!key) {
-    throw new Error("Admin API key required for ingest (set in Admin settings)");
-  }
-  return request<IngestJob>(`/api/ingest/jobs/${encodeURIComponent(jobId)}/files`, {
-    method: "POST",
-    headers: { "X-Admin-Api-Key": key },
-    body: form,
-    signal: options.signal,
-  });
-}
 
 export async function startIngestJob(
   jobId: string,
@@ -800,53 +698,6 @@ export async function createIngestJobBatched(
   return startIngestJob(job.job_id, { signal: options.signal });
 }
 
-export async function ingestFilesBatched(
-  files: File[],
-  flags: IngestFlags,
-  options: {
-    batchSize?: number;
-    onProgress?: (p: BatchedIngestProgress) => void;
-  } = {},
-): Promise<IngestResponse> {
-  const batchSize = Math.max(1, options.batchSize ?? 25);
-  const supported = filterSupportedFiles(files);
-  if (supported.length === 0) {
-    throw new Error("No supported files selected.");
-  }
-  const batches: File[][] = [];
-  for (let i = 0; i < supported.length; i += batchSize) {
-    batches.push(supported.slice(i, i + batchSize));
-  }
-  let last: IngestResponse = {
-    message: "",
-    indexed_count: 0,
-    chroma_vectors: 0,
-    stats: {},
-  };
-  const messages: string[] = [];
-  for (let i = 0; i < batches.length; i++) {
-    const batch = batches[i]!;
-    options.onProgress?.({
-      batchIndex: i + 1,
-      batchCount: batches.length,
-      filesDone: Math.min((i + 1) * batchSize, supported.length),
-      filesTotal: supported.length,
-    });
-    last = await ingestFiles(batch, flags);
-    messages.push(`Batch ${i + 1}/${batches.length}: ${last.message}`);
-    options.onProgress?.({
-      batchIndex: i + 1,
-      batchCount: batches.length,
-      filesDone: Math.min((i + 1) * batchSize, supported.length),
-      filesTotal: supported.length,
-      lastMessage: last.message,
-    });
-  }
-  return {
-    ...last,
-    message: messages.join("\n\n"),
-  };
-}
 
 export async function fetchCorpusCatalog(
   limit = 40,

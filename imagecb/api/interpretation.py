@@ -14,16 +14,8 @@ def build_interpretation_notes(
     relaxed_min_score: bool = False,
     dense_failed: bool = False,
     sparse_failed: bool = False,
-    visual_fallback: bool = False,
-    low_confidence_visual: bool = False,
 ) -> List[str]:
     notes: List[str] = []
-    if low_confidence_visual:
-        notes.append(
-            "No image strongly matches your search; showing the closest visual matches."
-        )
-    elif visual_fallback:
-        notes.append("Results are ranked by visual similarity.")
     if min_match_percent > 0:
         notes.append(f"Showing matches at or above {min_match_percent}%.")
     if relaxed_min_score and min_match_percent > 0:

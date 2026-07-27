@@ -334,7 +334,7 @@ The repo ships a pre-built React bundle at `imagecb/web/frontend_dist/` (no loca
 | http://127.0.0.1:8080/admin | Admin (`ADMIN_API_KEY`) |
 | http://127.0.0.1:8080/lab | Pipeline Lab (experimental) |
 
-If `frontend_dist` is missing, `serve-web` falls back to `imagecb/web/static/` (chat only, no admin).
+If `frontend_dist` is missing, `serve-web` serves the API only (rebuild the frontend and run `python scripts/sync_frontend_dist.py`).
 
 **Frontend developers:**
 

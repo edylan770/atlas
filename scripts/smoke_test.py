@@ -170,12 +170,6 @@ def test_vlm_caption_json() -> None:
     assert cap.objects == ["a"]
 
 
-def test_app_builds() -> None:
-    from imagecb.app import build_ui
-
-    demo = build_ui()
-    assert demo is not None
-
 
 def main() -> int:
     print("Running offline smoke tests...\n")
@@ -187,7 +181,6 @@ def main() -> int:
     check("RRF merge", test_rrf_merge)
     check("query parser fallback", test_query_parser_fallback)
     check("VLM JSON parsing", test_vlm_caption_json)
-    check("Gradio UI build", test_app_builds)
     print()
     if FAILURES:
         print(f"{len(FAILURES)} test(s) failed:")

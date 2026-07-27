@@ -38,8 +38,6 @@ def test_short_query_uses_fused_ranking(mock_parse, mock_search, mock_rank):
 
     mock_rank.assert_called_once()
     assert result.results[0].score_kind == "fusion"
-    assert result.visual_fallback is False
-    assert result.low_confidence_visual is False
 
 
 @patch("imagecb.retrieval.session._rank_by_fused_score")
@@ -57,4 +55,3 @@ def test_long_query_uses_same_fused_ranking(mock_parse, mock_search, mock_rank):
 
     mock_rank.assert_called_once()
     assert result.results[0].score_kind == "fusion"
-    assert result.visual_fallback is False

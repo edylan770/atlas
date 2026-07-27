@@ -21,7 +21,6 @@ services:
       BM25_PATH: /app/data/bm25.pkl
       HUBNESS_PATH: /app/data/hubness.pkl
       DECK_CACHE_DIR: /app/data/deck_cache
-      ACRONYM_CACHE_PATH: /app/data/acronym_cache.json
       TESSERACT_CMD: /usr/bin/tesseract
       BOOTSTRAP_CORPUS_DIR: ""
     healthcheck:

@@ -8,12 +8,10 @@ from pathlib import Path
 _PKG_WEB = Path(__file__).resolve().parent.parent / "web"
 _SHIPPED_REACT = _PKG_WEB / "frontend_dist"
 _FRONTEND_DIST = Path(__file__).resolve().parents[2] / "frontend" / "dist"
-_BUILTIN_STATIC = _PKG_WEB / "static"
 
 
 class StaticUiKind(str, Enum):
     REACT = "react"
-    BUILTIN = "builtin"
     NONE = "none"
 
 
@@ -26,8 +24,6 @@ def resolve_static_dir() -> tuple[Path | None, StaticUiKind]:
         return _SHIPPED_REACT, StaticUiKind.REACT
     if _FRONTEND_DIST.is_dir() and (_FRONTEND_DIST / "index.html").is_file():
         return _FRONTEND_DIST, StaticUiKind.REACT
-    if _BUILTIN_STATIC.is_dir():
-        return _BUILTIN_STATIC, StaticUiKind.BUILTIN
     return None, StaticUiKind.NONE
 
 
@@ -84,8 +80,4 @@ def format_serve_web_urls(*, host: str, port: int) -> list[str]:
     lines.append(
         "Admin UI:  not available (missing bundled React build in imagecb/web/frontend_dist)"
     )
-    if kind == StaticUiKind.BUILTIN:
-        lines.append(
-            "  Using built-in static chat only. Ask a maintainer to ship frontend_dist or use Docker."
-        )
     return lines

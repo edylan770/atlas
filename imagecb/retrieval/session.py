@@ -45,8 +45,6 @@ class AskResult:
     relaxed_min_score: bool = False
     dense_failed: bool = False
     sparse_failed: bool = False
-    visual_fallback: bool = False
-    low_confidence_visual: bool = False
     indexed_count: int = 0
 
 
@@ -128,8 +126,6 @@ class ChatSession:
                 relaxed_min_score=relaxed_min_score,
                 dense_failed=outcome.dense_failed,
                 sparse_failed=outcome.sparse_failed,
-                visual_fallback=False,
-                low_confidence_visual=False,
             )
 
     def record_turn(self, user_text: str, assistant_message: str) -> None:

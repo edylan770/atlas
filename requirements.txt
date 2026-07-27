@@ -24,7 +24,6 @@ SQLAlchemy>=2.0.30
 rank_bm25>=0.2.2
 
 # UI
-gradio>=4.36.0
 fastapi>=0.115.0
 uvicorn[standard]>=0.32.0
 python-multipart>=0.0.12
