@@ -41,3 +41,6 @@ secrets.json
 Thumbs.db
 desktop.ini
 *.log
+
+# Local test image sets (not for the repo)
+OneDrive_*/
