@@ -78,6 +78,10 @@ class IndexHealthReport:
     bm25_orphan_ids: List[str] = field(default_factory=list)
     bm25_stale: bool = False
     text_vector_count: int = 0
+    thumb_count: int = 0
+    missing_thumb_count: int = 0
+    orphan_thumb_count: int = 0
+    missing_thumb_ids: List[str] = field(default_factory=list)
     stores_in_sync: bool = True
     is_healthy: bool = True
     elapsed_sec: float = 0.0
@@ -94,6 +98,9 @@ class IndexHealthReport:
             "text_vector_count": self.text_vector_count,
             "bm25_doc_count": self.bm25_doc_count,
             "missing_cache_count": self.missing_cache_count,
+            "thumb_count": self.thumb_count,
+            "missing_thumb_count": self.missing_thumb_count,
+            "orphan_thumb_count": self.orphan_thumb_count,
             "failed_caption_count": self.failed_caption_count,
             "weak_caption_count": self.weak_caption_count,
             "needs_regeneration_count": self.needs_regeneration_count,
@@ -110,6 +117,7 @@ class IndexHealthReport:
             "stores_in_sync": self.stores_in_sync,
             "is_healthy": self.is_healthy,
             "elapsed_sec": self.elapsed_sec,
+            "missing_thumb_ids": _sample(self.missing_thumb_ids),
             "missing_chroma_ids": _sample(self.missing_chroma_ids),
             "missing_text_vector_ids": _sample(self.missing_text_vector_ids),
             "orphan_chroma_ids": _sample(self.orphan_chroma_ids),
@@ -245,6 +253,12 @@ def assess_index_health(*, include_weak: bool = False) -> IndexHealthReport:
     missing_asset_type_count = len(missing_asset_type_records)
     missing_asset_type_ids = [r.image_id for r in missing_asset_type_records[:50]]
 
+    thumb_ids = blob_store.list_thumb_ids()
+    thumb_count = len(sqlite_ids & thumb_ids)
+    missing_thumb_ids = sorted(sqlite_ids - thumb_ids)
+    missing_thumb_count = len(missing_thumb_ids)
+    orphan_thumb_count = len(thumb_ids - sqlite_ids)
+
     stores_in_sync = (
         missing_chroma_count == 0
         and missing_text_vector_count == 0
@@ -262,11 +276,15 @@ def assess_index_health(*, include_weak: bool = False) -> IndexHealthReport:
     elapsed = round(time.perf_counter() - t0, 2)
     logger.info(
         "Index health assess: records=%s healthy=%s in_sync=%s missing_cache=%s "
-        "failed_captions=%s missing_chroma=%s orphans=%s bm25_stale=%s (%.2fs)",
+        "thumbs=%s/%s missing_thumbs=%s failed_captions=%s missing_chroma=%s "
+        "orphans=%s bm25_stale=%s (%.2fs)",
         len(records),
         is_healthy,
         stores_in_sync,
         missing_cache_count,
+        thumb_count,
+        len(records),
+        missing_thumb_count,
         failed_caption_count,
         missing_chroma_count,
         orphan_chroma_count + orphan_text_vector_count,
@@ -304,6 +322,10 @@ def assess_index_health(*, include_weak: bool = False) -> IndexHealthReport:
         bm25_orphan_ids=bm25_orphan_ids,
         bm25_stale=bm25_stale,
         text_vector_count=text_vector_count,
+        thumb_count=thumb_count,
+        missing_thumb_count=missing_thumb_count,
+        orphan_thumb_count=orphan_thumb_count,
+        missing_thumb_ids=missing_thumb_ids,
         stores_in_sync=stores_in_sync,
         is_healthy=is_healthy,
         elapsed_sec=elapsed,

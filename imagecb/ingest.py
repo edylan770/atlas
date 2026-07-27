@@ -158,9 +158,17 @@ def _cache_image(img: Image.Image, image_id: str) -> str:
     return persist_image_png(image_id, buf.getvalue())
 
 
-def _cache_thumb(img: Image.Image, image_id: str) -> str:
-    """Write the single display thumbnail for ``image_id`` (overwrite-safe)."""
-    return persist_image_thumb(image_id, make_thumbnail(img))
+def _cache_thumb(img: Image.Image, image_id: str) -> Optional[str]:
+    """Write the single display thumbnail for ``image_id`` (overwrite-safe).
+
+    Soft-fails on persistence errors so ingest still succeeds; the thumb
+    endpoint will generate one on first view.
+    """
+    try:
+        return persist_image_thumb(image_id, make_thumbnail(img))
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("Thumb cache failed for %s: %s", image_id, exc)
+        return None
 
 
 def _default_image_name(extracted: ExtractedImage) -> str:

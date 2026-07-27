@@ -62,6 +62,81 @@ def test_cache_thumb_writes_single_deterministic_file(tmp_path):
     assert exists is True
 
 
+def test_cache_thumb_soft_fails_on_persist_error():
+    from imagecb.ingest import _cache_thumb
+
+    with patch(
+        "imagecb.ingest.persist_image_thumb",
+        side_effect=RuntimeError("s3 unavailable"),
+    ), patch(
+        "imagecb.ingest.make_thumbnail",
+        return_value=b"\xff\xd8fake",
+    ):
+        assert _cache_thumb(_rgb(), "soft-fail-id") is None
+
+
+def test_list_thumb_ids_local(tmp_path):
+    settings = replace(
+        SETTINGS,
+        blob_storage_backend="local",
+        image_cache_dir=tmp_path / "images",
+    )
+    thumbs = tmp_path / "images" / "thumbs"
+    thumbs.mkdir(parents=True)
+    (thumbs / "a.jpg").write_bytes(b"a")
+    (thumbs / "b.jpg").write_bytes(b"b")
+    (thumbs / "readme.txt").write_text("ignore")
+    with patch("imagecb.storage.blob_store.SETTINGS", settings):
+        assert blob_store.list_thumb_ids() == {"a", "b"}
+
+
+def test_assess_index_health_thumb_coverage(tmp_path):
+    from imagecb.repair import assess_index_health
+    from imagecb.storage.metadata_db import ImageRecord
+
+    records = [
+        ImageRecord(
+            image_id="have",
+            content_hash="h1",
+            image_path=str(tmp_path / "have.png"),
+            source_file=str(tmp_path / "a.png"),
+            source_type="image",
+            created_at=datetime.utcnow(),
+        ),
+        ImageRecord(
+            image_id="miss",
+            content_hash="h2",
+            image_path=str(tmp_path / "miss.png"),
+            source_file=str(tmp_path / "b.png"),
+            source_type="image",
+            created_at=datetime.utcnow(),
+        ),
+    ]
+    with patch("imagecb.repair.get_all_records", return_value=records), patch(
+        "imagecb.repair._cache_missing", return_value=False
+    ), patch("imagecb.repair.vector_store.count", return_value=2), patch(
+        "imagecb.repair.vector_store.list_ids", return_value={"have", "miss"}
+    ), patch("imagecb.repair.vector_store.list_text_ids", return_value={"have", "miss"}), patch(
+        "imagecb.repair.metadata_db.get_deleted_records", return_value=[]
+    ), patch("imagecb.repair.bm25_index.count", return_value=2), patch(
+        "imagecb.repair.bm25_index.list_ids", return_value={"have", "miss"}
+    ), patch(
+        "imagecb.repair.blob_store.list_thumb_ids",
+        return_value={"have", "orphan"},
+    ), patch("imagecb.repair.records_missing_asset_type", return_value=[]):
+        report = assess_index_health()
+
+    assert report.thumb_count == 1
+    assert report.missing_thumb_count == 1
+    assert report.missing_thumb_ids == ["miss"]
+    assert report.orphan_thumb_count == 1
+    assert report.is_healthy is True  # missing thumbs do not flip health
+    payload = report.to_dict()
+    assert payload["thumb_count"] == 1
+    assert payload["missing_thumb_count"] == 1
+    assert payload["orphan_thumb_count"] == 1
+
+
 def test_regenerate_missing_thumbs_creates_and_skips(tmp_path):
     settings = replace(
         SETTINGS,

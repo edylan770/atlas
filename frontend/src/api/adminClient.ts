@@ -113,6 +113,9 @@ export interface CorpusHealth {
   chroma_vectors?: number;
   text_vector_count?: number;
   bm25_doc_count?: number;
+  thumb_count?: number;
+  missing_thumb_count?: number;
+  orphan_thumb_count?: number;
   failed_caption_count: number;
   weak_caption_count: number;
   needs_regeneration_count: number;

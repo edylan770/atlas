@@ -110,6 +110,43 @@ def test_s3_thumb_key_and_persist():
         assert blob_store.read_bytes(ref) == b"thumb-bytes"
 
 
+def test_list_thumb_ids_s3():
+    fake = FakeS3()
+    fake.objects[("private-corpus", "atlas/thumbs/one.jpg")] = (b"a", "image/jpeg")
+    fake.objects[("private-corpus", "atlas/thumbs/two.jpg")] = (b"b", "image/jpeg")
+    fake.objects[("private-corpus", "atlas/images/three.png")] = (b"c", "image/png")
+
+    def list_objects_v2(**kwargs):
+        prefix = kwargs["Prefix"]
+        contents = [
+            {"Key": key}
+            for (bucket, key), _ in fake.objects.items()
+            if bucket == kwargs["Bucket"] and key.startswith(prefix)
+        ]
+        return {"Contents": contents, "IsTruncated": False}
+
+    fake.list_objects_v2 = list_objects_v2  # type: ignore[method-assign]
+    settings = replace(
+        SETTINGS,
+        blob_storage_backend="s3",
+        s3_bucket="private-corpus",
+        s3_prefix="atlas",
+        s3_region="us-east-1",
+    )
+    with patch("imagecb.storage.blob_store.SETTINGS", settings), patch(
+        "imagecb.storage.blob_store.get_s3_client",
+        return_value=fake,
+    ):
+        assert blob_store.list_thumb_ids() == {"one", "two"}
+
+
+def test_is_missing_blob_error_detects_s3_codes():
+    err = FakeS3Error("404")
+    assert blob_store.is_missing_blob_error(err) is True
+    assert blob_store.is_missing_blob_error(FakeS3Error("SlowDown")) is False
+    assert blob_store.is_missing_blob_error(FileNotFoundError("thumb not found")) is True
+
+
 def test_private_s3_put_describe_read_and_stream(tmp_path):
     fake = FakeS3()
     settings = replace(

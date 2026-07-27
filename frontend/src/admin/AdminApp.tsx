@@ -143,6 +143,21 @@ function DashboardPage() {
           value={health?.weak_caption_count ?? "…"}
           subtitle={corpusSubtitle}
         />
+        <StatCard
+          label="Thumbnails"
+          value={
+            health
+              ? `${health.thumb_count ?? 0}/${health.total_records ?? health.total_images}`
+              : "…"
+          }
+          subtitle={
+            health
+              ? (health.missing_thumb_count ?? 0) > 0
+                ? `${health.missing_thumb_count} missing`
+                : "complete"
+              : corpusSubtitle
+          }
+        />
       </div>
       {healthError && (
         <p className="text-xs text-amber-700">Caption health: {healthError}</p>
@@ -541,9 +556,12 @@ function CorpusPage() {
   };
 
   const handleRegenerateMissingThumbs = async () => {
+    const missing = corpusHealth?.missing_thumb_count ?? 0;
     if (
       !window.confirm(
-        "Generate JPEG thumbnails for any indexed images that are missing one? Existing thumbnails are skipped.",
+        missing > 0
+          ? `Generate JPEG thumbnails for ${missing} indexed image(s) missing one? Existing thumbnails are skipped.`
+          : "Generate JPEG thumbnails for any indexed images that are missing one? Existing thumbnails are skipped.",
       )
     ) {
       return;
@@ -553,8 +571,14 @@ function CorpusPage() {
     setThumbRegenPending(true);
     try {
       const result = await regenerateMissingThumbnails();
+      const freshHealth = await fetchCorpusHealth();
+      setCorpusHealth(freshHealth);
       setThumbRegenResult(
-        `Thumbnails: created ${result.created}, skipped ${result.skipped}, failed ${result.failed} (scanned ${result.scanned})`,
+        `Thumbnails: created ${result.created}, skipped ${result.skipped}, failed ${result.failed} (scanned ${result.scanned}). ` +
+          `Coverage now ${freshHealth.thumb_count ?? 0}/${freshHealth.total_records ?? freshHealth.total_images}` +
+          ((freshHealth.missing_thumb_count ?? 0) > 0
+            ? ` (still missing ${freshHealth.missing_thumb_count})`
+            : ""),
       );
       reloadAll();
     } catch (e) {
@@ -652,6 +676,22 @@ function CorpusPage() {
             <span>Chroma: {corpusHealth.chroma_vectors ?? "—"}</span>
             <span>Text: {corpusHealth.text_vector_count ?? "—"}</span>
             <span>BM25: {corpusHealth.bm25_doc_count ?? "—"}</span>
+            <span
+              className={
+                (corpusHealth.missing_thumb_count ?? 0) > 0
+                  ? "rounded bg-amber-100 px-2 py-0.5 font-medium text-amber-900"
+                  : undefined
+              }
+            >
+              Thumbs: {corpusHealth.thumb_count ?? 0}/
+              {corpusHealth.total_records ?? corpusHealth.total_images}
+              {(corpusHealth.missing_thumb_count ?? 0) > 0
+                ? ` (missing ${corpusHealth.missing_thumb_count})`
+                : ""}
+            </span>
+            {(corpusHealth.orphan_thumb_count ?? 0) > 0 && (
+              <span>Orphan thumbs: {corpusHealth.orphan_thumb_count}</span>
+            )}
             {(corpusHealth.orphan_chroma_count ?? 0) > 0 && (
               <span>Orphans: {corpusHealth.orphan_chroma_count}</span>
             )}
@@ -840,7 +880,9 @@ function CorpusPage() {
           >
             {thumbRegenPending
               ? "Generating thumbnails…"
-              : "Regenerate missing thumbnails"}
+              : (corpusHealth?.missing_thumb_count ?? 0) > 0
+                ? `Regenerate missing thumbnails (${corpusHealth?.missing_thumb_count})`
+                : "Regenerate missing thumbnails"}
           </button>
           {bulkRepairResult && (
             <p className="text-xs text-navy-600">{bulkRepairResult}</p>

@@ -322,6 +322,46 @@ def thumb_exists(image_id: str) -> bool:
     return exists(thumb_ref(image_id))
 
 
+def thumbs_prefix() -> str:
+    return _key(SETTINGS.s3_prefix, "thumbs")
+
+
+def list_thumb_ids() -> set[str]:
+    """Return image_ids that have a display thumbnail object (one listing, no per-id HEAD)."""
+    if SETTINGS.blob_storage_backend == "s3":
+        prefix = thumbs_prefix().rstrip("/") + "/"
+        try:
+            keys = list_keys(prefix)
+        except Exception as exc:  # noqa: BLE001 — health scans must not fail hard
+            logger.warning("Could not list thumb keys under %s: %s", prefix, exc)
+            return set()
+        ids: set[str] = set()
+        for key in keys:
+            name = PurePosixPath(key).name
+            if name.lower().endswith(".jpg"):
+                ids.add(name[:-4])
+        return ids
+
+    thumbs_dir = SETTINGS.image_cache_dir / "thumbs"
+    if not thumbs_dir.is_dir():
+        return set()
+    return {path.stem for path in thumbs_dir.glob("*.jpg") if path.is_file()}
+
+
+def is_missing_blob_error(exc: BaseException) -> bool:
+    """True when an S3/local error indicates the object is absent."""
+    response = getattr(exc, "response", None)
+    if isinstance(response, dict):
+        code = str(response.get("Error", {}).get("Code", ""))
+        if code in {"404", "NoSuchKey", "NotFound", "404 Not Found"}:
+            return True
+    status = getattr(exc, "status", None) or getattr(exc, "response", None)
+    if status == 404:
+        return True
+    msg = str(exc).lower()
+    return "nosuchkey" in msg or "not found" in msg or "404" in msg
+
+
 def _local_candidate(ref: str | Path) -> Optional[Path]:
     if is_s3_uri(ref):
         return None

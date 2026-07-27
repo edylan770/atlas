@@ -155,6 +155,9 @@ def test_corpus_health_endpoint(mock_assess, admin_client):
         weak_caption_count=3,
         needs_regeneration_count=5,
         is_healthy=False,
+        thumb_count=7,
+        missing_thumb_count=3,
+        orphan_thumb_count=1,
     )
     res = admin_client.get(
         "/api/admin/corpus/health",
@@ -167,6 +170,9 @@ def test_corpus_health_endpoint(mock_assess, admin_client):
     assert body["weak_caption_count"] == 3
     assert body["needs_regeneration_count"] == 5
     assert body["is_healthy"] is False
+    assert body["thumb_count"] == 7
+    assert body["missing_thumb_count"] == 3
+    assert body["orphan_thumb_count"] == 1
     assert res.headers["cache-control"] == "no-store"
     mock_assess.assert_called_once_with(include_weak=True)
 

@@ -209,10 +209,16 @@ export default function App() {
   useEffect(() => {
     let cancelled = false;
     const bootstrapMs = 3200;
+    const statusTimeoutMs = 5000;
     const started = Date.now();
 
     void (async () => {
-      await refreshStatus();
+      await Promise.race([
+        refreshStatus(),
+        new Promise<void>((resolve) => {
+          window.setTimeout(resolve, statusTimeoutMs);
+        }),
+      ]);
       const wait = bootstrapMs - (Date.now() - started);
       if (wait > 0) {
         await new Promise((resolve) => window.setTimeout(resolve, wait));
@@ -561,27 +567,38 @@ export default function App() {
         searchSortBy,
       );
     } catch (e) {
-      const msg = e instanceof Error ? e.message : String(e);
+      const raw = e instanceof Error ? e.message : String(e);
+      const trimmed = raw.trim();
+      const generic =
+        !trimmed ||
+        trimmed === "Error" ||
+        trimmed === "Internal Server Error" ||
+        trimmed === "Failed to fetch";
+      const detail = generic
+        ? "Search request failed. The server may be busy — try again in a moment."
+        : trimmed.replace(/^Error:\s*/i, "");
+      const msg = detail;
       setError(msg);
-      const errTurn: ConversationTurn = {
-        id: turnId,
-        userContent: text,
-        assistantContent: `**Error:** ${msg}`,
-        results: [],
-        parsedQuery: null,
-      };
       updateConversations((prev) =>
         prev.map((c) => {
           if (c.id !== convId) return c;
           return {
             ...c,
             updatedAt: Date.now(),
-            turns: c.turns.map((t) => (t.id === turnId ? errTurn : t)),
+            turns: c.turns.map((t) => {
+              if (t.id !== turnId) return t;
+              return {
+                ...t,
+                assistantContent: `**Error:** ${msg}`,
+                // Keep any results already applied from SSE metadata.
+                results: t.results ?? [],
+                parsedQuery: t.parsedQuery ?? null,
+              };
+            }),
           };
         }),
       );
       setSelectedTurnId(turnId);
-      setResults([]);
     } finally {
       setLoading(false);
     }

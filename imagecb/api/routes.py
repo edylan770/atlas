@@ -83,7 +83,8 @@ from imagecb.ingest_jobs import (
     request_cancel,
     start_job,
 )
-from imagecb.paths import image_fallbacks, source_fallbacks
+from imagecb.images import make_thumbnail
+from imagecb.paths import image_fallbacks, open_record_image, source_fallbacks
 from imagecb.retrieval.image_query import SimilarityAxis, axis_label
 from imagecb.retrieval.query_parser import QuerySpec
 from imagecb.retrieval.session import AskResult
@@ -766,9 +767,60 @@ def session_reset(body: SessionResetRequest) -> SessionResetResponse:
     return SessionResetResponse(session_id=body.session_id)
 
 
+def _thumb_response_headers(
+    *,
+    filename: str,
+    content_length: Optional[int] = None,
+) -> dict[str, str]:
+    headers = {
+        "Content-Disposition": f"inline; filename*=UTF-8''{quote(filename)}",
+        "Cache-Control": "public, max-age=86400",
+    }
+    if content_length is not None:
+        headers["Content-Length"] = str(content_length)
+    return headers
+
+
+def _generate_and_serve_thumb(record, *, t0: float) -> StreamingResponse:
+    """Build a JPEG thumb on demand, persist best-effort, and stream the bytes."""
+    import time
+
+    image_id = record.image_id
+    img = open_record_image(record)
+    if img is None:
+        raise HTTPException(status_code=404, detail="image blob not found")
+    try:
+        data = make_thumbnail(img)
+    except Exception as exc:  # noqa: BLE001
+        logger.exception("Thumb encode failed for %s", image_id)
+        raise HTTPException(status_code=500, detail="thumbnail generation failed") from exc
+
+    try:
+        blob_store.persist_image_thumb(image_id, data)
+    except Exception as exc:  # noqa: BLE001 — still serve in-memory JPEG
+        logger.warning("Could not persist on-demand thumb for %s: %s", image_id, exc)
+
+    elapsed_ms = round((time.perf_counter() - t0) * 1000.0, 1)
+    logger.info(
+        "thumb_generate image_id=%s ms=%.1f backend=%s content_length=%s",
+        image_id,
+        elapsed_ms,
+        SETTINGS.blob_storage_backend,
+        len(data),
+    )
+    return StreamingResponse(
+        iter([data]),
+        media_type="image/jpeg",
+        headers=_thumb_response_headers(
+            filename=f"{image_id}.jpg",
+            content_length=len(data),
+        ),
+    )
+
+
 @router.get("/images/{image_id}/thumb")
 def get_image_thumb(image_id: str) -> StreamingResponse:
-    """Serve the display thumbnail, falling back to the full image if missing."""
+    """Serve the display thumbnail, generating and caching one if missing."""
     import time
 
     t0 = time.perf_counter()
@@ -777,31 +829,33 @@ def get_image_thumb(image_id: str) -> StreamingResponse:
         raise HTTPException(status_code=404, detail="image not found")
 
     thumb = blob_store.thumb_ref(image_id)
-    if blob_store.thumb_exists(image_id):
-        try:
-            info = blob_store.describe(thumb)
-            headers = {
-                "Content-Disposition": f"inline; filename*=UTF-8''{quote(info.filename)}",
-            }
-            if info.content_length is not None:
-                headers["Content-Length"] = str(info.content_length)
-            elapsed_ms = round((time.perf_counter() - t0) * 1000.0, 1)
-            logger.info(
-                "thumb_fetch image_id=%s ms=%.1f backend=%s content_length=%s",
+    try:
+        info = blob_store.describe(thumb)
+        headers = _thumb_response_headers(
+            filename=info.filename,
+            content_length=info.content_length,
+        )
+        elapsed_ms = round((time.perf_counter() - t0) * 1000.0, 1)
+        logger.info(
+            "thumb_fetch image_id=%s ms=%.1f backend=%s content_length=%s",
+            image_id,
+            elapsed_ms,
+            SETTINGS.blob_storage_backend,
+            info.content_length,
+        )
+        return StreamingResponse(
+            blob_store.iter_bytes(thumb),
+            media_type=info.content_type or "image/jpeg",
+            headers=headers,
+        )
+    except Exception as exc:
+        if not blob_store.is_missing_blob_error(exc):
+            logger.warning(
+                "Thumb describe/stream failed for %s (%s); generating on demand",
                 image_id,
-                elapsed_ms,
-                SETTINGS.blob_storage_backend,
-                info.content_length,
+                exc,
             )
-            return StreamingResponse(
-                blob_store.iter_bytes(thumb),
-                media_type=info.content_type or "image/jpeg",
-                headers=headers,
-            )
-        except Exception:
-            logger.exception("Failed to stream thumb for %s; falling back to full image", image_id)
-
-    return get_image(image_id)
+        return _generate_and_serve_thumb(record, t0=t0)
 
 
 @router.get("/images/{image_id}")
