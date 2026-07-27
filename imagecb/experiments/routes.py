@@ -12,10 +12,11 @@ import logging
 from pathlib import Path
 from typing import Iterator, Optional
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import FileResponse, StreamingResponse
 from pydantic import BaseModel
 
+from imagecb.api.auth import require_admin
 from imagecb.experiments.variants import (
     iter_comparison,
     run_comparison,
@@ -25,7 +26,10 @@ from imagecb.experiments.variants import (
 
 logger = logging.getLogger(__name__)
 
-lab_router = APIRouter()
+# Every lab request runs multiple Bedrock calls (parse + search + rerank per
+# variant); admin-gate the whole router so anonymous traffic can't spend or
+# trigger the hubness rebuild.
+lab_router = APIRouter(dependencies=[Depends(require_admin)])
 
 _LAB_HTML = Path(__file__).resolve().parent / "lab.html"
 
@@ -63,7 +67,7 @@ def lab_compare(body: CompareRequest) -> dict:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     except Exception as exc:  # noqa: BLE001
         logger.exception("Lab compare failed")
-        raise HTTPException(status_code=500, detail=str(exc)) from exc
+        raise HTTPException(status_code=500, detail="Lab comparison failed") from exc
 
 
 @lab_router.post("/api/lab/compare/stream")
