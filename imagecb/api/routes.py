@@ -243,11 +243,45 @@ def health() -> HealthResponse:
     return HealthResponse()
 
 
-def _index_status_payload() -> StatusResponse:
+_health_report_lock = __import__("threading").Lock()
+_health_report_cache: Optional[tuple[float, object]] = None
+
+
+def _cached_index_health():
+    """assess_index_health with a short TTL.
+
+    The assessment lists every Chroma id and can HEAD blob storage per
+    record; the SPA calls /status on boot and orchestrators poll /ready, so
+    uncached it is an O(N)-S3 amplification vector (unauthenticated).
+    """
+    import time as _time
+
     from imagecb.repair import assess_index_health
 
+    global _health_report_cache
+    now = _time.monotonic()
+    with _health_report_lock:
+        if (
+            _health_report_cache is not None
+            and now - _health_report_cache[0] < SETTINGS.status_cache_ttl_sec
+        ):
+            return _health_report_cache[1]
+    report = assess_index_health(include_weak=True)
+    with _health_report_lock:
+        _health_report_cache = (now, report)
+    return report
+
+
+def reset_status_cache() -> None:
+    """Clear the cached health report (tests, post-repair hooks)."""
+    global _health_report_cache
+    with _health_report_lock:
+        _health_report_cache = None
+
+
+def _index_status_payload() -> StatusResponse:
     try:
-        report = assess_index_health(include_weak=True)
+        report = _cached_index_health()
     except Exception:  # noqa: BLE001
         logger.exception("Index health assessment failed")
         total_records = metadata_db.count_active_records()
@@ -281,10 +315,8 @@ def status() -> StatusResponse:
 
 @router.get("/ready", response_model=ReadyResponse)
 def ready() -> ReadyResponse:
-    from imagecb.repair import assess_index_health
-
     try:
-        report = assess_index_health(include_weak=True)
+        report = _cached_index_health()
     except Exception as exc:  # noqa: BLE001
         logger.exception("Readiness check failed")
         raise HTTPException(
@@ -854,7 +886,7 @@ def get_image_thumb(image_id: str) -> StreamingResponse:
             content_length=info.content_length,
         )
         elapsed_ms = round((time.perf_counter() - t0) * 1000.0, 1)
-        logger.info(
+        logger.debug(
             "thumb_fetch image_id=%s ms=%.1f backend=%s content_length=%s",
             image_id,
             elapsed_ms,
@@ -900,11 +932,14 @@ def get_image(image_id: str) -> StreamingResponse:
         raise HTTPException(status_code=404, detail="image blob not found") from last_error
     headers = {
         "Content-Disposition": f"inline; filename*=UTF-8''{quote(info.filename)}",
+        # Cached PNGs only change on re-ingest/repair; a day of browser cache
+        # (matching the thumb endpoint) stops grids re-downloading every view.
+        "Cache-Control": "public, max-age=86400",
     }
     if info.content_length is not None:
         headers["Content-Length"] = str(info.content_length)
     elapsed_ms = round((time.perf_counter() - t0) * 1000.0, 1)
-    logger.info(
+    logger.debug(
         "image_fetch image_id=%s ms=%.1f backend=%s content_length=%s",
         image_id,
         elapsed_ms,

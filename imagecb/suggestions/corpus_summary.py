@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import hashlib
 import json
+import threading
+import time
 from collections import Counter
 from dataclasses import dataclass
 from datetime import datetime
@@ -178,9 +180,40 @@ def _fingerprint_from_parts(parts: dict) -> str:
     return hashlib.sha256(raw.encode("utf-8")).hexdigest()[:16]
 
 
+_ctx_lock = threading.Lock()
+_ctx_cache: Optional[tuple[float, int, CorpusContext]] = None
+_CTX_TTL_SEC = 60.0
+
+
 def build_corpus_context() -> CorpusContext:
+    """Corpus summary for prompts; cached briefly.
+
+    The full-record scan is too expensive to run per chat turn; the cache
+    refreshes on TTL expiry or when the active-record count changes (a cheap
+    COUNT), so ingests/deletes are picked up promptly.
+    """
+    global _ctx_cache
+    now = time.monotonic()
+    count = metadata_db.count_active_records()
+    with _ctx_lock:
+        if (
+            _ctx_cache is not None
+            and _ctx_cache[1] == count
+            and now - _ctx_cache[0] < _CTX_TTL_SEC
+        ):
+            return _ctx_cache[2]
     records = metadata_db.get_all_records()
-    return _summarize_records(records)
+    ctx = _summarize_records(records)
+    with _ctx_lock:
+        _ctx_cache = (now, count, ctx)
+    return ctx
+
+
+def reset_corpus_context_cache() -> None:
+    """Clear the cache (tests)."""
+    global _ctx_cache
+    with _ctx_lock:
+        _ctx_cache = None
 
 
 def context_to_prompt_text(ctx: CorpusContext) -> str:

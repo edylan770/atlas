@@ -101,6 +101,14 @@ def _require_s3() -> None:
 
 
 def _refuse_if_busy() -> None:
+    from imagecb.ingest import ingest_in_progress
+
+    if ingest_in_progress():
+        # Direct /api/ingest uploads do not create job rows; the ingest lock
+        # is the only signal their blobs are being written right now.
+        raise OrphanBlobError(
+            "Refusing orphan blob GC while a direct ingest is in progress."
+        )
     busy = list_busy_jobs()
     if not busy:
         return

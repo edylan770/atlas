@@ -11,6 +11,17 @@ from imagecb.api.server import create_app
 from imagecb.ingest import IngestInProgressError
 
 
+@pytest.fixture(autouse=True)
+def _fresh_status_cache():
+    """/status and /ready cache the health report; isolate it per test."""
+    from imagecb.api import routes as _routes
+
+    _routes.reset_status_cache()
+    yield
+    _routes.reset_status_cache()
+
+
+
 @pytest.fixture
 def client():
     return TestClient(create_app())

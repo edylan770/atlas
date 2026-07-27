@@ -15,7 +15,12 @@ from contextlib import nullcontext
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, List, Optional, Tuple
 
-from imagecb.retrieval.hybrid import Candidate, normalize_rrf_score, search
+from imagecb.retrieval.hybrid import (
+    Candidate,
+    normalize_rrf_score,
+    search,
+    start_speculative_embeds,
+)
 from imagecb.retrieval.query_parser import (
     QuerySpec,
     build_session_context,
@@ -81,13 +86,16 @@ class ChatSession:
         with _timed("ask_total"), self._mutex:
             history_summary = summarize_history(self.history)
             session_ctx = build_session_context(self.last_spec, self.last_results)
+            # Overlap the query embeddings with the parse LLM call; search()
+            # reuses them when the parsed dense query equals the raw text.
+            speculative = start_speculative_embeds(text)
             with _timed("parse_query"):
                 spec = parse_query(text, history_summary, session_context=session_ctx)
 
             if top_k is not None:
                 spec.top_k = max(1, min(int(top_k), 50))
 
-            outcome = search(spec, timing=timing)
+            outcome = search(spec, timing=timing, speculative=speculative)
             candidates = outcome.candidates
 
             relaxed_min_score = False

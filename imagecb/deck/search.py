@@ -30,25 +30,27 @@ def search_for_description(
     query_for_rerank = rerank_query_text(spec, description)
 
     rerank_top_n = resolve_rerank_top_n(spec, spec.top_k)
+    # Rerank once with no floor, then apply the min-match filter to the
+    # already-scored results; re-invoking the reranker when the floor empties
+    # the list would double-pay Cohere for identical scores.
     results = rerank(
         query_for_rerank,
         candidates,
         top_k=spec.top_k,
         top_n=rerank_top_n,
-        min_match_percent=min_match_percent,
+        min_match_percent=0,
         spec=spec,
-        fusion_weight_sum=outcome.weight_sum,
     )
-    if not results and candidates and min_match_percent > 0:
-        results = rerank(
-            query_for_rerank,
-            candidates,
-            top_k=spec.top_k,
-            top_n=rerank_top_n,
-            min_match_percent=0,
-            spec=spec,
-            fusion_weight_sum=outcome.weight_sum,
-        )
+    if min_match_percent > 0:
+        from imagecb.formatting.match_display import meets_min_match_percent
+
+        filtered = [
+            r
+            for r in results
+            if meets_min_match_percent(r.score, r.score_kind, min_match_percent)
+        ]
+        if filtered:
+            results = filtered
 
     from imagecb.retrieval.sort import resolve_sort, sort_ranked_results
 

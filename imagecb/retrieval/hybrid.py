@@ -11,6 +11,7 @@ diagnostic use (pipeline lab), but contribute sparse_weight=0.0 to fusion.
 from __future__ import annotations
 
 import logging
+from concurrent.futures import Future, ThreadPoolExecutor
 from dataclasses import dataclass
 from contextlib import nullcontext
 from typing import TYPE_CHECKING, Dict, List, Optional, Sequence
@@ -25,6 +26,35 @@ if TYPE_CHECKING:
     from imagecb.query_timing import QueryTimingSession
 
 logger = logging.getLogger(__name__)
+
+# The visual and caption-text lanes are independent network calls; running
+# them concurrently roughly halves per-query embedding latency.
+_lane_executor = ThreadPoolExecutor(max_workers=4, thread_name_prefix="retrieval-lane")
+
+
+@dataclass
+class SpeculativeEmbeds:
+    """Query embeddings started while the query-parse LLM runs.
+
+    Usable only when the parsed dense query text equals the text that was
+    speculatively embedded; otherwise search re-embeds normally.
+    """
+
+    text: str
+    visual: "Future"
+    caption_text: Optional["Future"]
+
+
+def start_speculative_embeds(query_text: str) -> Optional[SpeculativeEmbeds]:
+    """Kick off query embeddings concurrently (e.g. during parse_query)."""
+    text = (query_text or "").strip()
+    if not text or not SETTINGS.speculative_query_embed:
+        return None
+    visual = _lane_executor.submit(lambda: get_embedder().embed_text([text])[0])
+    caption: Optional[Future] = None
+    if SETTINGS.caption_text_lane_enabled:
+        caption = _lane_executor.submit(lambda: get_text_embedder().embed_query(text))
+    return SpeculativeEmbeds(text=text, visual=visual, caption_text=caption)
 
 
 @dataclass
@@ -149,6 +179,7 @@ def search(
     sparse_top_k: Optional[int] = None,
     rrf_k: Optional[int] = None,
     timing: Optional["QueryTimingSession"] = None,
+    speculative: Optional[SpeculativeEmbeds] = None,
 ) -> SearchOutcome:
     """Run dense + sparse search and merge with RRF."""
     default_dense, default_sparse = resolve_retrieval_top_k(spec)
@@ -162,13 +193,18 @@ def search(
         return nullcontext()
 
     with _timed("metadata_filter"):
-        allowed = _apply_metadata_filter(spec, restrict_to)
+        filtered = _apply_metadata_filter(spec, restrict_to)
         active_ids = set(metadata_db.get_active_image_ids())
-        if allowed is None:
-            allowed = list(active_ids)
+        if filtered is None:
+            # Unfiltered search: let Chroma scan its whole index instead of
+            # evaluating a corpus-sized $in filter, and post-filter the hits
+            # against active ids (guards stale/soft-deleted vectors).
+            allowed = None
         else:
-            allowed = [i for i in allowed if i in active_ids]
-    if not allowed:
+            allowed = [i for i in filtered if i in active_ids]
+            if not allowed:
+                return SearchOutcome(candidates=[])
+    if not active_ids:
         return SearchOutcome(candidates=[])
 
     query_text = dense_query_text(spec)
@@ -179,27 +215,55 @@ def search(
     text_failed = False
     sparse_failed = False
 
-    # Visual dense: cross-modal query embedding -> image vectors
-    try:
+    spec_ok = speculative is not None and speculative.text == query_text
+
+    def _visual_lane() -> List[tuple[str, float]]:
         with _timed("embed_visual"):
-            query_emb = get_embedder().embed_text([query_text])[0]
+            query_emb = None
+            if spec_ok:
+                try:
+                    query_emb = speculative.visual.result()
+                except Exception as exc:  # noqa: BLE001
+                    logger.debug("Speculative visual embed failed: %s", exc)
+            if query_emb is None:
+                query_emb = get_embedder().embed_text([query_text])[0]
         with _timed("chroma_visual"):
-            dense_hits = vector_store.query(query_emb, top_k=dense_k, allowed_ids=allowed)
+            return vector_store.query(query_emb, top_k=dense_k, allowed_ids=allowed)
+
+    def _text_lane() -> List[tuple[str, float]]:
+        with _timed("embed_text"):
+            text_query_emb = None
+            if spec_ok and speculative.caption_text is not None:
+                try:
+                    text_query_emb = speculative.caption_text.result()
+                except Exception as exc:  # noqa: BLE001
+                    logger.debug("Speculative text embed failed: %s", exc)
+            if text_query_emb is None:
+                text_query_emb = get_text_embedder().embed_query(query_text)
+        with _timed("chroma_text"):
+            return vector_store.query_text(
+                text_query_emb, top_k=dense_k, allowed_ids=allowed
+            )
+
+    # Both dense lanes are independent Bedrock+Chroma round-trips: overlap them.
+    visual_future = _lane_executor.submit(_visual_lane)
+    text_future = (
+        _lane_executor.submit(_text_lane)
+        if SETTINGS.caption_text_lane_enabled
+        else None
+    )
+
+    try:
+        dense_hits = visual_future.result()
     except Exception as exc:  # noqa: BLE001
         visual_failed = True
         logger.warning("Visual dense search failed (%s): %s", type(exc).__name__, exc)
         dense_hits = []
 
-    # Caption-text dense: text query embedding -> caption-document vectors
     text_hits: List[tuple[str, float]] = []
-    if SETTINGS.caption_text_lane_enabled:
+    if text_future is not None:
         try:
-            with _timed("embed_text"):
-                text_query_emb = get_text_embedder().embed_query(query_text)
-            with _timed("chroma_text"):
-                text_hits = vector_store.query_text(
-                    text_query_emb, top_k=dense_k, allowed_ids=allowed
-                )
+            text_hits = text_future.result()
         except Exception as exc:  # noqa: BLE001
             text_failed = True
             logger.warning("Caption-text search failed (%s): %s", type(exc).__name__, exc)
@@ -214,6 +278,12 @@ def search(
         sparse_failed = True
         logger.warning("Sparse search failed (%s): %s", type(exc).__name__, exc)
         sparse_hits = []
+
+    if allowed is None:
+        # Unfiltered path: drop hits for stale/soft-deleted vectors.
+        dense_hits = [(i, sc) for i, sc in dense_hits if i in active_ids]
+        text_hits = [(i, sc) for i, sc in text_hits if i in active_ids]
+        sparse_hits = [(i, sc) for i, sc in sparse_hits if i in active_ids]
 
     # Report dense failure only when no dense lane produced results.
     dense_failed = visual_failed and (

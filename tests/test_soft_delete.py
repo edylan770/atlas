@@ -459,10 +459,15 @@ def test_hybrid_excludes_deleted_when_only_active_ids(
     mock_vs.query_text.return_value = []
     mock_bm25.get_index.return_value.query.return_value = []
 
+    # Unfiltered searches no longer ship a corpus-sized $in filter to Chroma;
+    # deleted images are excluded by post-filtering hits against active ids.
+    mock_vs.query.return_value = [("active-1", 0.9), ("deleted-1", 0.8)]
+
     spec = QuerySpec(semantic_query="test", raw_text="test")
-    search(spec)
+    outcome = search(spec)
     mock_vs.query.assert_called_once()
     call_kwargs = mock_vs.query.call_args.kwargs
-    assert call_kwargs.get("allowed_ids") == ["active-1"]
-    text_kwargs = mock_vs.query_text.call_args.kwargs
-    assert text_kwargs.get("allowed_ids") == ["active-1"]
+    assert call_kwargs.get("allowed_ids") is None
+    result_ids = [c.image_id for c in outcome.candidates]
+    assert "active-1" in result_ids
+    assert "deleted-1" not in result_ids

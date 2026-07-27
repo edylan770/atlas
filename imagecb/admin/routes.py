@@ -22,7 +22,7 @@ class PurgeUnrecoverableRequest(BaseModel):
 
 class PurgeOrphanBlobsRequest(BaseModel):
     dry_run: bool = True
-    min_age_hours: float = Field(default=1.0, ge=0.0, le=24 * 30)
+    min_age_hours: float = Field(default=1.0, ge=0.25, le=24 * 30)
 
 
 @router.get("/analytics/summary")
@@ -279,7 +279,7 @@ def admin_purge_unrecoverable(
 
 @router.get("/corpus/orphan-blobs")
 def admin_orphan_blobs(
-    min_age_hours: float = Query(1.0, ge=0.0, le=24 * 30),
+    min_age_hours: float = Query(1.0, ge=0.25, le=24 * 30),
     _: str = Depends(require_admin),
 ):
     from imagecb.admin.orphan_blobs import OrphanBlobError, assess_orphan_blobs

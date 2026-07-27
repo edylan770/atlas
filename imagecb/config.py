@@ -193,6 +193,23 @@ class Settings:
     follow_up_workers: int = field(
         default_factory=lambda: int(_env("FOLLOW_UP_WORKERS", "8") or "8")
     )
+    # Concurrent per-slide searches during deck suggest (each is ~3 Bedrock
+    # calls); bounded by BEDROCK_MAX_CONCURRENT globally.
+    deck_search_workers: int = field(
+        default_factory=lambda: int(_env("DECK_SEARCH_WORKERS", "4") or "4")
+    )
+    # TTL for the cached index-health report served by /api/status and
+    # /api/ready (the uncached assessment is O(corpus) including S3 HEADs).
+    status_cache_ttl_sec: int = field(
+        default_factory=lambda: int(_env("STATUS_CACHE_TTL_SEC", "30") or "30")
+    )
+    # Start embedding the raw query while the parse LLM runs; reused when the
+    # parsed dense query equals the raw text (the common case), cutting
+    # time-to-results by roughly one embed round-trip.
+    speculative_query_embed: bool = field(
+        default_factory=lambda: (_env("SPECULATIVE_QUERY_EMBED", "true") or "true").lower()
+        in ("1", "true", "yes", "on")
+    )
     # Per-client-IP requests/minute across the LLM-backed public endpoints
     # (chat, similar, deck). 0 disables limiting.
     llm_rate_limit_per_minute: int = field(

@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from concurrent.futures import ThreadPoolExecutor
+
 import logging
 from dataclasses import dataclass, field
 from typing import List, Optional
@@ -307,20 +309,42 @@ def process_deck_upload(
                     deck_cache.put_slide_llm_cache(s.content_hash, s.slide_index, out)
                     break
 
+    # Each image_needed slide costs ~3 Bedrock calls (two embeds + rerank)
+    # and slides are independent; run the searches in a bounded pool. The
+    # process-wide Bedrock gate still caps total in-flight model calls so a
+    # big deck cannot starve chat users.
+    def _search_one(slide, llm_out):
+        return _run_search_for_slide(
+            slide,
+            llm_out,
+            top_k=top_k,
+            min_match_percent=min_match_percent,
+            sort=resolved_sort,
+        )
+
+    resolved = [
+        (slide, *_resolve_llm_for_slide(slide, llm_by_index)) for slide in slides
+    ]
+    search_results: dict[int, tuple[List[dict], bool]] = {}
+    to_search = [
+        (slide, llm_out)
+        for slide, llm_out, _cached in resolved
+        if llm_out.status == "image_needed" and llm_out.description
+    ]
+    if to_search:
+        workers = max(1, SETTINGS.deck_search_workers)
+        with ThreadPoolExecutor(max_workers=workers) as pool:
+            futures = {
+                pool.submit(_search_one, slide, llm_out): slide.slide_index
+                for slide, llm_out in to_search
+            }
+            for fut, slide_index in futures.items():
+                search_results[slide_index] = fut.result()
+
     suggestions: List[SlideSuggestion] = []
-    for slide in slides:
+    for slide, llm_out, llm_cached in resolved:
         body_prev, notes_prev = slide.preview()
-        llm_out, llm_cached = _resolve_llm_for_slide(slide, llm_by_index)
-        results: List[dict] = []
-        search_cached = False
-        if llm_out.status == "image_needed" and llm_out.description:
-            results, search_cached = _run_search_for_slide(
-                slide,
-                llm_out,
-                top_k=top_k,
-                min_match_percent=min_match_percent,
-                sort=resolved_sort,
-            )
+        results, search_cached = search_results.get(slide.slide_index, ([], False))
 
         suggestions.append(
             SlideSuggestion(
