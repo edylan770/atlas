@@ -26,10 +26,13 @@ function LockIcon({ className }: { className?: string }) {
 
 export function AdminNavLink({ variant }: AdminNavLinkProps) {
   const hasKey = !!getAdminApiKey();
-  const label = hasKey ? "Admin" : "Admin login";
-  const title = hasKey
-    ? "Open ATLAS admin dashboard"
-    : "Sign in with admin API key";
+  // No public admin affordance: admins navigate to /admin directly and unlock
+  // there. Once a key is present this session, show the convenience link.
+  if (!hasKey) {
+    return null;
+  }
+  const label = "Admin";
+  const title = "Open ATLAS admin dashboard";
 
   if (variant === "footer") {
     return (
