@@ -122,8 +122,33 @@ class Settings:
         default_factory=lambda: (_env("S3_PRESIGN_ENDPOINT_URL") or "").rstrip("/") or None
     )
 
+    # CORS: comma-separated browser origins allowed to call the API.
+    # Defaults cover local dev (Vite + same-host ports).
+    cors_allow_origins: tuple = field(
+        default_factory=lambda: tuple(
+            o.strip()
+            for o in (
+                _env(
+                    "CORS_ALLOW_ORIGINS",
+                    "http://127.0.0.1:5173,http://localhost:5173,"
+                    "http://127.0.0.1:8080,http://localhost:8080,"
+                    "http://127.0.0.1:8081,http://localhost:8081",
+                )
+                or ""
+            ).split(",")
+            if o.strip()
+        )
+    )
+
     # OCR
     tesseract_cmd: Optional[str] = field(default_factory=lambda: _env("TESSERACT_CMD"))
+    # Which source supplies verbatim visible-text for the embedded caption
+    # document and BM25: "vlm" (VLM readable_text only; skips Tesseract -
+    # measured faster and more accurate), "both" (adds Tesseract; consider for
+    # corpora dominated by dense small text), or "tesseract" (Tesseract only).
+    ocr_source: str = field(
+        default_factory=lambda: (_env("OCR_SOURCE", "vlm") or "vlm").lower()
+    )
 
     # Tunables
     dense_top_k: int = 50
@@ -167,6 +192,11 @@ class Settings:
     # concurrent chats or responses queue up to 15s behind each other.
     follow_up_workers: int = field(
         default_factory=lambda: int(_env("FOLLOW_UP_WORKERS", "8") or "8")
+    )
+    # Per-client-IP requests/minute across the LLM-backed public endpoints
+    # (chat, similar, deck). 0 disables limiting.
+    llm_rate_limit_per_minute: int = field(
+        default_factory=lambda: int(_env("LLM_RATE_LIMIT_PER_MINUTE", "30") or "30")
     )
     # Chat session store: idle sessions are evicted after the TTL, and the
     # store is capped (LRU) so anonymous traffic can't grow memory unbounded.

@@ -21,6 +21,7 @@ from PIL import Image, ImageOps
 from imagecb.api.interpretation import build_interpretation_notes
 from imagecb.api.query_format import format_query_error, spec_to_parsed_query
 from imagecb.api.auth import require_admin, resolve_user_id
+from imagecb.api.rate_limit import check_llm_rate_limit
 from imagecb.api.schemas import (
     CatalogItemOut,
     ChatRequest,
@@ -359,6 +360,7 @@ def telemetry_interaction(
 def chat(
     body: ChatRequest,
     user_id: str = Depends(resolve_user_id),
+    _rl: None = Depends(check_llm_rate_limit),
 ) -> ChatResponse:
     message = (body.message or "").strip()
     if not message:
@@ -455,6 +457,7 @@ def chat(
 def chat_stream(
     body: ChatRequest,
     user_id: str = Depends(resolve_user_id),
+    _rl: None = Depends(check_llm_rate_limit),
 ) -> StreamingResponse:
     message = (body.message or "").strip()
     if not message:
@@ -607,6 +610,7 @@ def chat_stream(
 async def similar(
     request: Request,
     user_id: str = Depends(resolve_user_id),
+    _rl: None = Depends(check_llm_rate_limit),
 ) -> SimilarResponse:
     """Find visually similar images (JSON body or multipart with optional file)."""
     ref_id: Optional[str] = None
@@ -910,7 +914,10 @@ def corpus_catalog(limit: int = 40, sort: Optional[str] = None) -> CorpusCatalog
                 aliases=aliases,
                 caption=_display_caption(r),
                 source_name=prov.source_name,
-                source_file=r.source_file or "",
+                # Basename only: the full value is a server filesystem path or
+                # S3 URI, which this unauthenticated endpoint must not leak.
+                # (The admin corpus endpoint still returns full paths.)
+                source_file=Path(r.source_file).name if r.source_file else "",
                 created_at=created_at,
                 caption_quality=quality,
                 needs_regeneration=needs_regeneration(quality),
@@ -1318,6 +1325,7 @@ async def deck_suggest(
     min_match_percent: int = Form(0),
     sort: Optional[str] = Form(None),
     user_id: str = Depends(resolve_user_id),  # noqa: ARG001
+    _rl: None = Depends(check_llm_rate_limit),
 ) -> DeckSuggestResponse:
     """Suggest corpus images per slide from an uploaded PowerPoint deck."""
     if not file.filename:
@@ -1325,7 +1333,24 @@ async def deck_suggest(
     if not file.filename.lower().endswith(".pptx"):
         raise HTTPException(status_code=400, detail="only .pptx files are supported")
 
-    raw = await file.read()
+    max_bytes = SETTINGS.deck_max_upload_bytes
+    size_error = HTTPException(
+        status_code=413,
+        detail=f"File exceeds maximum size ({max_bytes // (1024 * 1024)} MB)",
+    )
+    # Enforce the cap while reading so an oversized anonymous upload never
+    # occupies RAM; the declared size fails fast before any bytes transfer.
+    declared = getattr(file, "size", None)
+    if declared is not None and declared > max_bytes:
+        raise size_error
+    chunks: list[bytes] = []
+    received = 0
+    while chunk := await file.read(1024 * 1024):
+        received += len(chunk)
+        if received > max_bytes:
+            raise size_error
+        chunks.append(chunk)
+    raw = b"".join(chunks)
     if not raw:
         raise HTTPException(status_code=400, detail="empty file")
 
@@ -1356,6 +1381,7 @@ async def deck_suggest(
 def deck_force(
     body: DeckForceRequest,
     user_id: str = Depends(resolve_user_id),  # noqa: ARG001
+    _rl: None = Depends(check_llm_rate_limit),
 ) -> DeckForceResponse:
     """Force image suggestion for a slide marked no_image_needed."""
     k = max(1, min(int(body.top_k), 30))

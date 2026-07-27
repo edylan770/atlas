@@ -3,11 +3,9 @@ import type { IngestJob, ResultSort } from "../types";
 const ADMIN_KEY_STORAGE = "imagecb.adminApiKey";
 
 export function getAdminApiKey(): string | null {
-  return (
-    sessionStorage.getItem(ADMIN_KEY_STORAGE) ||
-    import.meta.env.VITE_ADMIN_API_KEY ||
-    null
-  );
+  // Never fall back to a build-time env var: anything in import.meta.env
+  // ships in plaintext inside the public JS bundle.
+  return sessionStorage.getItem(ADMIN_KEY_STORAGE) || null;
 }
 
 export function setAdminApiKey(key: string): void {
