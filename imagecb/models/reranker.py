@@ -11,7 +11,7 @@ import json
 from typing import List, Optional, Sequence
 
 from imagecb.config import SETTINGS
-from imagecb.models.bedrock_client import get_bedrock_runtime
+from imagecb.models.bedrock_client import bedrock_invoke_model
 
 _MAX_DOC_CHARS = 8000
 
@@ -33,7 +33,7 @@ class BedrockReranker:
                 "api_version": 2,
             }
         )
-        response = get_bedrock_runtime().invoke_model(
+        response = bedrock_invoke_model(
             modelId=self.model_id,
             body=body,
             accept="application/json",

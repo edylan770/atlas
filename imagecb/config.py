@@ -163,6 +163,19 @@ class Settings:
         default_factory=lambda: (_env("ENABLE_FOLLOW_UP_SUGGESTIONS", "true") or "true").lower()
         in ("1", "true", "yes", "on")
     )
+    # Follow-up suggestion generation pool: must scale with expected
+    # concurrent chats or responses queue up to 15s behind each other.
+    follow_up_workers: int = field(
+        default_factory=lambda: int(_env("FOLLOW_UP_WORKERS", "8") or "8")
+    )
+    # Chat session store: idle sessions are evicted after the TTL, and the
+    # store is capped (LRU) so anonymous traffic can't grow memory unbounded.
+    session_ttl_sec: int = field(
+        default_factory=lambda: int(_env("SESSION_TTL_SEC", "7200") or "7200")
+    )
+    session_max_count: int = field(
+        default_factory=lambda: int(_env("SESSION_MAX_COUNT", "1000") or "1000")
+    )
     # Ingest performance
     ingest_workers: int = field(
         default_factory=lambda: int(_env("INGEST_WORKERS", "2") or "2")

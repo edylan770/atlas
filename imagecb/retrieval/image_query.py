@@ -136,6 +136,7 @@ def run_text_similar_leg(
         candidates,
         top_k=min(k, SETTINGS.rerank_top_n),
         min_match_percent=0,
+        fusion_weight_sum=outcome.weight_sum,
     )
 
 

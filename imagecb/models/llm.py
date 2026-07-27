@@ -106,9 +106,9 @@ class QueryLLM:
         previous_spec_json: str = "",
         previous_results_summary: str = "",
     ) -> str:
-        from imagecb.models.bedrock_client import get_bedrock_runtime
+        from imagecb.models.bedrock_client import bedrock_converse
 
-        response = get_bedrock_runtime().converse(
+        response = bedrock_converse(
             modelId=self.model,
             system=[{"text": QUERY_SYSTEM_PROMPT}],
             messages=[

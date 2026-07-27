@@ -132,7 +132,10 @@ def _fusion_tail_results(
     *,
     exclude_ids: set[str],
     records: dict[str, ImageRecord],
+    weight_sum: float = 2.0,
 ) -> List[RankedResult]:
+    from imagecb.retrieval.hybrid import normalize_rrf_score
+
     built: List[RankedResult] = []
     for c in tail:
         if c.image_id in exclude_ids:
@@ -143,7 +146,7 @@ def _fusion_tail_results(
         built.append(
             RankedResult(
                 image_id=c.image_id,
-                score=float(c.fused_score),
+                score=normalize_rrf_score(c.fused_score, SETTINGS.rrf_k, weight_sum=weight_sum),
                 record=record,
                 provenance_line=_format_provenance(record),
                 score_kind="fusion",
@@ -236,6 +239,7 @@ def rerank(
     top_n: Optional[int] = None,
     min_match_percent: int = 0,
     spec: Optional["QuerySpec"] = None,
+    fusion_weight_sum: float = 2.0,
 ) -> List[RankedResult]:
     if not candidates:
         return []
@@ -296,6 +300,7 @@ def rerank(
             tail_candidates,
             exclude_ids=kept_ids,
             records=tail_records,
+            weight_sum=fusion_weight_sum,
         )
         if tail_ranked:
             results = dedupe_results(results, top_k=top_k, pool=tail_ranked)

@@ -14,8 +14,9 @@ from typing import Iterator, List, Optional
 from urllib.parse import quote
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Request, Response, UploadFile
+from fastapi.concurrency import run_in_threadpool
 from fastapi.responses import FileResponse, StreamingResponse
-from PIL import Image
+from PIL import Image, ImageOps
 
 from imagecb.api.interpretation import build_interpretation_notes
 from imagecb.api.query_format import format_query_error, spec_to_parsed_query
@@ -96,7 +97,9 @@ from imagecb.uploads import cleanup_staged_uploads, is_supported_extension, save
 
 logger = logging.getLogger(__name__)
 
-_follow_up_executor = ThreadPoolExecutor(max_workers=2, thread_name_prefix="follow-up")
+_follow_up_executor = ThreadPoolExecutor(
+    max_workers=SETTINGS.follow_up_workers, thread_name_prefix="follow-up"
+)
 
 router = APIRouter(prefix="/api")
 
@@ -634,10 +637,18 @@ async def similar(
             sid = str(raw_sid)
         raw_top_k = form.get("top_k")
         if raw_top_k:
-            k = int(raw_top_k)
+            try:
+                k = int(raw_top_k)
+            except ValueError as exc:
+                raise HTTPException(status_code=400, detail="top_k must be an integer") from exc
         raw_min = form.get("min_match_percent")
         if raw_min is not None and raw_min != "":
-            min_pct = int(raw_min)
+            try:
+                min_pct = int(raw_min)
+            except ValueError as exc:
+                raise HTTPException(
+                    status_code=400, detail="min_match_percent must be an integer"
+                ) from exc
         raw_axis = form.get("similarity_axis")
         if raw_axis:
             axis = str(raw_axis)
@@ -655,6 +666,7 @@ async def similar(
                 try:
                     upload_image = Image.open(io.BytesIO(raw))
                     upload_image.load()
+                    upload_image = ImageOps.exif_transpose(upload_image)
                     upload_filename = filename
                 except Exception as exc:  # noqa: BLE001
                     raise HTTPException(status_code=400, detail=f"invalid image: {exc}") from exc
@@ -670,7 +682,9 @@ async def similar(
     _resolve_sort_param(sort_param, is_search=True)
 
     try:
-        outcome = search_similar(
+        # Bedrock embed/VLM calls block for seconds; keep them off the event loop.
+        outcome = await run_in_threadpool(
+            search_similar,
             image_id=ref_id,
             image=upload_image,
             top_k=k,
@@ -940,7 +954,9 @@ async def ingest(
     try:
         ingest_workers = workers if workers is not None else SETTINGS.ingest_workers
         ingest_workers = max(1, min(int(ingest_workers), 32))
-        stats = ingest_paths(
+        # Captioning/embedding can run for minutes; keep it off the event loop.
+        stats = await run_in_threadpool(
+            ingest_paths,
             saved,
             skip_caption=skip_caption,
             skip_ocr=skip_ocr,
@@ -1318,7 +1334,9 @@ async def deck_suggest(
     _resolve_sort_param(sort, is_search=True)
 
     try:
-        result = process_deck_upload(
+        # Slide LLM batches + per-slide searches block for minutes on large decks.
+        result = await run_in_threadpool(
+            process_deck_upload,
             raw,
             file.filename,
             top_k=k,

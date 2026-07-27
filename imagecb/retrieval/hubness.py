@@ -17,6 +17,8 @@ from __future__ import annotations
 
 import logging
 import pickle
+import threading
+import time
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple
@@ -112,6 +114,10 @@ class HubnessIndex:
 
 
 _index: Optional[HubnessIndex] = None
+_rebuild_lock = threading.Lock()
+_rebuild_running = False
+_last_rebuild_failure: float = 0.0
+_REBUILD_FAILURE_BACKOFF_SEC = 300.0
 
 
 def _current_image_count() -> int:
@@ -143,24 +149,58 @@ def _get_index() -> HubnessIndex:
     return _index
 
 
+def _rebuild_in_background() -> None:
+    global _rebuild_running, _last_rebuild_failure
+    try:
+        rebuild_from_embeddings()
+        with _rebuild_lock:
+            _last_rebuild_failure = 0.0
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("Hubness rebuild failed: %s", exc)
+        with _rebuild_lock:
+            _last_rebuild_failure = time.monotonic()
+    finally:
+        with _rebuild_lock:
+            _rebuild_running = False
+
+
 def get_hubness_stats() -> HubnessStats:
-    """Return cached stats, rebuilding lazily if missing or stale by count."""
+    """Return cached stats immediately; refresh stale stats off-thread.
+
+    The rebuild is O(n^2) in corpus size (full Gram matrix), so it must never
+    run synchronously on a query path. Stale stats are served while a single
+    background thread refreshes; rebuild failures back off for
+    ``_REBUILD_FAILURE_BACKOFF_SEC`` instead of retrying on every query.
+    """
+    global _rebuild_running
     idx = _get_index()
     stats = idx.stats()
     count = _current_image_count()
-    if stats is None or (count >= 0 and stats.count != count):
-        try:
-            stats = rebuild_from_embeddings()
-        except Exception as exc:  # noqa: BLE001
-            logger.warning("Hubness rebuild failed: %s", exc)
-            return stats or HubnessStats(r_img={}, mean_r_img=0.0, count=0)
-    return stats
+    fresh = stats is not None and (count < 0 or stats.count == count)
+    if not fresh:
+        with _rebuild_lock:
+            in_backoff = (
+                _last_rebuild_failure > 0.0
+                and time.monotonic() - _last_rebuild_failure
+                < _REBUILD_FAILURE_BACKOFF_SEC
+            )
+            if not _rebuild_running and not in_backoff:
+                _rebuild_running = True
+                threading.Thread(
+                    target=_rebuild_in_background,
+                    name="hubness-rebuild",
+                    daemon=True,
+                ).start()
+    return stats or HubnessStats(r_img={}, mean_r_img=0.0, count=0)
 
 
 def reset_cache() -> None:
     """Clear the in-process cache (used by tests and index restore)."""
-    global _index
-    _index = None
+    global _index, _rebuild_running, _last_rebuild_failure
+    with _rebuild_lock:
+        _index = None
+        _rebuild_running = False
+        _last_rebuild_failure = 0.0
 
 
 def reload_index() -> HubnessIndex:

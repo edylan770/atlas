@@ -330,9 +330,9 @@ class SuggestionLLM:
         raise ValueError(f"Unknown LLM provider: {self.provider}")
 
     def _bedrock(self, user_payload: str, system: str) -> str:
-        from imagecb.models.bedrock_client import get_bedrock_runtime
+        from imagecb.models.bedrock_client import bedrock_converse
 
-        response = get_bedrock_runtime().converse(
+        response = bedrock_converse(
             modelId=self.model,
             system=[{"text": system}],
             messages=[{"role": "user", "content": [{"text": user_payload}]}],
