@@ -82,6 +82,7 @@ class IndexHealthReport:
     missing_thumb_count: int = 0
     orphan_thumb_count: int = 0
     missing_thumb_ids: List[str] = field(default_factory=list)
+    orphan_image_count: int = 0
     stores_in_sync: bool = True
     is_healthy: bool = True
     elapsed_sec: float = 0.0
@@ -101,6 +102,7 @@ class IndexHealthReport:
             "thumb_count": self.thumb_count,
             "missing_thumb_count": self.missing_thumb_count,
             "orphan_thumb_count": self.orphan_thumb_count,
+            "orphan_image_count": self.orphan_image_count,
             "failed_caption_count": self.failed_caption_count,
             "weak_caption_count": self.weak_caption_count,
             "needs_regeneration_count": self.needs_regeneration_count,
@@ -257,7 +259,11 @@ def assess_index_health(*, include_weak: bool = False) -> IndexHealthReport:
     thumb_count = len(sqlite_ids & thumb_ids)
     missing_thumb_ids = sorted(sqlite_ids - thumb_ids)
     missing_thumb_count = len(missing_thumb_ids)
-    orphan_thumb_count = len(thumb_ids - sqlite_ids)
+    # Soft-deleted rows still own their blobs — exclude them from orphan counts.
+    all_sqlite_ids = {r.image_id for r in get_all_records(include_deleted=True)}
+    orphan_thumb_count = len(thumb_ids - all_sqlite_ids)
+    image_ids_on_disk = blob_store.list_image_ids()
+    orphan_image_count = len(image_ids_on_disk - all_sqlite_ids)
 
     stores_in_sync = (
         missing_chroma_count == 0
@@ -276,8 +282,8 @@ def assess_index_health(*, include_weak: bool = False) -> IndexHealthReport:
     elapsed = round(time.perf_counter() - t0, 2)
     logger.info(
         "Index health assess: records=%s healthy=%s in_sync=%s missing_cache=%s "
-        "thumbs=%s/%s missing_thumbs=%s failed_captions=%s missing_chroma=%s "
-        "orphans=%s bm25_stale=%s (%.2fs)",
+        "thumbs=%s/%s missing_thumbs=%s orphan_images=%s orphan_thumbs=%s "
+        "failed_captions=%s missing_chroma=%s orphans=%s bm25_stale=%s (%.2fs)",
         len(records),
         is_healthy,
         stores_in_sync,
@@ -285,6 +291,8 @@ def assess_index_health(*, include_weak: bool = False) -> IndexHealthReport:
         thumb_count,
         len(records),
         missing_thumb_count,
+        orphan_image_count,
+        orphan_thumb_count,
         failed_caption_count,
         missing_chroma_count,
         orphan_chroma_count + orphan_text_vector_count,
@@ -326,6 +334,7 @@ def assess_index_health(*, include_weak: bool = False) -> IndexHealthReport:
         missing_thumb_count=missing_thumb_count,
         orphan_thumb_count=orphan_thumb_count,
         missing_thumb_ids=missing_thumb_ids,
+        orphan_image_count=orphan_image_count,
         stores_in_sync=stores_in_sync,
         is_healthy=is_healthy,
         elapsed_sec=elapsed,

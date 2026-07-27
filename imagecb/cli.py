@@ -289,6 +289,45 @@ def reconcile_index_cmd(
         )
 
 
+@app.command(name="purge-orphan-blobs")
+def purge_orphan_blobs_cmd(
+    apply: bool = typer.Option(
+        False,
+        "--apply",
+        help="Actually delete orphan S3 objects (default is dry-run).",
+    ),
+    min_age_hours: float = typer.Option(
+        1.0,
+        "--min-age-hours",
+        help="Skip objects newer than this many hours (default 1).",
+    ),
+    verbose: bool = typer.Option(False, "--verbose", "-v"),
+) -> None:
+    """List or delete S3 blobs not referenced by any SQLite row (idle-only)."""
+    _configure_logging(verbose)
+    from imagecb.admin.orphan_blobs import OrphanBlobError, purge_orphan_blobs
+
+    try:
+        result = purge_orphan_blobs(dry_run=not apply, min_age_hours=min_age_hours)
+    except OrphanBlobError as exc:
+        typer.echo(f"Refused: {exc}", err=True)
+        raise typer.Exit(code=1) from exc
+
+    mode = "Would purge" if not apply else "Purged"
+    typer.echo(
+        f"{mode}: images={result.get('orphan_image_count', 0)} "
+        f"thumbs={result.get('orphan_thumb_count', 0)} "
+        f"uploads={result.get('orphan_upload_count', 0)} "
+        f"staging={result.get('orphan_staging_count', 0)} "
+        f"skipped_too_new={result.get('skipped_too_new_count', 0)} "
+        f"deleted={result.get('deleted_count', 0)} "
+        f"failed={result.get('failed_count', 0)} "
+        f"({result.get('elapsed_sec', 0)}s)"
+    )
+    if not apply:
+        typer.echo("Dry-run only. Re-run with --apply to delete.")
+
+
 @app.command(name="list-index-backups")
 def list_index_backups_cmd(
     verbose: bool = typer.Option(False, "--verbose", "-v"),

@@ -123,6 +123,9 @@ def test_assess_index_health_thumb_coverage(tmp_path):
     ), patch(
         "imagecb.repair.blob_store.list_thumb_ids",
         return_value={"have", "orphan"},
+    ), patch(
+        "imagecb.repair.blob_store.list_image_ids",
+        return_value={"have", "miss", "orphan-img"},
     ), patch("imagecb.repair.records_missing_asset_type", return_value=[]):
         report = assess_index_health()
 
@@ -130,11 +133,13 @@ def test_assess_index_health_thumb_coverage(tmp_path):
     assert report.missing_thumb_count == 1
     assert report.missing_thumb_ids == ["miss"]
     assert report.orphan_thumb_count == 1
+    assert report.orphan_image_count == 1
     assert report.is_healthy is True  # missing thumbs do not flip health
     payload = report.to_dict()
     assert payload["thumb_count"] == 1
     assert payload["missing_thumb_count"] == 1
     assert payload["orphan_thumb_count"] == 1
+    assert payload["orphan_image_count"] == 1
 
 
 def test_regenerate_missing_thumbs_creates_and_skips(tmp_path):

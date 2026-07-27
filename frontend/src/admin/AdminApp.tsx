@@ -13,6 +13,8 @@ import {
   backupIndex,
   restoreIndex,
   purgeUnrecoverable,
+  fetchOrphanBlobs,
+  purgeOrphanBlobs,
   fetchCorpusImages,
   fetchDeleted,
   fetchDuplicateClusters,
@@ -282,7 +284,14 @@ function CorpusPage() {
   const [thumbRegenResult, setThumbRegenResult] = useState<string | null>(null);
   const [thumbRegenError, setThumbRegenError] = useState<string | null>(null);
   const [indexAction, setIndexAction] = useState<
-    "reconcile" | "repair" | "purge" | "backup" | "restore" | null
+    | "reconcile"
+    | "repair"
+    | "purge"
+    | "backup"
+    | "restore"
+    | "orphan-preview"
+    | "orphan-purge"
+    | null
   >(null);
   const [indexActionResult, setIndexActionResult] = useState<string | null>(null);
   const [indexActionError, setIndexActionError] = useState<string | null>(null);
@@ -437,6 +446,83 @@ function CorpusPage() {
               : ""),
         );
       }
+      reloadAll();
+    } catch (e) {
+      setIndexActionError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setIndexAction(null);
+    }
+  };
+
+  const formatOrphanBlobSummary = (result: {
+    orphan_image_count: number;
+    orphan_thumb_count: number;
+    orphan_upload_count: number;
+    orphan_staging_count: number;
+    skipped_too_new_count: number;
+    deleted_count?: number;
+  }) =>
+    `images=${result.orphan_image_count}, thumbs=${result.orphan_thumb_count}, ` +
+    `uploads=${result.orphan_upload_count}, staging=${result.orphan_staging_count}` +
+    (result.skipped_too_new_count > 0
+      ? `, skipped_too_new=${result.skipped_too_new_count}`
+      : "");
+
+  const handlePreviewOrphanBlobs = async () => {
+    setIndexAction("orphan-preview");
+    setIndexActionError(null);
+    setIndexActionResult(null);
+    try {
+      const result = await fetchOrphanBlobs(1);
+      const total =
+        result.orphan_image_count +
+        result.orphan_thumb_count +
+        result.orphan_upload_count +
+        result.orphan_staging_count;
+      setIndexActionResult(
+        total === 0
+          ? "No orphan S3 blobs found (or all candidates are too new)."
+          : `Would purge ${total} orphan blob(s): ${formatOrphanBlobSummary(result)}.`,
+      );
+    } catch (e) {
+      setIndexActionError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setIndexAction(null);
+    }
+  };
+
+  const handlePurgeOrphanBlobs = async () => {
+    setIndexAction("orphan-purge");
+    setIndexActionError(null);
+    setIndexActionResult(null);
+    try {
+      const preview = await fetchOrphanBlobs(1);
+      const total =
+        preview.orphan_image_count +
+        preview.orphan_thumb_count +
+        preview.orphan_upload_count +
+        preview.orphan_staging_count;
+      if (total === 0) {
+        setIndexActionResult(
+          "No orphan S3 blobs to purge (or all candidates are too new).",
+        );
+        return;
+      }
+      if (
+        !window.confirm(
+          `Permanently delete ${total} orphan S3 object(s) not referenced by any SQLite row?\n` +
+            `${formatOrphanBlobSummary(preview)}\n` +
+            "Soft-deleted images keep their blobs. Ingest jobs must be idle.",
+        )
+      ) {
+        return;
+      }
+      const result = await purgeOrphanBlobs({ dryRun: false, minAgeHours: 1 });
+      setIndexActionResult(
+        `Deleted ${result.deleted_count} orphan blob(s)` +
+          (result.failed_count > 0 ? ` (${result.failed_count} failed)` : "") +
+          `: ${formatOrphanBlobSummary(result)}.`,
+      );
       reloadAll();
     } catch (e) {
       setIndexActionError(e instanceof Error ? e.message : String(e));
@@ -692,6 +778,9 @@ function CorpusPage() {
             {(corpusHealth.orphan_thumb_count ?? 0) > 0 && (
               <span>Orphan thumbs: {corpusHealth.orphan_thumb_count}</span>
             )}
+            {(corpusHealth.orphan_image_count ?? 0) > 0 && (
+              <span>Orphan images: {corpusHealth.orphan_image_count}</span>
+            )}
             {(corpusHealth.orphan_chroma_count ?? 0) > 0 && (
               <span>Orphans: {corpusHealth.orphan_chroma_count}</span>
             )}
@@ -735,6 +824,26 @@ function CorpusPage() {
             onClick={() => void handlePurgeUnrecoverable()}
           >
             {indexAction === "purge" ? "Purging…" : "Purge unrecoverable"}
+          </button>
+          <button
+            type="button"
+            className="rounded-md border border-navy-300 bg-white px-3 py-1.5 text-xs font-medium text-navy-800 hover:bg-navy-50 disabled:opacity-50"
+            disabled={indexAction !== null || bulkRepairScope !== null}
+            onClick={() => void handlePreviewOrphanBlobs()}
+          >
+            {indexAction === "orphan-preview"
+              ? "Scanning orphans…"
+              : "Preview orphan blobs"}
+          </button>
+          <button
+            type="button"
+            className="rounded-md border border-rose-300 bg-rose-50 px-3 py-1.5 text-xs font-medium text-rose-950 hover:bg-rose-100 disabled:opacity-50"
+            disabled={indexAction !== null || bulkRepairScope !== null}
+            onClick={() => void handlePurgeOrphanBlobs()}
+          >
+            {indexAction === "orphan-purge"
+              ? "Purging orphans…"
+              : "Purge orphan blobs"}
           </button>
           <button
             type="button"

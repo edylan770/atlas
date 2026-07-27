@@ -30,6 +30,14 @@ class BlobInfo:
     content_length: Optional[int] = None
 
 
+@dataclass(frozen=True)
+class ListedObject:
+    """S3 object listing row with optional LastModified for age guards."""
+
+    key: str
+    last_modified: Optional[datetime] = None
+
+
 def is_s3_uri(value: str | Path | None) -> bool:
     return bool(value) and str(value).lower().startswith(_S3_SCHEME)
 
@@ -113,10 +121,15 @@ def index_backup_key(backup_id: str, filename: str) -> str:
 
 def list_keys(prefix: str, *, max_keys: Optional[int] = None) -> list[str]:
     """List object keys under a prefix in the configured S3 bucket."""
+    return [obj.key for obj in list_objects(prefix, max_keys=max_keys)]
+
+
+def list_objects(prefix: str, *, max_keys: Optional[int] = None) -> list[ListedObject]:
+    """List objects under a prefix, including LastModified when present."""
     if SETTINGS.blob_storage_backend != "s3" or not SETTINGS.s3_bucket:
         raise ValueError("Listing objects requires BLOB_STORAGE_BACKEND=s3 and S3_BUCKET")
     client = get_s3_client()
-    keys: list[str] = []
+    objects: list[ListedObject] = []
     token: Optional[str] = None
     while True:
         kwargs: dict[str, Any] = {
@@ -127,7 +140,7 @@ def list_keys(prefix: str, *, max_keys: Optional[int] = None) -> list[str]:
             kwargs["ContinuationToken"] = token
         page_size = 1000
         if max_keys is not None:
-            remaining = max_keys - len(keys)
+            remaining = max_keys - len(objects)
             if remaining <= 0:
                 break
             page_size = min(1000, remaining)
@@ -135,16 +148,20 @@ def list_keys(prefix: str, *, max_keys: Optional[int] = None) -> list[str]:
         response = client.list_objects_v2(**kwargs)
         for item in response.get("Contents") or []:
             key = item.get("Key")
-            if key:
-                keys.append(key)
-                if max_keys is not None and len(keys) >= max_keys:
-                    return keys
+            if not key:
+                continue
+            modified = item.get("LastModified")
+            if isinstance(modified, datetime) and modified.tzinfo is None:
+                modified = modified.replace(tzinfo=timezone.utc)
+            objects.append(ListedObject(key=str(key), last_modified=modified))
+            if max_keys is not None and len(objects) >= max_keys:
+                return objects
         if not response.get("IsTruncated"):
             break
         token = response.get("NextContinuationToken")
         if not token:
             break
-    return keys
+    return objects
 
 
 def s3_uri(key: str) -> str:
@@ -326,6 +343,18 @@ def thumbs_prefix() -> str:
     return _key(SETTINGS.s3_prefix, "thumbs")
 
 
+def images_prefix() -> str:
+    return _key(SETTINGS.s3_prefix, "images")
+
+
+def uploads_prefix() -> str:
+    return _key(SETTINGS.s3_prefix, "uploads")
+
+
+def staging_prefix() -> str:
+    return _key(SETTINGS.s3_prefix, "staging")
+
+
 def list_thumb_ids() -> set[str]:
     """Return image_ids that have a display thumbnail object (one listing, no per-id HEAD)."""
     if SETTINGS.blob_storage_backend == "s3":
@@ -346,6 +375,54 @@ def list_thumb_ids() -> set[str]:
     if not thumbs_dir.is_dir():
         return set()
     return {path.stem for path in thumbs_dir.glob("*.jpg") if path.is_file()}
+
+
+def list_image_ids() -> set[str]:
+    """Return image_ids that have a display PNG object (one listing, no per-id HEAD)."""
+    if SETTINGS.blob_storage_backend == "s3":
+        prefix = images_prefix().rstrip("/") + "/"
+        try:
+            keys = list_keys(prefix)
+        except Exception as exc:  # noqa: BLE001 — health scans must not fail hard
+            logger.warning("Could not list image keys under %s: %s", prefix, exc)
+            return set()
+        ids: set[str] = set()
+        for key in keys:
+            name = PurePosixPath(key).name
+            if name.lower().endswith(".png"):
+                ids.add(name[:-4])
+        return ids
+
+    images_dir = SETTINGS.image_cache_dir
+    if not images_dir.is_dir():
+        return set()
+    return {path.stem for path in images_dir.glob("*.png") if path.is_file()}
+
+
+def list_upload_uris() -> set[str]:
+    """Return durable upload object URIs under the uploads prefix."""
+    if SETTINGS.blob_storage_backend != "s3":
+        return set()
+    prefix = uploads_prefix().rstrip("/") + "/"
+    try:
+        keys = list_keys(prefix)
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("Could not list upload keys under %s: %s", prefix, exc)
+        return set()
+    return {s3_uri(key) for key in keys}
+
+
+def list_staging_uris() -> set[str]:
+    """Return staging object URIs under the staging prefix."""
+    if SETTINGS.blob_storage_backend != "s3":
+        return set()
+    prefix = staging_prefix().rstrip("/") + "/"
+    try:
+        keys = list_keys(prefix)
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("Could not list staging keys under %s: %s", prefix, exc)
+        return set()
+    return {s3_uri(key) for key in keys}
 
 
 def is_missing_blob_error(exc: BaseException) -> bool:

@@ -66,15 +66,15 @@ def _ranked(record: ImageRecord, score: float = 0.9) -> RankedResult:
     )
 
 
-@patch("imagecb.formatting.assistant_reply.resolve_image_file", return_value="/tmp/x.png")
-def test_zero_results(_mock_resolve):
+@patch("imagecb.formatting.assistant_reply.image_exists", return_value=True)
+def test_zero_results(_mock_exists):
     msg = format_assistant_message([], None)
     assert "couldn't find" in msg.lower()
     assert "rephrasing" in msg.lower()
 
 
-@patch("imagecb.formatting.assistant_reply.resolve_image_file", return_value="/tmp/x.png")
-def test_single_pptx_result(_mock_resolve):
+@patch("imagecb.formatting.assistant_reply.image_exists", return_value=True)
+def test_single_pptx_result(_mock_exists):
     r = _ranked(_record(image_name="Quarterly Revenue Chart"))
     msg = format_assistant_message([r], None)
     assert "1 image" in msg.lower() or "1 images" not in msg.lower()
@@ -83,8 +83,8 @@ def test_single_pptx_result(_mock_resolve):
     assert "Found 10" not in msg
 
 
-@patch("imagecb.formatting.assistant_reply.resolve_image_file", return_value="/tmp/x.png")
-def test_multi_source_batch(_mock_resolve):
+@patch("imagecb.formatting.assistant_reply.image_exists", return_value=True)
+def test_multi_source_batch(_mock_exists):
     results = [
         _ranked(_record(image_id="a", slide_index=3, image_name="Revenue Slide")),
         _ranked(
@@ -122,8 +122,8 @@ def test_multi_source_batch(_mock_resolve):
     assert "results panel" in msg.lower()
 
 
-@patch("imagecb.formatting.assistant_reply.resolve_image_file", return_value="/tmp/x.png")
-def test_template_prefers_image_name_and_appends_use_cases(_mock_resolve):
+@patch("imagecb.formatting.assistant_reply.image_exists", return_value=True)
+def test_template_prefers_image_name_and_appends_use_cases(_mock_exists):
     r = _ranked(
         _record(
             source_file="/docs/AdobeStock_1025891723.jpeg",
@@ -141,8 +141,8 @@ def test_template_prefers_image_name_and_appends_use_cases(_mock_resolve):
     assert "Digital health marketing and product explainers" in msg
 
 
-@patch("imagecb.formatting.assistant_reply.resolve_image_file", return_value="/tmp/x.png")
-def test_use_cases_footer_dedupes(_mock_resolve):
+@patch("imagecb.formatting.assistant_reply.image_exists", return_value=True)
+def test_use_cases_footer_dedupes(_mock_exists):
     results = [
         _ranked(
             _record(
@@ -185,16 +185,16 @@ def test_use_cases_footer_dedupes(_mock_resolve):
     assert msg.count("Training materials") == 1
 
 
-@patch("imagecb.formatting.assistant_reply.resolve_image_file", return_value="/tmp/x.png")
-def test_refinement_prefix(_mock_resolve):
+@patch("imagecb.formatting.assistant_reply.image_exists", return_value=True)
+def test_refinement_prefix(_mock_exists):
     spec = QuerySpec(is_refinement=True)
     r = _ranked(_record())
     msg = format_assistant_message([r], spec)
     assert msg.startswith("Narrowed from your previous search")
 
 
-@patch("imagecb.formatting.assistant_reply.resolve_image_file", return_value=None)
-def test_missing_file_footer(_mock_resolve):
+@patch("imagecb.formatting.assistant_reply.image_exists", return_value=False)
+def test_missing_file_footer(_mock_exists):
     r = _ranked(_record())
     msg = format_assistant_message([r], None)
     assert "missing image files" in msg.lower()
@@ -209,8 +209,8 @@ def test_provenance_from_record():
     assert "Slide 3" in prov.location_label()
 
 
-@patch("imagecb.formatting.assistant_reply.resolve_image_file", return_value="/tmp/x.png")
-def test_build_assistant_reply_cards(_mock_resolve):
+@patch("imagecb.formatting.assistant_reply.image_exists", return_value=True)
+def test_build_assistant_reply_cards(_mock_exists):
     reply = build_assistant_reply([_ranked(_record(), score=0.87)])
     assert reply.message
     assert len(reply.results) == 1
@@ -218,3 +218,15 @@ def test_build_assistant_reply_cards(_mock_resolve):
     assert reply.results[0].thumb_url == "/api/images/id-1/thumb"
     assert reply.results[0].provenance.source_name == "Q3_Review.pptx"
     assert reply.results[0].match_percent == 94
+    assert reply.results[0].has_image_file is True
+
+
+@patch("imagecb.paths.resolve_image_file")
+@patch("imagecb.formatting.assistant_reply.image_exists", return_value=True)
+def test_has_image_file_does_not_materialize_blob(mock_exists, mock_resolve):
+    from imagecb.formatting.assistant_reply import build_result_cards
+
+    cards = build_result_cards([_ranked(_record())])
+    assert cards[0].has_image_file is True
+    mock_exists.assert_called()
+    mock_resolve.assert_not_called()

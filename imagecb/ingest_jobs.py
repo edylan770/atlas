@@ -292,6 +292,31 @@ def list_jobs(*, limit: int = 100) -> list[dict]:
         return [job_to_dict(row) for row in rows]
 
 
+def list_busy_jobs() -> list[dict]:
+    """Return ingest jobs that must block maintenance (walk-away uploads in flight)."""
+    ensure_job_schema()
+    with session_scope() as session:
+        rows = (
+            session.execute(
+                select(IngestJob).where(IngestJob.status.in_(sorted(CANCELLABLE_STATUSES)))
+            )
+            .scalars()
+            .all()
+        )
+        return [job_to_dict(row) for row in rows]
+
+
+def busy_staging_uris() -> set[str]:
+    """Staging object URIs referenced by busy ingest jobs (must not be GC'd)."""
+    uris: set[str] = set()
+    for job in list_busy_jobs():
+        for item in get_upload_manifest(job["job_id"]) or []:
+            uri = (item.get("uri") or "").strip()
+            if uri:
+                uris.add(uri)
+    return uris
+
+
 def request_cancel(job_id: str) -> Optional[dict]:
     ensure_job_schema()
     now = datetime.utcnow()

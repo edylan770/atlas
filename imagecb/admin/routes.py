@@ -20,6 +20,11 @@ class PurgeUnrecoverableRequest(BaseModel):
     image_ids: Optional[List[str]] = Field(default=None)
 
 
+class PurgeOrphanBlobsRequest(BaseModel):
+    dry_run: bool = True
+    min_age_hours: float = Field(default=1.0, ge=0.0, le=24 * 30)
+
+
 @router.get("/analytics/summary")
 def admin_analytics_summary(
     since: Optional[str] = Query(None),
@@ -270,6 +275,53 @@ def admin_purge_unrecoverable(
         image_ids=payload.image_ids,
     )
     return {"ok": True, **stats}
+
+
+@router.get("/corpus/orphan-blobs")
+def admin_orphan_blobs(
+    min_age_hours: float = Query(1.0, ge=0.0, le=24 * 30),
+    _: str = Depends(require_admin),
+):
+    from imagecb.admin.orphan_blobs import OrphanBlobError, assess_orphan_blobs
+
+    try:
+        report = assess_orphan_blobs(min_age_hours=min_age_hours)
+    except OrphanBlobError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    return {"ok": True, **report.to_dict()}
+
+
+@router.post("/corpus/purge-orphan-blobs")
+def admin_purge_orphan_blobs(
+    actor: str = Depends(require_admin),
+    payload: PurgeOrphanBlobsRequest = PurgeOrphanBlobsRequest(),
+):
+    from imagecb.admin.orphan_blobs import OrphanBlobError, purge_orphan_blobs
+
+    try:
+        result = purge_orphan_blobs(
+            dry_run=payload.dry_run,
+            min_age_hours=payload.min_age_hours,
+        )
+    except OrphanBlobError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    if not payload.dry_run:
+        audit.append_audit(
+            actor=actor,
+            action="purge_orphan_blobs",
+            target_type="corpus",
+            target_id="orphan-blobs",
+            details={
+                "min_age_hours": payload.min_age_hours,
+                "deleted_count": result.get("deleted_count", 0),
+                "orphan_image_count": result.get("orphan_image_count", 0),
+                "orphan_thumb_count": result.get("orphan_thumb_count", 0),
+                "orphan_upload_count": result.get("orphan_upload_count", 0),
+                "orphan_staging_count": result.get("orphan_staging_count", 0),
+                "failed_count": result.get("failed_count", 0),
+            },
+        )
+    return {"ok": True, **result}
 
 
 @router.get("/corpus/orphans")

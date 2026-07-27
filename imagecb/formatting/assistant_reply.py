@@ -12,7 +12,6 @@ from imagecb.caption.asset_type import format_asset_type_label
 from imagecb.formatting.match_display import display_match_percent
 from imagecb.paths import (
     image_exists,
-    resolve_image_file,
     resolve_source_file,
     source_exists,
 )
@@ -188,8 +187,9 @@ def build_result_cards(
                 caption=cap,
                 match_hint=_short_match_hint(r),
                 match_percent=display_match_percent(r.score, r.score_kind),
-                has_image_file=resolve_image_file(r.record) is not None
-                or image_exists(r.record),
+                # Existence HEAD only — do not download/materialize S3 PNGs here
+                # (deck suggest and search return many cards per request).
+                has_image_file=image_exists(r.record),
                 image_name=image_name,
                 use_case=use_case,
                 tags=tags,
@@ -298,11 +298,7 @@ def _use_cases_footer(results: Sequence[RankedResult], *, limit: int = 5) -> str
 
 
 def _missing_files_footer(results: Sequence[RankedResult]) -> str:
-    missing = sum(
-        1
-        for r in results
-        if resolve_image_file(r.record) is None and not image_exists(r.record)
-    )
+    missing = sum(1 for r in results if not image_exists(r.record))
     if not missing:
         return ""
     noun = "result" if missing == 1 else "results"

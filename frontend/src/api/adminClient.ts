@@ -116,6 +116,7 @@ export interface CorpusHealth {
   thumb_count?: number;
   missing_thumb_count?: number;
   orphan_thumb_count?: number;
+  orphan_image_count?: number;
   failed_caption_count: number;
   weak_caption_count: number;
   needs_regeneration_count: number;
@@ -371,6 +372,43 @@ export function purgeUnrecoverable(
     body: JSON.stringify(
       imageIds && imageIds.length > 0 ? { image_ids: imageIds } : {},
     ),
+  });
+}
+
+export interface OrphanBlobPurgeResult {
+  ok: boolean;
+  dry_run: boolean;
+  min_age_hours: number;
+  orphan_image_count: number;
+  orphan_thumb_count: number;
+  orphan_upload_count: number;
+  orphan_staging_count: number;
+  skipped_too_new_count: number;
+  purgeable_count: number;
+  deleted_count: number;
+  failed_count: number;
+  elapsed_sec?: number;
+}
+
+export function fetchOrphanBlobs(
+  minAgeHours = 1,
+): Promise<OrphanBlobPurgeResult> {
+  return adminRequest(
+    `/api/admin/corpus/orphan-blobs?min_age_hours=${encodeURIComponent(String(minAgeHours))}`,
+  );
+}
+
+export function purgeOrphanBlobs(options?: {
+  dryRun?: boolean;
+  minAgeHours?: number;
+}): Promise<OrphanBlobPurgeResult> {
+  return adminRequest("/api/admin/corpus/purge-orphan-blobs", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      dry_run: options?.dryRun ?? true,
+      min_age_hours: options?.minAgeHours ?? 1,
+    }),
   });
 }
 
