@@ -343,7 +343,8 @@ def _ingest_one_image(
         t0 = time.perf_counter()
         if phase_callback:
             phase_callback("ocr", "Reading visible text")
-        ocr_text = "" if skip_ocr else ocr_extract(extracted.image)
+        run_tesseract = SETTINGS.ocr_source in ("both", "tesseract") and not skip_ocr
+        ocr_text = ocr_extract(extracted.image) if run_tesseract else ""
         steps["ocr"] = time.perf_counter() - t0
 
         if should_cancel and should_cancel():
