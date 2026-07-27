@@ -48,17 +48,6 @@ def admin_search_quality(
     )
 
 
-@router.get("/analytics/funnel")
-def admin_funnel(
-    search_event_id: str = Query(..., alias="search_event_id"),
-    _: str = Depends(require_admin),
-):
-    detail = analytics.funnel_detail(search_event_id)
-    if detail is None:
-        raise HTTPException(status_code=404, detail="search event not found")
-    return detail
-
-
 @router.get("/audit")
 def admin_audit_log(
     limit: int = Query(100, ge=1, le=500),
