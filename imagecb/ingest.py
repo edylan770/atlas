@@ -275,6 +275,7 @@ def _ingest_one_image(
     *,
     known: Set[str],
     known_lock: threading.Lock,
+    in_flight: Optional[Set[str]] = None,
     force: bool,
     skip_caption: bool,
     skip_ocr: bool,
@@ -285,10 +286,14 @@ def _ingest_one_image(
     should_cancel: Optional[Callable[[], bool]] = None,
     phase_callback: Optional[Callable[[str, Optional[str]], None]] = None,
 ) -> _IngestOutcome:
+    if in_flight is None:
+        in_flight = set()
     extracted = item.extracted
     source_label = str(extracted.provenance.source_file or item.file_path)
     steps: dict = {}
     image_id = "-"
+    claimed = False
+    content_hash = ""
     t_image = time.perf_counter()
     try:
         if should_cancel and should_cancel():
@@ -297,6 +302,21 @@ def _ingest_one_image(
         content_hash = _hash_image(extracted.image)
         steps["hash_image"] = time.perf_counter() - t0
         with known_lock:
+            if content_hash in in_flight:
+                # An identical image is mid-pipeline in another worker; skip it
+                # instead of double-captioning and colliding on the UNIQUE
+                # content_hash constraint at the SQLite merge.
+                if timing is not None:
+                    timing.add_image_detail(
+                        ImageTimingDetail(
+                            image_id="-",
+                            source_file=source_label,
+                            outcome="skipped_duplicate",
+                            steps=steps,
+                            total_sec=time.perf_counter() - t_image,
+                        )
+                    )
+                return _IngestOutcome(skipped_duplicate=True)
             existing = get_record_by_hash(content_hash) if content_hash in known else None
             if existing is not None and existing.deleted_at is None and not force:
                 if timing is not None:
@@ -316,6 +336,8 @@ def _ingest_one_image(
             else:
                 image_id = new_image_id()
                 outcome = _IngestOutcome(added=True)
+            in_flight.add(content_hash)
+            claimed = True
 
         t0 = time.perf_counter()
         if phase_callback:
@@ -329,7 +351,8 @@ def _ingest_one_image(
         t0 = time.perf_counter()
         if phase_callback:
             phase_callback("ocr", "Reading visible text")
-        ocr_text = "" if skip_ocr else ocr_extract(extracted.image)
+        run_tesseract = SETTINGS.ocr_source in ("both", "tesseract") and not skip_ocr
+        ocr_text = ocr_extract(extracted.image) if run_tesseract else ""
         steps["ocr"] = time.perf_counter() - t0
 
         if should_cancel and should_cancel():
@@ -363,6 +386,7 @@ def _ingest_one_image(
         steps["sqlite_write"] = time.perf_counter() - t0
         with known_lock:
             known.add(content_hash)
+            in_flight.discard(content_hash)
         outcome.record = record
         outcome.embedding = emb
         t0 = time.perf_counter()
@@ -382,8 +406,14 @@ def _ingest_one_image(
             )
         return outcome
     except _IngestCancelled:
+        if claimed:
+            with known_lock:
+                in_flight.discard(content_hash)
         return _IngestOutcome(cancelled=True)
     except Exception as exc:  # noqa: BLE001
+        if claimed:
+            with known_lock:
+                in_flight.discard(content_hash)
         logger.warning("Failed to ingest an image from %s: %s", item.file_path, exc)
         if timing is not None:
             timing.add_image_detail(
@@ -622,6 +652,7 @@ def _run_ingest_pool(
     *,
     known: Set[str],
     known_lock: threading.Lock,
+    in_flight: Set[str],
     force: bool,
     skip_caption: bool,
     skip_ocr: bool,
@@ -647,6 +678,7 @@ def _run_ingest_pool(
             item,
             known=known,
             known_lock=known_lock,
+            in_flight=in_flight,
             force=force,
             skip_caption=skip_caption,
             skip_ocr=skip_ocr,
@@ -675,10 +707,25 @@ def _run_ingest_pool(
             )
         from imagecb.storage.index_backup import maybe_checkpoint_progress
 
+        def _flush_pending_batches() -> None:
+            # Checkpoint archives the on-disk Chroma dir; flush buffered
+            # vectors first or the snapshot has SQLite rows without vectors
+            # (and nothing re-embeds them after a restore).
+            with chroma_lock:
+                pending_vecs = list(chroma_batch)
+                chroma_batch.clear()
+                pending_text = list(text_batch)
+                text_batch.clear()
+            if pending_vecs:
+                _flush_chroma_batch(pending_vecs, timing=timing)
+            if pending_text:
+                _flush_text_batch(pending_text, timing=timing)
+
         maybe_checkpoint_progress(
             stats,
             job_id=stats.get("_checkpoint_job_id"),
             force=False,
+            before_snapshot=_flush_pending_batches,
         )
 
     max_in_flight = max(workers * 2, workers)
@@ -874,6 +921,7 @@ def _ingest_paths_locked(
 
     known = existing_hashes()
     known_lock = threading.Lock()
+    in_flight: Set[str] = set()
     embedder = get_embedder()
     captioner = None if skip_caption else get_captioner()
 
@@ -881,6 +929,7 @@ def _ingest_paths_locked(
         _stream_items(),
         known=known,
         known_lock=known_lock,
+        in_flight=in_flight,
         force=force,
         skip_caption=skip_caption,
         skip_ocr=skip_ocr,
@@ -936,6 +985,7 @@ def _ingest_paths_locked(
             repair_stats = repair_index_issues(
                 workers=workers,
                 skip_caption_phases=skip_caption,
+                hold_ingest_lock=False,
             )
         stats["post_repair"] = repair_stats
 
@@ -1113,6 +1163,7 @@ def ingest_paths_batched(
                 repair_stats = repair_index_issues(
                     workers=workers,
                     skip_caption_phases=skip_caption,
+                    hold_ingest_lock=False,
                 )
             total["post_repair"] = repair_stats
 

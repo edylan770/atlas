@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import secrets
 from typing import Optional
 
 from fastapi import Header, HTTPException, Request
@@ -34,7 +35,7 @@ def require_admin(
     key = _extract_admin_key(authorization, x_admin_api_key)
     if not key:
         raise HTTPException(status_code=401, detail="Admin API key required")
-    if key != SETTINGS.admin_api_key:
+    if not secrets.compare_digest(key, SETTINGS.admin_api_key):
         raise HTTPException(status_code=403, detail="Invalid admin API key")
     return "admin-api"
 

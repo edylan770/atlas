@@ -247,7 +247,10 @@ def promote_staged_source(ref: str, local_path: Path) -> str:
         while chunk := handle.read(1024 * 1024):
             digest.update(chunk)
     source_bucket, source_object_key = parse_s3_uri(ref)
-    durable_key = source_key(local_path.name, digest.hexdigest())
+    # The staged key ends with the user's real filename; local_path is a
+    # NamedTemporaryFile (tmpXXXX.pptx) whose name must not become provenance.
+    original_name = PurePosixPath(source_object_key).name or local_path.name
+    durable_key = source_key(original_name, digest.hexdigest())
     get_s3_client().copy_object(
         Bucket=SETTINGS.s3_bucket,
         Key=durable_key,

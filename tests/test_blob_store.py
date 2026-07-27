@@ -280,3 +280,38 @@ def test_presign_upload_uses_browser_endpoint():
 
     assert url.startswith("http://localhost:9000/private-corpus/atlas/staging/")
     assert headers == {"Content-Type": "image/png"}
+
+
+def test_promote_staged_source_preserves_original_filename(tmp_path):
+    """Regression: the durable key must use the staged key's real filename,
+    not the NamedTemporaryFile name from materialize()."""
+
+    class FakeS3WithCopy(FakeS3):
+        def copy_object(self, *, Bucket, Key, CopySource, MetadataDirective=None):
+            src = (CopySource["Bucket"], CopySource["Key"])
+            self.objects[(Bucket, Key)] = self.objects[src]
+
+    fake = FakeS3WithCopy()
+    staged_key = "atlas/staging/job1/f1/Quarterly-Report.pptx"
+    fake.objects[("private-corpus", staged_key)] = (b"data", "application/octet-stream")
+
+    local = tmp_path / "tmpws8xk21q.pptx"  # materialize() temp-file naming
+    local.write_bytes(b"data")
+
+    settings = replace(
+        SETTINGS,
+        blob_storage_backend="s3",
+        s3_bucket="private-corpus",
+        s3_prefix="atlas",
+        s3_region="us-east-1",
+    )
+    with patch("imagecb.storage.blob_store.SETTINGS", settings), patch(
+        "imagecb.storage.blob_store.get_s3_client",
+        return_value=fake,
+    ):
+        ref = blob_store.promote_staged_source(
+            f"s3://private-corpus/{staged_key}", local
+        )
+
+    assert "tmpws8xk21q" not in ref, f"temp name leaked into provenance: {ref}"
+    assert "Quarterly-Report.pptx" in ref

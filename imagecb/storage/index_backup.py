@@ -22,7 +22,7 @@ import uuid
 from contextlib import contextmanager
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, Iterator, Optional
+from typing import Callable, Any, Iterator, Optional
 
 from imagecb.config import SETTINGS
 from imagecb.storage import blob_store
@@ -655,8 +655,14 @@ def maybe_checkpoint_progress(
     job_id: Optional[str] = None,
     force: bool = False,
     label: Optional[str] = None,
+    before_snapshot: Optional[Callable[[], None]] = None,
 ) -> Optional[dict[str, Any]]:
-    """Best-effort checkpoint during ingest; never raises into the caller."""
+    """Best-effort checkpoint during ingest; never raises into the caller.
+
+    ``before_snapshot`` runs only when a checkpoint will actually be taken —
+    ingest uses it to flush in-memory vector batches so the archived Chroma
+    dir matches the archived SQLite rows.
+    """
     if not SETTINGS.index_checkpoint_enabled:
         return None
     if SETTINGS.blob_storage_backend != "s3" or not SETTINGS.s3_bucket:
@@ -669,6 +675,8 @@ def maybe_checkpoint_progress(
         return None
 
     try:
+        if before_snapshot is not None:
+            before_snapshot()
         result = create_checkpoint(
             label=label or f"ingest:{job_id or 'manual'}:{committed}",
             job_id=job_id,
@@ -684,15 +692,20 @@ def maybe_checkpoint_progress(
         return None
 
 
-def get_preferred_restore_backup_id() -> Optional[str]:
-    """Prefer checkpoint-latest when it has records; else newest non-empty backup."""
+def get_restore_candidates() -> list[str]:
+    """Ordered restore candidates: checkpoint-latest, then snapshots newest-first.
+
+    checkpoint-latest is written as two PUTs (archive, then manifest); a crash
+    between them leaves it internally inconsistent, so restore must be able to
+    fall through to the immutable timestamped snapshots.
+    """
     _require_s3()
+    candidates: list[str] = []
     latest = _read_manifest(CHECKPOINT_LATEST_ID)
     if _manifest_record_count(latest) > 0:
-        return CHECKPOINT_LATEST_ID
+        candidates.append(CHECKPOINT_LATEST_ID)
 
-    best_id: Optional[str] = None
-    best_created = ""
+    dated: list[tuple[str, str]] = []
     for item in list_backups():
         backup_id = str(item.get("id") or "")
         if not backup_id or backup_id == CHECKPOINT_LATEST_ID:
@@ -704,11 +717,16 @@ def get_preferred_restore_backup_id() -> Optional[str]:
             count = 0
         if count <= 0:
             continue
-        created = str(item.get("created_at") or "")
-        if best_id is None or created > best_created:
-            best_id = backup_id
-            best_created = created
-    return best_id
+        dated.append((str(item.get("created_at") or ""), backup_id))
+    dated.sort(reverse=True)
+    candidates.extend(backup_id for _, backup_id in dated)
+    return candidates
+
+
+def get_preferred_restore_backup_id() -> Optional[str]:
+    """Prefer checkpoint-latest when it has records; else newest non-empty backup."""
+    candidates = get_restore_candidates()
+    return candidates[0] if candidates else None
 
 
 def restore_backup(backup_id: str, *, confirm: bool = False) -> dict[str, Any]:
@@ -815,43 +833,57 @@ def maybe_auto_restore_on_startup() -> dict[str, Any]:
     info["total_records"] = local_count
 
     try:
-        backup_id = get_preferred_restore_backup_id()
+        candidates = get_restore_candidates()
     except Exception as exc:  # noqa: BLE001
         info["error"] = f"preferred_backup_failed: {exc}"
         _startup_restore_info = dict(info)
         return info
 
-    if not backup_id:
+    if not candidates:
         info["skipped"] = "no_nonempty_checkpoint"
         _startup_restore_info = dict(info)
         return info
 
-    manifest = _read_manifest(backup_id)
-    remote_count = _manifest_record_count(manifest)
-    info["remote_count"] = remote_count
-    info["backup_id"] = backup_id
+    best_manifest = _read_manifest(candidates[0])
+    best_count = _manifest_record_count(best_manifest)
+    info["remote_count"] = best_count
+    info["backup_id"] = candidates[0]
 
-    if remote_count <= local_count:
-        info["skipped"] = f"local_records={local_count}_remote_records={remote_count}"
+    if best_count <= local_count:
+        info["skipped"] = f"local_records={local_count}_remote_records={best_count}"
         _startup_restore_info = dict(info)
         return info
 
     info["attempted"] = True
-    try:
-        # Startup: runner is not up yet; restore without cancelling jobs.
-        result = _restore_without_job_cancel(backup_id)
-        info["restored"] = True
-        info["total_records"] = result.get("total_records", remote_count)
-        logger.info(
-            "Startup auto-restore complete backup_id=%s local=%s remote=%s records=%s",
-            backup_id,
-            local_count,
-            remote_count,
-            info["total_records"],
-        )
-    except Exception as exc:  # noqa: BLE001
-        logger.exception("Startup auto-restore failed")
-        info["error"] = str(exc)
+    errors: list[str] = []
+    for backup_id in candidates:
+        manifest = _read_manifest(backup_id)
+        remote_count = _manifest_record_count(manifest)
+        if remote_count <= local_count:
+            continue
+        try:
+            # Startup: runner is not up yet; restore without cancelling jobs.
+            result = _restore_without_job_cancel(backup_id)
+            info["restored"] = True
+            info["backup_id"] = backup_id
+            info["remote_count"] = remote_count
+            info["total_records"] = result.get("total_records", remote_count)
+            info["error"] = None
+            logger.info(
+                "Startup auto-restore complete backup_id=%s local=%s remote=%s records=%s",
+                backup_id,
+                local_count,
+                remote_count,
+                info["total_records"],
+            )
+            break
+        except Exception as exc:  # noqa: BLE001
+            logger.exception(
+                "Startup auto-restore failed for %s; trying older snapshot", backup_id
+            )
+            errors.append(f"{backup_id}: {exc}")
+    if not info["restored"] and errors:
+        info["error"] = "; ".join(errors)
 
     _startup_restore_info = dict(info)
     return info

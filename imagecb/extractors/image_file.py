@@ -7,7 +7,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import Iterator, Optional
 
-from PIL import Image, ExifTags
+from PIL import ExifTags, Image, ImageOps
 
 from .types import ExtractedImage, Provenance
 
@@ -54,6 +54,9 @@ def extract(path: Path) -> Iterator[ExtractedImage]:
     try:
         img = Image.open(path)
         img.load()
+        # Bake EXIF orientation into the pixels: the cached PNG (which strips
+        # EXIF) becomes the record of truth for captioning/embedding/thumbs.
+        img = ImageOps.exif_transpose(img)
     except Exception as exc:  # noqa: BLE001
         logger.warning("Could not open %s: %s", path, exc)
         return

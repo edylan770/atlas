@@ -40,7 +40,9 @@ def test_document_includes_grounded_and_interpretive_fields():
     doc = caption_document_text(_record())
     assert "asset_type: Chart" in doc
     assert "presentation slide" in doc
-    assert "Revenue up 12%" in doc
+    # Tesseract ocr_text is excluded under the default OCR_SOURCE=vlm;
+    # test_ocr_source_controls_document_text_fields covers the "both" mode.
+    assert "Revenue up 12%" not in doc
     assert "Q3 Review" in doc
     assert "bar chart" in doc
     assert "Quarterly Sales Chart" in doc
@@ -67,3 +69,28 @@ def test_document_empty_for_blank_record():
         search_aliases_json=None,
     )
     assert caption_document_text(rec).strip() == ""
+
+
+def test_ocr_source_controls_document_text_fields(monkeypatch):
+    from dataclasses import replace
+    from imagecb.caption import document as doc_mod
+    from imagecb.config import SETTINGS
+
+    record = _record(
+        ocr_text="TESSERACT-TOKEN",
+        text_overlay_summary="VLM-TOKEN",
+    )
+
+    import imagecb.config as config_mod
+
+    for source, want_vlm, want_tess in [
+        ("both", True, True),
+        ("vlm", True, False),
+        ("tesseract", False, True),
+    ]:
+        monkeypatch.setattr(
+            config_mod, "SETTINGS", replace(SETTINGS, ocr_source=source)
+        )
+        text = doc_mod.caption_document_text(record)
+        assert ("VLM-TOKEN" in text) is want_vlm, f"{source}: vlm field"
+        assert ("TESSERACT-TOKEN" in text) is want_tess, f"{source}: tesseract field"

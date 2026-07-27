@@ -42,9 +42,9 @@ class ConversationLLM:
             raise ValueError(f"Unknown LLM provider: {self.provider}")
 
     def _reply_stream_bedrock(self, user_payload: str) -> Iterator[str]:
-        from imagecb.models.bedrock_client import get_bedrock_runtime
+        from imagecb.models.bedrock_client import bedrock_converse_stream
 
-        response = get_bedrock_runtime().converse_stream(
+        response = bedrock_converse_stream(
             modelId=self.model,
             system=[{"text": CONVERSATION_SYSTEM_PROMPT}],
             messages=[{"role": "user", "content": [{"text": user_payload}]}],

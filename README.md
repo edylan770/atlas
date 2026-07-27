@@ -410,7 +410,7 @@ Sync `POST /api/ingest` remains available for scripts; the drawer uses the **job
 
 ### Admin (`/admin`)
 
-Gate with `ADMIN_API_KEY` (stored in browser after unlock). Optional Vite: `VITE_ADMIN_API_KEY` in `frontend/.env.local` (do not commit).
+Gate with `ADMIN_API_KEY` (entered in the browser after unlock; kept in sessionStorage only - build-time env fallbacks were removed so the key can never ship in the JS bundle).
 
 | Route | Features |
 |-------|----------|

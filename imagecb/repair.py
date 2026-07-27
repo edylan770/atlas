@@ -910,8 +910,14 @@ def repair_missing_cache(
     records: Optional[List[ImageRecord]] = None,
     *,
     workers: Optional[int] = None,
+    hold_ingest_lock: bool = True,
 ) -> dict:
-    """Re-extract from source files to rebuild missing cached PNGs."""
+    """Re-extract from source files to rebuild missing cached PNGs.
+
+    ``hold_ingest_lock=False`` is required when called from inside an ingest
+    (the non-reentrant ingest lock is already held there; re-acquiring would
+    raise IngestInProgressError after data was written).
+    """
     t0 = time.perf_counter()
     if records is None:
         report = assess_index_health()
@@ -960,6 +966,7 @@ def repair_missing_cache(
             rebuild_bm25=False,
             refresh_vocab=False,
             workers=workers,
+            _hold_ingest_lock=hold_ingest_lock,
         )
     stats["source_files_repaired"] = ingest_stats.get("files", 0)
     stats["images_updated"] = ingest_stats.get("images_updated", 0) + ingest_stats.get("images_added", 0)
@@ -975,6 +982,7 @@ def repair_index_issues(
     include_weak_captions: Optional[bool] = None,
     repair_missing_vectors: Optional[bool] = None,
     skip_caption_phases: bool = False,
+    hold_ingest_lock: bool = True,
 ) -> dict:
     """Phased repair: missing cache, failed captions, optional weak, missing Chroma vectors."""
     if include_weak_captions is None:
@@ -1011,7 +1019,9 @@ def repair_index_issues(
 
     if report.missing_cache_count > 0:
         any_phase_ran = True
-        phases["cache"] = repair_missing_cache(workers=workers)
+        phases["cache"] = repair_missing_cache(
+            workers=workers, hold_ingest_lock=hold_ingest_lock
+        )
 
     if not skip_caption_phases:
         report = assess_index_health(include_weak=include_weak_captions)

@@ -31,7 +31,7 @@ CAPTION_JSON_SCHEMA: Dict[str, Any] = {
                 },
                 "readable_text": {
                     "type": "string",
-                    "description": "Text actually legible in the image; empty if none.",
+                    "description": "Verbatim transcription of all clearly legible text, exactly as written (titles, labels, axis values, table cells). Never invent or guess text. Empty if none.",
                 },
                 "text_read_uncertain": {
                     "type": "boolean",

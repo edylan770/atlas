@@ -41,6 +41,10 @@ class SearchOutcome:
     candidates: List[Candidate]
     dense_failed: bool = False
     sparse_failed: bool = False
+    # Sum of RRF weights for the lanes that actually contributed this query.
+    # The theoretical max fused score is weight_sum/(rrf_k+1); normalization
+    # must use this rather than assuming both dense lanes ran.
+    weight_sum: float = 2.0
 
 
 def _apply_metadata_filter(spec: QuerySpec, restrict_to: Optional[Sequence[str]]) -> Optional[List[str]]:
@@ -250,8 +254,15 @@ def search(
                 kept.append(c)
             merged = kept
 
+    active_weight_sum = (0.0 if visual_failed else 1.0) + (
+        1.0
+        if SETTINGS.caption_text_lane_enabled and not text_failed
+        else 0.0
+    )
+
     return SearchOutcome(
         candidates=merged,
         dense_failed=dense_failed,
         sparse_failed=sparse_failed,
+        weight_sum=active_weight_sum,
     )

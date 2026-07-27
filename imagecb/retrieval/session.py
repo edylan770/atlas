@@ -10,6 +10,7 @@ BM25 is retrieved but excluded from fusion (sparse_weight=0.0 in hybrid.py).
 
 from __future__ import annotations
 
+import threading
 from contextlib import nullcontext
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, List, Optional, Tuple
@@ -50,12 +51,18 @@ class ChatSession:
     last_spec: Optional[QuerySpec] = None
     last_candidate_ids: List[str] = field(default_factory=list)
     last_results: List[RankedResult] = field(default_factory=list)
+    # Serializes concurrent requests on the same session (UI double-submit):
+    # ask/record_turn interleaving would corrupt history and refinement context.
+    _mutex: threading.Lock = field(
+        default_factory=threading.Lock, repr=False, compare=False
+    )
 
     def reset(self) -> None:
-        self.history.clear()
-        self.last_spec = None
-        self.last_candidate_ids = []
-        self.last_results = []
+        with self._mutex:
+            self.history.clear()
+            self.last_spec = None
+            self.last_candidate_ids = []
+            self.last_results = []
 
     def ask(
         self,
@@ -71,7 +78,7 @@ class ChatSession:
                 return timing.timed(step)
             return nullcontext()
 
-        with _timed("ask_total"):
+        with _timed("ask_total"), self._mutex:
             history_summary = summarize_history(self.history)
             session_ctx = build_session_context(self.last_spec, self.last_results)
             with _timed("parse_query"):
@@ -85,9 +92,11 @@ class ChatSession:
 
             relaxed_min_score = False
 
-            # Rank by 2-lane RRF fused score (visual dense + caption-text dense).
+            # Rank by RRF fused score over whichever dense lanes actually ran.
             with _timed("rrf_rank"):
-                ranked = _rank_by_fused_score(candidates, spec.top_k)
+                ranked = _rank_by_fused_score(
+                    candidates, spec.top_k, weight_sum=outcome.weight_sum
+                )
                 results, relaxed_min_score = _apply_min_match(
                     ranked, candidates, spec.top_k, min_match_percent
                 )
@@ -117,10 +126,11 @@ class ChatSession:
 
     def record_turn(self, user_text: str, assistant_message: str) -> None:
         """Append a turn using the full assistant reply for better follow-up context."""
-        summary = assistant_message.strip() or _summarize_results(self.last_results)
-        if len(summary) > 500:
-            summary = summary[:497].rstrip() + "..."
-        self.history.append((user_text, summary))
+        with self._mutex:
+            summary = assistant_message.strip() or _summarize_results(self.last_results)
+            if len(summary) > 500:
+                summary = summary[:497].rstrip() + "..."
+            self.history.append((user_text, summary))
 
     def apply_similar_results(
         self,
@@ -132,6 +142,12 @@ class ChatSession:
 
         Similar search is a new anchor, not a refinement of the prior result set.
         """
+        with self._mutex:
+            self._apply_similar_locked(results, spec)
+
+    def _apply_similar_locked(
+        self, results: List[RankedResult], spec: QuerySpec
+    ) -> None:
         self.last_results = list(results)
         self.last_candidate_ids = [r.image_id for r in results]
         merged = QuerySpec(
@@ -147,8 +163,10 @@ class ChatSession:
         self.last_spec = merged
 
 
-def _rank_by_fused_score(candidates: List[Candidate], top_k: int) -> List[RankedResult]:
-    """Rank candidates by 2-lane RRF fused score (visual + caption-text dense)."""
+def _rank_by_fused_score(
+    candidates: List[Candidate], top_k: int, *, weight_sum: float = 2.0
+) -> List[RankedResult]:
+    """Rank candidates by RRF fused score, normalized to the lanes that ran."""
     from imagecb.retrieval.dedupe import dedupe_results
 
     ids = [c.image_id for c in candidates]
@@ -156,7 +174,7 @@ def _rank_by_fused_score(candidates: List[Candidate], top_k: int) -> List[Ranked
     built = [
         RankedResult(
             image_id=c.image_id,
-            score=normalize_rrf_score(c.fused_score, SETTINGS.rrf_k, weight_sum=2.0),
+            score=normalize_rrf_score(c.fused_score, SETTINGS.rrf_k, weight_sum=weight_sum),
             record=records[c.image_id],
             provenance_line=_format_provenance(records[c.image_id]),
             score_kind="fusion",

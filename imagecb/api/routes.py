@@ -14,12 +14,14 @@ from typing import Iterator, List, Optional
 from urllib.parse import quote
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Request, Response, UploadFile
+from fastapi.concurrency import run_in_threadpool
 from fastapi.responses import FileResponse, StreamingResponse
-from PIL import Image
+from PIL import Image, ImageOps
 
 from imagecb.api.interpretation import build_interpretation_notes
 from imagecb.api.query_format import format_query_error, spec_to_parsed_query
 from imagecb.api.auth import require_admin, resolve_user_id
+from imagecb.api.rate_limit import check_llm_rate_limit
 from imagecb.api.schemas import (
     CatalogItemOut,
     ChatRequest,
@@ -97,7 +99,9 @@ from imagecb.uploads import cleanup_staged_uploads, is_supported_extension, save
 
 logger = logging.getLogger(__name__)
 
-_follow_up_executor = ThreadPoolExecutor(max_workers=2, thread_name_prefix="follow-up")
+_follow_up_executor = ThreadPoolExecutor(
+    max_workers=SETTINGS.follow_up_workers, thread_name_prefix="follow-up"
+)
 
 router = APIRouter(prefix="/api")
 
@@ -357,6 +361,7 @@ def telemetry_interaction(
 def chat(
     body: ChatRequest,
     user_id: str = Depends(resolve_user_id),
+    _rl: None = Depends(check_llm_rate_limit),
 ) -> ChatResponse:
     message = (body.message or "").strip()
     if not message:
@@ -453,6 +458,7 @@ def chat(
 def chat_stream(
     body: ChatRequest,
     user_id: str = Depends(resolve_user_id),
+    _rl: None = Depends(check_llm_rate_limit),
 ) -> StreamingResponse:
     message = (body.message or "").strip()
     if not message:
@@ -605,6 +611,7 @@ def chat_stream(
 async def similar(
     request: Request,
     user_id: str = Depends(resolve_user_id),
+    _rl: None = Depends(check_llm_rate_limit),
 ) -> SimilarResponse:
     """Find visually similar images (JSON body or multipart with optional file)."""
     ref_id: Optional[str] = None
@@ -635,10 +642,18 @@ async def similar(
             sid = str(raw_sid)
         raw_top_k = form.get("top_k")
         if raw_top_k:
-            k = int(raw_top_k)
+            try:
+                k = int(raw_top_k)
+            except ValueError as exc:
+                raise HTTPException(status_code=400, detail="top_k must be an integer") from exc
         raw_min = form.get("min_match_percent")
         if raw_min is not None and raw_min != "":
-            min_pct = int(raw_min)
+            try:
+                min_pct = int(raw_min)
+            except ValueError as exc:
+                raise HTTPException(
+                    status_code=400, detail="min_match_percent must be an integer"
+                ) from exc
         raw_axis = form.get("similarity_axis")
         if raw_axis:
             axis = str(raw_axis)
@@ -656,6 +671,7 @@ async def similar(
                 try:
                     upload_image = Image.open(io.BytesIO(raw))
                     upload_image.load()
+                    upload_image = ImageOps.exif_transpose(upload_image)
                     upload_filename = filename
                 except Exception as exc:  # noqa: BLE001
                     raise HTTPException(status_code=400, detail=f"invalid image: {exc}") from exc
@@ -671,7 +687,9 @@ async def similar(
     _resolve_sort_param(sort_param, is_search=True)
 
     try:
-        outcome = search_similar(
+        # Bedrock embed/VLM calls block for seconds; keep them off the event loop.
+        outcome = await run_in_threadpool(
+            search_similar,
             image_id=ref_id,
             image=upload_image,
             top_k=k,
@@ -950,7 +968,10 @@ def corpus_catalog(limit: int = 40, sort: Optional[str] = None) -> CorpusCatalog
                 aliases=aliases,
                 caption=_display_caption(r),
                 source_name=prov.source_name,
-                source_file=r.source_file or "",
+                # Basename only: the full value is a server filesystem path or
+                # S3 URI, which this unauthenticated endpoint must not leak.
+                # (The admin corpus endpoint still returns full paths.)
+                source_file=Path(r.source_file).name if r.source_file else "",
                 created_at=created_at,
                 caption_quality=quality,
                 needs_regeneration=needs_regeneration(quality),
@@ -994,7 +1015,9 @@ async def ingest(
     try:
         ingest_workers = workers if workers is not None else SETTINGS.ingest_workers
         ingest_workers = max(1, min(int(ingest_workers), 32))
-        stats = ingest_paths(
+        # Captioning/embedding can run for minutes; keep it off the event loop.
+        stats = await run_in_threadpool(
+            ingest_paths,
             saved,
             skip_caption=skip_caption,
             skip_ocr=skip_ocr,
@@ -1356,6 +1379,7 @@ async def deck_suggest(
     min_match_percent: int = Form(0),
     sort: Optional[str] = Form(None),
     user_id: str = Depends(resolve_user_id),  # noqa: ARG001
+    _rl: None = Depends(check_llm_rate_limit),
 ) -> DeckSuggestResponse:
     """Suggest corpus images per slide from an uploaded PowerPoint deck."""
     if not file.filename:
@@ -1363,7 +1387,24 @@ async def deck_suggest(
     if not file.filename.lower().endswith(".pptx"):
         raise HTTPException(status_code=400, detail="only .pptx files are supported")
 
-    raw = await file.read()
+    max_bytes = SETTINGS.deck_max_upload_bytes
+    size_error = HTTPException(
+        status_code=413,
+        detail=f"File exceeds maximum size ({max_bytes // (1024 * 1024)} MB)",
+    )
+    # Enforce the cap while reading so an oversized anonymous upload never
+    # occupies RAM; the declared size fails fast before any bytes transfer.
+    declared = getattr(file, "size", None)
+    if declared is not None and declared > max_bytes:
+        raise size_error
+    chunks: list[bytes] = []
+    received = 0
+    while chunk := await file.read(1024 * 1024):
+        received += len(chunk)
+        if received > max_bytes:
+            raise size_error
+        chunks.append(chunk)
+    raw = b"".join(chunks)
     if not raw:
         raise HTTPException(status_code=400, detail="empty file")
 
@@ -1372,7 +1413,9 @@ async def deck_suggest(
     _resolve_sort_param(sort, is_search=True)
 
     try:
-        result = process_deck_upload(
+        # Slide LLM batches + per-slide searches block for minutes on large decks.
+        result = await run_in_threadpool(
+            process_deck_upload,
             raw,
             file.filename,
             top_k=k,
@@ -1392,6 +1435,7 @@ async def deck_suggest(
 def deck_force(
     body: DeckForceRequest,
     user_id: str = Depends(resolve_user_id),  # noqa: ARG001
+    _rl: None = Depends(check_llm_rate_limit),
 ) -> DeckForceResponse:
     """Force image suggestion for a slide marked no_image_needed."""
     k = max(1, min(int(body.top_k), 30))

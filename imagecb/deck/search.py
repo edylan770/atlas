@@ -37,6 +37,7 @@ def search_for_description(
         top_n=rerank_top_n,
         min_match_percent=min_match_percent,
         spec=spec,
+        fusion_weight_sum=outcome.weight_sum,
     )
     if not results and candidates and min_match_percent > 0:
         results = rerank(
@@ -46,6 +47,7 @@ def search_for_description(
             top_n=rerank_top_n,
             min_match_percent=0,
             spec=spec,
+            fusion_weight_sum=outcome.weight_sum,
         )
 
     from imagecb.retrieval.sort import resolve_sort, sort_ranked_results

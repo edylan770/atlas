@@ -283,7 +283,7 @@ def _v_no_keyword_filters(
 ) -> List[RankedResult]:
     cleared = _spec_without_keywords(spec)
     outcome = search(cleared)
-    return _rank_by_fused_score(outcome.candidates, top_k)
+    return _rank_by_fused_score(outcome.candidates, top_k, weight_sum=outcome.weight_sum)
 
 
 def _v_visual_text(query, spec, candidates, records, top_k) -> List[RankedResult]:

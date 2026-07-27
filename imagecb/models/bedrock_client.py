@@ -18,6 +18,7 @@ from imagecb.config import SETTINGS
 
 _client: Optional[Any] = None
 _semaphore: Optional[threading.Semaphore] = None
+_init_lock = threading.Lock()
 
 
 def _bedrock_config() -> Any:
@@ -36,21 +37,25 @@ def _bedrock_config() -> Any:
 def get_bedrock_runtime() -> Any:
     global _client
     if _client is None:
-        import boto3
+        with _init_lock:
+            if _client is None:
+                import boto3
 
-        _client = boto3.client(
-            "bedrock-runtime",
-            region_name=SETTINGS.aws_region,
-            config=_bedrock_config(),
-        )
+                _client = boto3.client(
+                    "bedrock-runtime",
+                    region_name=SETTINGS.aws_region,
+                    config=_bedrock_config(),
+                )
     return _client
 
 
 def _get_semaphore() -> threading.Semaphore:
     global _semaphore
     if _semaphore is None:
-        n = max(1, SETTINGS.bedrock_max_concurrent)
-        _semaphore = threading.Semaphore(n)
+        with _init_lock:
+            if _semaphore is None:
+                n = max(1, SETTINGS.bedrock_max_concurrent)
+                _semaphore = threading.Semaphore(n)
     return _semaphore
 
 

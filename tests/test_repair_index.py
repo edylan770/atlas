@@ -397,3 +397,58 @@ def test_reconcile_index_safe_purges_orphans():
     text_del.assert_called_once_with(["orphan-txt"])
     bm25_rebuild.assert_called_once()
     assert stats["stores_in_sync_after"] is True
+
+
+def test_repair_missing_cache_reingest_while_ingest_lock_held(tmp_path):
+    """Auto-repair runs inside ingest with the (non-reentrant) lock held.
+
+    Regression: repair used to re-acquire the ingest lock and raise
+    IngestInProgressError after the ingest had already written data, which
+    the job runner then requeued forever.
+    """
+    from imagecb import ingest as ingest_mod
+
+    src = tmp_path / "deck.pptx"
+    src.touch()
+    records = [_record("a", source_file=str(src))]
+
+    seen_kwargs: list[dict] = []
+    real_ingest_paths = ingest_mod.ingest_paths
+
+    def spying_ingest(paths, **kwargs):
+        seen_kwargs.append(dict(kwargs))
+        # Exercise the real lock logic but stop before any pipeline work.
+        with patch("imagecb.ingest._ingest_paths_locked", return_value={"files": 0}):
+            return real_ingest_paths(paths, **kwargs)
+
+    assert ingest_mod._ingest_lock.acquire(blocking=False)
+    try:
+        with patch("imagecb.repair.resolve_source_file", return_value=src), patch(
+            "imagecb.ingest.ingest_paths", side_effect=spying_ingest
+        ):
+            stats = repair_missing_cache(records, hold_ingest_lock=False)
+    finally:
+        ingest_mod._ingest_lock.release()
+
+    assert stats["errors"] == 0
+    assert seen_kwargs and seen_kwargs[0]["_hold_ingest_lock"] is False
+
+
+def test_repair_missing_cache_takes_lock_when_standalone(tmp_path):
+    """Admin/CLI-triggered repair (no outer ingest) still serializes on the lock."""
+    src = tmp_path / "deck.pptx"
+    src.touch()
+    records = [_record("a", source_file=str(src))]
+
+    seen_kwargs: list[dict] = []
+
+    def fake_ingest(paths, **kwargs):
+        seen_kwargs.append(dict(kwargs))
+        return {"files": 1, "images_updated": 1, "images_added": 0, "errors": 0}
+
+    with patch("imagecb.repair.resolve_source_file", return_value=src), patch(
+        "imagecb.ingest.ingest_paths", side_effect=fake_ingest
+    ):
+        repair_missing_cache(records)
+
+    assert seen_kwargs and seen_kwargs[0]["_hold_ingest_lock"] is True
