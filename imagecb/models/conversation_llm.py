@@ -5,6 +5,7 @@ from __future__ import annotations
 from typing import Iterator, Optional
 
 from imagecb.config import SETTINGS
+from imagecb.models.providers import get_anthropic_client, get_openai_client
 
 CONVERSATION_SYSTEM_PROMPT = """You are the assistant for an image search app over \
 ingested slides, PDFs, and standalone images. After each search, write a short reply in \
@@ -59,9 +60,7 @@ class ConversationLLM:
                 yield text
 
     def _reply_stream_openai(self, user_payload: str) -> Iterator[str]:
-        from openai import OpenAI
-
-        client = OpenAI(api_key=SETTINGS.openai_api_key)
+        client = get_openai_client()
         stream = client.chat.completions.create(
             model=self.model,
             messages=[
@@ -79,9 +78,7 @@ class ConversationLLM:
                 yield delta
 
     def _reply_stream_anthropic(self, user_payload: str) -> Iterator[str]:
-        import anthropic
-
-        client = anthropic.Anthropic(api_key=SETTINGS.anthropic_api_key)
+        client = get_anthropic_client()
         with client.messages.stream(
             model=self.model,
             max_tokens=1000,

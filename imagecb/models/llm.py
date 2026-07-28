@@ -12,6 +12,7 @@ import json
 from typing import Optional
 
 from imagecb.config import SETTINGS
+from imagecb.models.providers import get_anthropic_client, get_openai_client
 
 
 QUERY_SYSTEM_PROMPT = """You translate a user's natural-language image search request \
@@ -53,16 +54,19 @@ def _user_payload(
     previous_spec_json: str = "",
     previous_results_summary: str = "",
 ) -> str:
-    blocks = [f"Today is {today_iso}."]
+    from imagecb.models.prompt_guard import DATA_GUARD_INSTRUCTION, fence
+
+    blocks = [f"Today is {today_iso}.", DATA_GUARD_INSTRUCTION]
     blocks.append(
-        f"Conversation so far (most recent last):\n{history_summary or '(none)'}"
+        "Conversation so far (most recent last):\n"
+        + fence("conversation_history", history_summary or "(none)")
     )
     if previous_spec_json:
         blocks.append(f"Active filters from the previous search:\n{previous_spec_json}")
     if previous_results_summary:
         blocks.append(
             "Top results from the previous search (for refinement context):\n"
-            f"{previous_results_summary}"
+            + fence("previous_results", previous_results_summary)
         )
     blocks.append(f"New user turn: {text}")
     blocks.append("Return the JSON object now.")
@@ -145,9 +149,7 @@ class QueryLLM:
         previous_spec_json: str = "",
         previous_results_summary: str = "",
     ) -> str:
-        from openai import OpenAI
-
-        client = OpenAI(api_key=SETTINGS.openai_api_key)
+        client = get_openai_client()
         resp = client.chat.completions.create(
             model=self.model,
             response_format={"type": "json_object"},
@@ -177,9 +179,7 @@ class QueryLLM:
         previous_spec_json: str = "",
         previous_results_summary: str = "",
     ) -> str:
-        import anthropic
-
-        client = anthropic.Anthropic(api_key=SETTINGS.anthropic_api_key)
+        client = get_anthropic_client()
         msg = client.messages.create(
             model=self.model,
             max_tokens=600,

@@ -16,6 +16,7 @@ rebuild sites do not all need an explicit hook.
 from __future__ import annotations
 
 import logging
+import os
 import pickle
 import threading
 import time
@@ -93,8 +94,10 @@ class HubnessIndex:
         if self._stats is None:
             return
         path.parent.mkdir(parents=True, exist_ok=True)
-        with open(path, "wb") as f:
+        tmp = path.with_suffix(path.suffix + ".tmp")
+        with open(tmp, "wb") as f:
             pickle.dump(self._stats, f)
+        os.replace(tmp, path)
 
     def load(self, path: Optional[Path] = None) -> bool:
         path = path or SETTINGS.hubness_path

@@ -634,7 +634,41 @@ def _drain_future(
         stats["last_error"] = (
             f"Image processing exceeded the configured {image_timeout_sec}s timeout"
         )
-        future.cancel()
+        future.cancel()  # no-op if already running; harmless for queued items
+
+        def _flush_late_outcome(done: Future) -> None:
+            # cancel() cannot stop a running worker: it may still write the
+            # SQLite row after this timeout fires. Without flushing its
+            # embeddings the stores drift (row without vectors) until a manual
+            # repair. Apply the late result's vectors when it completes.
+            if done.cancelled():
+                return
+            exc = done.exception()
+            if exc is not None:
+                return
+            late = done.result()
+            if late.record is None or late.embedding is None:
+                return
+            with chroma_lock:
+                chroma_batch.append(
+                    (late.record.image_id, late.embedding, _chroma_metadata(late.record))
+                )
+                if late.text_embedding is not None:
+                    text_batch.append((late.record.image_id, late.text_embedding))
+                pending = list(chroma_batch)
+                chroma_batch.clear()
+                pending_text = list(text_batch)
+                text_batch.clear()
+            if pending:
+                _flush_chroma_batch(pending, timing=timing)
+            if pending_text:
+                _flush_text_batch(pending_text, timing=timing)
+            logger.info(
+                "Late completion for timed-out image %s applied to the index",
+                late.record.image_id,
+            )
+
+        future.add_done_callback(_flush_late_outcome)
         return
     _apply_outcome(
         outcome,

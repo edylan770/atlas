@@ -70,3 +70,48 @@ def format_query_error(exc: BaseException) -> str:
         "or run `python -m imagecb.cli validate-reranker` to test access."
     )
     return "\n".join(lines)
+
+
+_THROTTLE_CODES = {"ThrottlingException", "TooManyRequestsException", "Throttling"}
+_AUTH_CODES = {
+    "ExpiredTokenException",
+    "UnrecognizedClientException",
+    "InvalidSignatureException",
+    "AccessDeniedException",
+    "NoCredentialsError",
+}
+
+
+def _aws_error_code(exc: BaseException) -> str:
+    response = getattr(exc, "response", None)
+    if isinstance(response, dict):
+        return str(response.get("Error", {}).get("Code", ""))
+    return type(exc).__name__
+
+
+def classify_model_error(exc: BaseException) -> tuple[int, str]:
+    """Map a model-backend failure to (status_code, user-facing detail).
+
+    Credentials expiring must surface loudly: with fail-soft retrieval lanes the
+    old behavior was silent 0%-match results that looked like bad search.
+    """
+    seen: set[int] = set()
+    node: BaseException | None = exc
+    while node is not None and id(node) not in seen:
+        seen.add(id(node))
+        code = _aws_error_code(node)
+        text = f"{code} {node}".lower()
+        if code in _THROTTLE_CODES or "too many requests" in text:
+            return 429, (
+                "The model backend is rate limited right now; wait a moment and retry."
+            )
+        if code in _AUTH_CODES or "token has expired" in text or "expired" in text and "token" in text:
+            return 503, (
+                "The model backend rejected our credentials (expired or invalid "
+                "AWS/Bedrock token). Searches cannot run until an administrator "
+                "refreshes them."
+            )
+        if code in ("ServiceUnavailableException", "ModelNotReadyException"):
+            return 503, "The model backend is temporarily unavailable; retry shortly."
+        node = node.__cause__ or node.__context__
+    return 500, format_query_error(exc)

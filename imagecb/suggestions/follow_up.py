@@ -11,6 +11,7 @@ from imagecb.retrieval.query_parser import QuerySpec
 from imagecb.retrieval.rerank import RankedResult
 from imagecb.retrieval.session import AskResult
 from imagecb.storage.metadata_db import deserialize_list
+from imagecb.models.prompt_guard import DATA_GUARD_INSTRUCTION, fence
 from imagecb.suggestions.corpus_summary import (
     CorpusContext,
     build_corpus_context,
@@ -206,14 +207,15 @@ def _build_follow_up_payload(
     spec = ask_result.spec
     notes = "\n".join(f"- {n}" for n in interpretation_notes) if interpretation_notes else "(none)"
     blocks = [
+        DATA_GUARD_INSTRUCTION,
         f"User's current query: {user_message}",
         f"Semantic query: {spec.semantic_query}",
         f"Is refinement of prior results: {spec.is_refinement}",
         f"Result count: {len(ask_result.results)}",
         f"Indexed corpus size: {ctx.indexed_count}",
         f"\nInterpretation notes:\n{notes}",
-        f"\nTop results:\n{_results_context_block(ask_result.results)}",
-        f"\nCorpus context:\n{context_to_prompt_text(ctx)}",
+        "\nTop results:\n" + fence("search_results", _results_context_block(ask_result.results)),
+        "\nCorpus context:\n" + fence("corpus_context", context_to_prompt_text(ctx)),
         f"\nGenerate exactly {limit} follow-up search suggestions. "
         "Never repeat the current query. Never use filename-filter phrasing.",
     ]

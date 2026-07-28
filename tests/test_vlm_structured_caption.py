@@ -109,7 +109,7 @@ def test_bedrock_text_only_response_fails(mock_converse):
     assert cap.short_caption == CAPTION_FAILED
 
 
-@patch("openai.OpenAI")
+@patch("imagecb.models.vlm.get_openai_client")
 def test_openai_strict_json_string_ok(mock_openai_cls):
     payload = _valid_caption_dict()
     mock_client = MagicMock()
@@ -122,7 +122,7 @@ def test_openai_strict_json_string_ok(mock_openai_cls):
     assert cap.short_caption != CAPTION_FAILED
 
 
-@patch("anthropic.Anthropic")
+@patch("imagecb.models.vlm.get_anthropic_client")
 def test_anthropic_tool_use_valid(mock_anthropic_cls):
     payload = _valid_caption_dict()
     mock_client = MagicMock()
@@ -136,7 +136,7 @@ def test_anthropic_tool_use_valid(mock_anthropic_cls):
     assert cap.tags == ["chart", "revenue", "quarterly"]
 
 
-@patch("anthropic.Anthropic")
+@patch("imagecb.models.vlm.get_anthropic_client")
 def test_anthropic_text_only_response_fails(mock_anthropic_cls):
     mock_client = MagicMock()
     mock_anthropic_cls.return_value = mock_client

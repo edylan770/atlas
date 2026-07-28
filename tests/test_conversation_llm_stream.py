@@ -34,7 +34,7 @@ def test_reply_stream_openai_yields_deltas():
     mock_client = MagicMock()
     mock_client.chat.completions.create.return_value = [chunk1, chunk2]
 
-    with patch("openai.OpenAI", return_value=mock_client):
+    with patch("imagecb.models.conversation_llm.get_openai_client", return_value=mock_client):
         chunks = list(llm.reply_stream("payload"))
     assert chunks == ["Hi"]
     mock_client.chat.completions.create.assert_called_once()
@@ -50,7 +50,7 @@ def test_reply_stream_anthropic_yields_deltas():
     mock_client = MagicMock()
     mock_client.messages.stream.return_value = mock_ctx
 
-    with patch("anthropic.Anthropic", return_value=mock_client):
+    with patch("imagecb.models.conversation_llm.get_anthropic_client", return_value=mock_client):
         chunks = list(llm.reply_stream("payload"))
     assert chunks == ["One", " two"]
 

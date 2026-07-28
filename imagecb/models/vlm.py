@@ -28,6 +28,7 @@ from imagecb.caption.schema import (
 )
 from imagecb.caption.vocab import format_vocab_for_prompt, vocab_for_prompt
 from imagecb.config import SETTINGS
+from imagecb.models.providers import get_anthropic_client, get_openai_client
 from imagecb.images import resize_for_model
 
 _CAPTION_TEMPERATURE = 0.1
@@ -457,9 +458,7 @@ class VLMCaptioner:
         return _extract_tool_input(content, CAPTION_TOOL_NAME)
 
     def _caption_openai_structured(self, image: Image.Image, user_prompt: str) -> Optional[dict]:
-        from openai import OpenAI
-
-        client = OpenAI(api_key=SETTINGS.openai_api_key)
+        client = get_openai_client()
         data_url = _pil_to_data_url(image)
         resp = client.chat.completions.create(
             model=self.model,
@@ -488,9 +487,7 @@ class VLMCaptioner:
         return _accept_caption_payload(raw)
 
     def _caption_anthropic_structured(self, image: Image.Image, user_prompt: str) -> Optional[dict]:
-        import anthropic
-
-        client = anthropic.Anthropic(api_key=SETTINGS.anthropic_api_key)
+        client = get_anthropic_client()
         buf = io.BytesIO()
         image.convert("RGB").save(buf, format="PNG")
         b64 = base64.b64encode(buf.getvalue()).decode("ascii")
@@ -579,9 +576,7 @@ class VLMCaptioner:
         return self._converse_openai(image, QUERY_SYSTEM_PROMPT, QUERY_USER_PROMPT)
 
     def _converse_openai(self, image: Image.Image, system_prompt: str, user_prompt: str) -> str:
-        from openai import OpenAI
-
-        client = OpenAI(api_key=SETTINGS.openai_api_key)
+        client = get_openai_client()
         data_url = _pil_to_data_url(image)
         resp = client.chat.completions.create(
             model=self.model,
@@ -604,9 +599,7 @@ class VLMCaptioner:
         return self._converse_anthropic(image, QUERY_SYSTEM_PROMPT, QUERY_USER_PROMPT)
 
     def _converse_anthropic(self, image: Image.Image, system_prompt: str, user_prompt: str) -> str:
-        import anthropic
-
-        client = anthropic.Anthropic(api_key=SETTINGS.anthropic_api_key)
+        client = get_anthropic_client()
         buf = io.BytesIO()
         image.convert("RGB").save(buf, format="PNG")
         b64 = base64.b64encode(buf.getvalue()).decode("ascii")

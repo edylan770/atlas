@@ -2,13 +2,17 @@
 
 from __future__ import annotations
 
+import logging
+
 from typing import List, Optional
 
 from imagecb.formatting.assistant_reply import ResultCard, build_result_cards
 from imagecb.retrieval.hybrid import search
 from imagecb.retrieval.query_build import rerank_query_text, resolve_rerank_top_n
 from imagecb.retrieval.query_parser import QuerySpec
-from imagecb.retrieval.rerank import RankedResult, rerank
+from imagecb.retrieval.rerank import RankedResult, fused_order_results, rerank
+
+logger = logging.getLogger(__name__)
 
 
 def search_for_description(
@@ -33,14 +37,22 @@ def search_for_description(
     # Rerank once with no floor, then apply the min-match filter to the
     # already-scored results; re-invoking the reranker when the floor empties
     # the list would double-pay Cohere for identical scores.
-    results = rerank(
-        query_for_rerank,
-        candidates,
-        top_k=spec.top_k,
-        top_n=rerank_top_n,
-        min_match_percent=0,
-        spec=spec,
-    )
+    try:
+        results = rerank(
+            query_for_rerank,
+            candidates,
+            top_k=spec.top_k,
+            top_n=rerank_top_n,
+            min_match_percent=0,
+            spec=spec,
+        )
+    except Exception as exc:  # noqa: BLE001
+        # A reranker outage must not abort the deck run after LLM spend;
+        # fused retrieval order is a usable degraded ranking.
+        logger.warning("Deck rerank failed (%s); using fused order.", exc)
+        results = fused_order_results(
+            candidates, top_k=spec.top_k, weight_sum=outcome.weight_sum
+        )
     if min_match_percent > 0:
         from imagecb.formatting.match_display import meets_min_match_percent
 

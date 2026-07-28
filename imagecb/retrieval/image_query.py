@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import logging
+
 from enum import Enum
 from typing import List, Optional, Sequence
 
@@ -10,7 +12,9 @@ from imagecb.models.vlm import ImageQueryJSON
 from imagecb.retrieval.hybrid import search
 from imagecb.retrieval.query_build import rerank_query_text
 from imagecb.retrieval.query_parser import QuerySpec
-from imagecb.retrieval.rerank import RankedResult, rerank
+from imagecb.retrieval.rerank import RankedResult, fused_order_results, rerank
+
+logger = logging.getLogger(__name__)
 from imagecb.storage.metadata_db import ImageRecord
 
 
@@ -131,13 +135,20 @@ def run_text_similar_leg(
         return []
 
     query_for_rerank = rerank_query_text(spec, facets.search_query)
-    return rerank(
-        query_for_rerank,
-        candidates,
-        top_k=min(k, SETTINGS.rerank_top_n),
-        min_match_percent=0,
-        fusion_weight_sum=outcome.weight_sum,
-    )
+    try:
+        return rerank(
+            query_for_rerank,
+            candidates,
+            top_k=min(k, SETTINGS.rerank_top_n),
+            min_match_percent=0,
+        )
+    except Exception as exc:  # noqa: BLE001
+        # Reranker outage: the text leg still contributes via fused order.
+        logger.warning("Similar-text rerank failed (%s); using fused order.", exc)
+        return fused_order_results(
+            candidates, top_k=min(k, SETTINGS.rerank_top_n),
+            weight_sum=outcome.weight_sum,
+        )
 
 
 def axis_label(axis: SimilarityAxis) -> str:

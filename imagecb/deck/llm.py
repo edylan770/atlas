@@ -8,6 +8,7 @@ from dataclasses import dataclass
 from typing import Dict, List, Optional, Sequence
 
 from imagecb.config import SETTINGS
+from imagecb.models.providers import get_anthropic_client, get_openai_client
 from imagecb.models.llm import _coerce_json
 
 logger = logging.getLogger(__name__)
@@ -160,9 +161,7 @@ class SlideDescriptionLLM:
         return "".join(parts) or "{}"
 
     def _openai(self, user_payload: str, *, max_tokens: int) -> str:
-        from openai import OpenAI
-
-        client = OpenAI(api_key=SETTINGS.openai_api_key)
+        client = get_openai_client()
         resp = client.chat.completions.create(
             model=self.model,
             response_format={"type": "json_object"},
@@ -176,9 +175,7 @@ class SlideDescriptionLLM:
         return resp.choices[0].message.content or "{}"
 
     def _anthropic(self, user_payload: str, *, max_tokens: int) -> str:
-        import anthropic
-
-        client = anthropic.Anthropic(api_key=SETTINGS.anthropic_api_key)
+        client = get_anthropic_client()
         msg = client.messages.create(
             model=self.model,
             max_tokens=max_tokens,

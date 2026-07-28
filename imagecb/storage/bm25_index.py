@@ -7,6 +7,7 @@ corpus is small (prototype scale), so we keep the whole thing in memory.
 from __future__ import annotations
 
 import logging
+import os
 import pickle
 import re
 from dataclasses import dataclass
@@ -58,8 +59,12 @@ class BM25Index:
         if self._state is None:
             return
         path.parent.mkdir(parents=True, exist_ok=True)
-        with open(path, "wb") as f:
+        # Atomic replace: a crash mid-dump must not leave a truncated pickle
+        # that silently loads as an empty index.
+        tmp = path.with_suffix(path.suffix + ".tmp")
+        with open(tmp, "wb") as f:
             pickle.dump(self._state, f)
+        os.replace(tmp, path)
 
     def load(self, path: Optional[Path] = None) -> bool:
         path = path or SETTINGS.bm25_path

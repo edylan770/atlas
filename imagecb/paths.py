@@ -23,13 +23,27 @@ def source_fallbacks(record: ImageRecord) -> tuple[Path, ...]:
     return (SETTINGS.uploads_dir / blob_store.safe_filename(record.source_file.rsplit("/", 1)[-1]),)
 
 
+_IMAGE_SOURCE_TYPES = {"image"}
+
+
 def image_exists(record: ImageRecord) -> bool:
-    refs = [record.image_path, record.source_file]
-    return any(
-        blob_store.exists(ref, fallbacks=image_fallbacks(record))
-        for ref in refs
-        if ref
-    )
+    """True when a displayable image blob exists for the record.
+
+    A live .pptx/.pdf source is NOT a displayable image: counting it here made
+    the missing-cache health check (and its repair) skip exactly the case it
+    exists for - source present, cached PNG lost.
+    """
+    if record.image_path and blob_store.exists(
+        record.image_path, fallbacks=image_fallbacks(record)
+    ):
+        return True
+    if (
+        record.source_file
+        and (record.source_type or "") in _IMAGE_SOURCE_TYPES
+        and blob_store.exists(record.source_file, fallbacks=image_fallbacks(record))
+    ):
+        return True
+    return False
 
 
 def source_exists(record: ImageRecord) -> bool:

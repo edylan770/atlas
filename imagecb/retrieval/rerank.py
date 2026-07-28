@@ -155,6 +155,33 @@ def _fusion_tail_results(
     return built
 
 
+def fused_order_results(
+    candidates: Sequence[Candidate],
+    *,
+    top_k: int,
+    weight_sum: float = 2.0,
+) -> List[RankedResult]:
+    """Rank by normalized RRF fused score - the no-reranker fallback path."""
+    from imagecb.retrieval.dedupe import dedupe_results
+    from imagecb.retrieval.hybrid import normalize_rrf_score
+
+    ids = [c.image_id for c in candidates]
+    records = {r.image_id: r for r in metadata_db.get_records(ids)}
+    built = [
+        RankedResult(
+            image_id=c.image_id,
+            score=normalize_rrf_score(c.fused_score, SETTINGS.rrf_k, weight_sum=weight_sum),
+            record=records[c.image_id],
+            provenance_line=_format_provenance(records[c.image_id]),
+            score_kind="fusion",
+        )
+        for c in candidates
+        if c.image_id in records
+    ]
+    built.sort(key=lambda r: r.score, reverse=True)
+    return dedupe_results(built, top_k=top_k)
+
+
 def visual_only_rank(
     candidates: Sequence[Candidate],
     *,

@@ -669,3 +669,34 @@ Chroma client (I8) and boto3 client/semaphore (R7 tail) need locked lazy init.
   serving; P6 vectorized duplicate clustering; P7 admin pagination; F1–F7
   frontend items not otherwise fixed; Tesseract full removal (deps + Docker
   layer) if committing to OCR_SOURCE=vlm permanently.
+
+---
+
+## 15. Phase 5 roadmap — decided 2026-07-27
+
+### GREENLIT (in progress)
+- **B1** Graceful model-hiccup fallbacks: R4 (Cohere outage -> fused-order results
+  in similar/deck) + R2 (malformed parse-LLM output -> literal-text query).
+- **B2** Bedrock error visibility (E5): throttling -> 429, auth/expired-token ->
+  clear 503 + log signature, UI surfaces "model backend unavailable" instead of
+  silent 0% results.
+- **B3** Ingest durability batch: I1 runner survives transient DB errors, I2
+  timeout consistency, I3 image_exists cache semantics, I4 preserve stats on
+  failure, I5 no stale-job resurrection after restore + runner stop/start race,
+  I6/E6 atomic file writes, I7 thumbnail edge cases (zero-dim, transparency),
+  E7 CAS job claim + heartbeat.
+- **B4** Prompt-injection delimiting for caption-derived text (R6/E8).
+- **C1** Unify /chat and /chat/stream orchestration (T3); fixes disconnect-loses-
+  turn (A2) as a side effect.
+- **C2** Shared provider-client factory (dedupe ~150 lines across 6 modules).
+
+### PENDING DECISION (not yet greenlit)
+- **A1** Chat reranking via Cohere (flag + eval gate) — recommended, awaiting go.
+- **A2** BM25: wire into fusion (recommended) or delete; weight-0 status quo is
+  the only wrong option.
+- **A3** Operative hubness correction — build now / enable at ~1k+ images.
+- **A4** Similar-search fixes (restrict_to visual lane, OCR clamp, 404 on
+  unknown image_id).
+- **D1** Deck SSE progressive streaming. **D2** Presigned/CDN image serving.
+  **D3** Frontend F2/F3/F4 fixes. **D4** Admin scale prep (P6/P7).
+  **D5** Tesseract full removal. **D6** UI version stamp (designed, unshipped).

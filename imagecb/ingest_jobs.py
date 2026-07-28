@@ -13,7 +13,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any, Optional
 
-from sqlalchemy import select
+from sqlalchemy import select, update as sa_update
 
 from imagecb.config import SETTINGS
 from imagecb.storage.metadata_db import IngestJob, get_engine, session_scope
@@ -306,6 +306,34 @@ def list_busy_jobs() -> list[dict]:
         return [job_to_dict(row) for row in rows]
 
 
+def cancel_stale_jobs_after_restore() -> int:
+    """Cancel jobs resurrected from a restored snapshot's database.
+
+    Their staged files no longer exist; requeueing them just burns a chunk of
+    failures. Called by index restore after the archive is applied.
+    """
+    ensure_job_schema()
+    now = datetime.utcnow()
+    with session_scope() as session:
+        rows = (
+            session.execute(
+                select(IngestJob).where(
+                    IngestJob.status.in_(
+                        ["staging", "queued", "running", "cancel_requested"]
+                    )
+                )
+            )
+            .scalars()
+            .all()
+        )
+        for row in rows:
+            row.status = "cancelled"
+            row.phase = "cancelled"
+            row.status_detail = "Cancelled: job predates the index restore"
+            row.finished_at = now
+        return len(rows)
+
+
 def busy_staging_uris() -> set[str]:
     """Staging object URIs referenced by busy ingest jobs (must not be GC'd)."""
     uris: set[str] = set()
@@ -383,21 +411,33 @@ def _recover_interrupted_jobs() -> None:
 def _claim_next_job(runner_id: Optional[str] = None) -> Optional[tuple[str, list[str], dict]]:
     now = datetime.utcnow()
     with session_scope() as session:
-        row = session.execute(
-            select(IngestJob)
+        candidate = session.execute(
+            select(IngestJob.job_id)
             .where(IngestJob.status == "queued")
             .order_by(IngestJob.created_at.asc())
             .limit(1)
         ).scalar_one_or_none()
-        if row is None:
+        if candidate is None:
             return None
-        row.status = "running"
-        row.phase = "claimed"
-        row.status_detail = "Claimed by the ingest worker"
-        row.runner_id = runner_id
-        row.started_at = row.started_at or now
-        row.heartbeat_at = now
-        row.error = None
+        # Compare-and-swap: only the runner that flips queued->running owns the
+        # job (safe if a second process ever runs a claimer).
+        claimed = session.execute(
+            sa_update(IngestJob)
+            .where(IngestJob.job_id == candidate, IngestJob.status == "queued")
+            .values(
+                status="running",
+                phase="claimed",
+                status_detail="Claimed by the ingest worker",
+                runner_id=runner_id,
+                heartbeat_at=now,
+                error=None,
+            )
+        )
+        if claimed.rowcount != 1:
+            return None
+        row = session.get(IngestJob, candidate)
+        if row.started_at is None:
+            row.started_at = now
         return (
             row.job_id,
             [str(path) for path in _loads(row.files_json, [])],
@@ -464,19 +504,24 @@ def _finish_job(
         row = session.get(IngestJob, job_id)
         if row is None:
             return
+        if stats is None:
+            # Preserve cumulative multi-chunk progress: a generic failure used
+            # to wipe stats_json and report 0 images processed.
+            stats = _loads(row.stats_json, {}) or {}
         row.status = status
         row.phase = status
         row.status_detail = error or status.replace("_", " ")
-        row.stats_json = json.dumps(stats or {})
+        row.stats_json = json.dumps(stats)
         row.error = error
         row.files_done = row.files_total if status == "succeeded" else row.files_done
-        row.images_seen = int((stats or {}).get("images_seen", row.images_seen))
-        row.images_processed = int(
-            (stats or {}).get("images_added", 0)
-            + (stats or {}).get("images_updated", 0)
-            + (stats or {}).get("skipped_duplicates", 0)
-            + (stats or {}).get("errors", 0)
+        row.images_seen = int(stats.get("images_seen", row.images_seen) or row.images_seen)
+        computed = int(
+            stats.get("images_added", 0)
+            + stats.get("images_updated", 0)
+            + stats.get("skipped_duplicates", 0)
+            + stats.get("errors", 0)
         )
+        row.images_processed = computed if stats else row.images_processed
         row.finished_at = now
         row.heartbeat_at = now
 
@@ -610,6 +655,10 @@ class IngestJobRunner:
         self.runner_id = f"{socket.gethostname()}:{os.getpid()}:{uuid.uuid4().hex[:8]}"
 
     def start(self) -> None:
+        # Clear the stop flag first: a prior stop() may have set it while a
+        # claimed job was finishing; without this the still-alive thread exits
+        # after that job and is never restarted.
+        self._stop.clear()
         if self._thread and self._thread.is_alive():
             return
         ensure_job_schema()
@@ -633,12 +682,23 @@ class IngestJobRunner:
 
     def _run(self) -> None:
         while not self._stop.is_set():
-            claimed = _claim_next_job(self.runner_id)
+            try:
+                claimed = _claim_next_job(self.runner_id)
+            except Exception:  # noqa: BLE001
+                # A transient SQLite error (lock contention, engine freeze)
+                # must not kill the daemon thread and strand queued jobs.
+                logger.exception("Job claim failed; retrying shortly")
+                self._wake.wait(timeout=5)
+                self._wake.clear()
+                continue
             if claimed is None:
                 self._wake.wait(timeout=1)
                 self._wake.clear()
                 continue
-            self._execute(*claimed)
+            try:
+                self._execute(*claimed)
+            except Exception:  # noqa: BLE001
+                logger.exception("Job execution crashed; runner continues")
 
     def _execute(self, job_id: str, files: list[str], options: dict) -> None:
         from imagecb.ingest import IngestInProgressError, ingest_paths_batched

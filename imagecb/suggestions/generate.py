@@ -9,6 +9,8 @@ from dataclasses import dataclass
 from typing import List, Optional, Sequence, Tuple
 
 from imagecb.config import SETTINGS
+from imagecb.models.providers import get_anthropic_client, get_openai_client
+from imagecb.models.prompt_guard import DATA_GUARD_INSTRUCTION, fence
 from imagecb.suggestions.corpus_summary import (
     CorpusContext,
     build_corpus_context,
@@ -280,8 +282,9 @@ def _user_payload(ctx: CorpusContext, limit: int) -> str:
         topic_lines.append("Captions:")
         topic_lines.extend(f"  - {c}" for c in ctx.sample_captions[:6])
     if topic_lines:
-        blocks.append("Corpus topics:\n" + "\n".join(topic_lines))
-    blocks.append("Corpus context:\n" + context_to_prompt_text(ctx))
+        blocks.append("Corpus topics:\n" + fence("corpus_topics", "\n".join(topic_lines)))
+    blocks.append("Corpus context:\n" + fence("corpus_context", context_to_prompt_text(ctx)))
+    blocks.insert(0, DATA_GUARD_INSTRUCTION)
     blocks.append(
         f"Generate exactly {limit} semantic, topic-based suggestions. "
         "Never use filename-filter phrasing."
@@ -346,9 +349,7 @@ class SuggestionLLM:
         return "".join(parts) or "{}"
 
     def _openai(self, user_payload: str, system: str) -> str:
-        from openai import OpenAI
-
-        client = OpenAI(api_key=SETTINGS.openai_api_key)
+        client = get_openai_client()
         resp = client.chat.completions.create(
             model=self.model,
             response_format={"type": "json_object"},
@@ -361,9 +362,7 @@ class SuggestionLLM:
         return resp.choices[0].message.content or "{}"
 
     def _anthropic(self, user_payload: str, system: str) -> str:
-        import anthropic
-
-        client = anthropic.Anthropic(api_key=SETTINGS.anthropic_api_key)
+        client = get_anthropic_client()
         msg = client.messages.create(
             model=self.model,
             max_tokens=400,

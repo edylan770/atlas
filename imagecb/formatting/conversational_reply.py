@@ -59,15 +59,19 @@ def _build_llm_payload(
     interpretation_notes: List[str],
     indexed_count: int,
 ) -> str:
+    from imagecb.models.prompt_guard import DATA_GUARD_INSTRUCTION, fence
+
     notes = "\n".join(f"- {n}" for n in interpretation_notes) if interpretation_notes else "(none)"
     return (
+        f"{DATA_GUARD_INSTRUCTION}\n\n"
         f"User message: {user_message}\n\n"
         f"Semantic query: {spec.semantic_query}\n"
         f"Is refinement of prior results: {spec.is_refinement}\n"
         f"Result count: {len(results)}\n"
         f"Indexed corpus size: {indexed_count}\n\n"
         f"Interpretation notes:\n{notes}\n\n"
-        f"Top results:\n{_results_block(results)}"
+        "Top results:\n"
+        + fence("search_results", _results_block(results))
     )
 
 

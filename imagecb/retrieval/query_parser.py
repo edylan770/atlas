@@ -289,7 +289,13 @@ def parse_query(
         logger.warning("Query LLM failed (%s); falling back to literal query.", exc)
         return sanitize_query_spec(QuerySpec(semantic_query=text, raw_text=text))
 
-    return sanitize_query_spec(_build_spec(raw, text))
+    try:
+        return sanitize_query_spec(_build_spec(raw, text))
+    except Exception as exc:  # noqa: BLE001
+        # A malformed model response (e.g. "top_k": "ten") must degrade to a
+        # literal-text search, not 500 the whole chat request.
+        logger.warning("Query spec build failed (%s); falling back to literal query.", exc)
+        return sanitize_query_spec(QuerySpec(semantic_query=text, raw_text=text))
 
 
 def _build_spec(raw: dict, original_text: str) -> QuerySpec:

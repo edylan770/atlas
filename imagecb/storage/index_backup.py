@@ -211,6 +211,22 @@ def _dispose_live_stores() -> None:
     hubness.reset_cache()
 
 
+def _cancel_snapshot_jobs_safely() -> None:
+    """Cancel jobs resurrected from the restored DB.
+
+    Must run AFTER _reopen_live_stores(): during the frozen window any new
+    session blocks on the engine gate and deadlocks the restore.
+    """
+    try:
+        from imagecb.ingest_jobs import cancel_stale_jobs_after_restore
+
+        stale = cancel_stale_jobs_after_restore()
+        if stale:
+            logger.info("Cancelled %s stale snapshot-era ingest job(s)", stale)
+    except Exception:  # noqa: BLE001
+        logger.warning("Could not cancel snapshot-era jobs", exc_info=True)
+
+
 def _reopen_live_stores() -> None:
     from imagecb.retrieval import hubness
     from imagecb.storage import bm25_index, metadata_db, vector_store
@@ -776,6 +792,7 @@ def restore_backup(backup_id: str, *, confirm: bool = False) -> dict[str, Any]:
                 _apply_archive(archive_path)
         finally:
             _reopen_live_stores()
+            _cancel_snapshot_jobs_safely()
 
     logger.info("Index restore complete backup_id=%s", backup_id)
     return {
@@ -926,6 +943,7 @@ def _restore_without_job_cancel(backup_id: str) -> dict[str, Any]:
             _apply_archive(archive_path)
     finally:
         _reopen_live_stores()
+        _cancel_snapshot_jobs_safely()
 
     return {
         "ok": True,

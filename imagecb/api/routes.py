@@ -9,6 +9,7 @@ import re
 import shutil
 import uuid
 from concurrent.futures import ThreadPoolExecutor
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Iterator, List, Optional
 from urllib.parse import quote
@@ -19,7 +20,7 @@ from fastapi.responses import FileResponse, StreamingResponse
 from PIL import Image, ImageOps
 
 from imagecb.api.interpretation import build_interpretation_notes
-from imagecb.api.query_format import format_query_error, spec_to_parsed_query
+from imagecb.api.query_format import classify_model_error, format_query_error, spec_to_parsed_query
 from imagecb.api.auth import require_admin, resolve_user_id
 from imagecb.api.rate_limit import check_llm_rate_limit
 from imagecb.api.schemas import (
@@ -387,12 +388,24 @@ def telemetry_interaction(
     return InteractionResponse(interaction_id=iid)
 
 
-@router.post("/chat", response_model=ChatResponse)
-def chat(
-    body: ChatRequest,
-    user_id: str = Depends(resolve_user_id),
-    _rl: None = Depends(check_llm_rate_limit),
-) -> ChatResponse:
+@dataclass
+class _ChatTurn:
+    """Shared per-turn state for /chat and /chat/stream orchestration."""
+
+    message: str
+    session_id: str
+    session: object
+    timing: QueryTimingSession
+    ask_result: AskResult
+    spec: QuerySpec
+    notes: List[str]
+    indexed_count: int
+    follow_up_future: object
+    search_event_id: str
+
+
+def _start_chat_turn(body: ChatRequest, user_id: str) -> _ChatTurn:
+    """Validate, search, and record the turn - everything before reply text."""
     message = (body.message or "").strip()
     if not message:
         raise HTTPException(status_code=400, detail="message is required")
@@ -412,7 +425,8 @@ def chat(
         )
     except Exception as exc:  # noqa: BLE001
         logger.exception("Query failed")
-        raise HTTPException(status_code=500, detail=format_query_error(exc)) from exc
+        status, detail = classify_model_error(exc)
+        raise HTTPException(status_code=status, detail=detail) from exc
 
     spec = ask_result.spec
     notes = build_interpretation_notes(
@@ -422,29 +436,6 @@ def chat(
         dense_failed=ask_result.dense_failed,
         sparse_failed=ask_result.sparse_failed,
     )
-    corpus = build_corpus_context()
-    indexed_count = corpus.indexed_count
-    follow_up_future = _follow_up_executor.submit(
-        generate_follow_up_suggestions,
-        message,
-        ask_result,
-        notes,
-        corpus=corpus,
-    )
-    with timing.timed("conversational_reply"):
-        reply = build_conversational_reply(
-            message,
-            ask_result,
-            notes,
-            indexed_count=indexed_count,
-        )
-    with timing.timed("follow_ups"):
-        try:
-            follow_ups = follow_up_future.result(timeout=15)
-        except Exception:  # noqa: BLE001
-            logger.exception("Follow-up suggestions failed")
-            follow_ups = []
-    session.record_turn(message, reply.message)
     search_event_id = record_search_from_results(
         query_text=message,
         user_id=user_id,
@@ -453,31 +444,86 @@ def chat(
         results=ask_result.results,
         spec=spec,
         ask_ms=timing.ask_ms(),
+        timings_ms=timing.timings_ms(),
     )
-    timing_log = finalize_query_timing(
-        timing,
+    corpus = build_corpus_context()
+    follow_up_future = _follow_up_executor.submit(
+        generate_follow_up_suggestions,
+        message,
+        ask_result,
+        notes,
+        corpus=corpus,
+    )
+    return _ChatTurn(
+        message=message,
+        session_id=session_id,
+        session=session,
+        timing=timing,
+        ask_result=ask_result,
+        spec=spec,
+        notes=notes,
+        indexed_count=corpus.indexed_count,
+        follow_up_future=follow_up_future,
         search_event_id=search_event_id,
-        stats={
-            "session_id": session_id,
-            "query_text": message,
-            "search_kind": "chat",
-            "result_count": len(ask_result.results),
-        },
+    )
+
+
+def _collect_follow_ups(turn: _ChatTurn) -> List[str]:
+    with turn.timing.timed("follow_ups"):
+        try:
+            return turn.follow_up_future.result(timeout=15)
+        except Exception:  # noqa: BLE001
+            logger.exception("Follow-up suggestions failed")
+            return []
+
+
+def _finalize_chat_turn(turn: _ChatTurn, *, extra_stats: Optional[dict] = None) -> None:
+    stats = {
+        "session_id": turn.session_id,
+        "query_text": turn.message,
+        "search_kind": "chat",
+        "result_count": len(turn.ask_result.results),
+    }
+    if extra_stats:
+        stats.update(extra_stats)
+    timing_log = finalize_query_timing(
+        turn.timing,
+        search_event_id=turn.search_event_id,
+        stats=stats,
     )
     attach_search_timings(
-        search_event_id,
-        total_ms=timing.total_ms(),
-        ask_ms=timing.ask_ms(),
-        reply_ms=timing.reply_ms(),
-        timings_ms=timing.timings_ms(),
+        turn.search_event_id,
+        total_ms=turn.timing.total_ms(),
+        ask_ms=turn.timing.ask_ms(),
+        reply_ms=turn.timing.reply_ms(),
+        timings_ms=turn.timing.timings_ms(),
         timing_log=timing_log,
     )
+
+
+@router.post("/chat", response_model=ChatResponse)
+def chat(
+    body: ChatRequest,
+    user_id: str = Depends(resolve_user_id),
+    _rl: None = Depends(check_llm_rate_limit),
+) -> ChatResponse:
+    turn = _start_chat_turn(body, user_id)
+    with turn.timing.timed("conversational_reply"):
+        reply = build_conversational_reply(
+            turn.message,
+            turn.ask_result,
+            turn.notes,
+            indexed_count=turn.indexed_count,
+        )
+    follow_ups = _collect_follow_ups(turn)
+    turn.session.record_turn(turn.message, reply.message)
+    _finalize_chat_turn(turn)
     return ChatResponse(
-        session_id=session_id,
+        session_id=turn.session_id,
         assistant_message=reply.message,
         results=[_result_card_out(c) for c in reply.results],
-        parsed_query=_parsed_with_notes(spec, notes),
-        search_event_id=search_event_id,
+        parsed_query=_parsed_with_notes(turn.spec, turn.notes),
+        search_event_id=turn.search_event_id,
         follow_up_suggestions=follow_ups,
     )
 
@@ -488,137 +534,61 @@ def chat_stream(
     user_id: str = Depends(resolve_user_id),
     _rl: None = Depends(check_llm_rate_limit),
 ) -> StreamingResponse:
-    message = (body.message or "").strip()
-    if not message:
-        raise HTTPException(status_code=400, detail="message is required")
-
-    session_id, session = get_or_create_session(body.session_id)
-    timing = QueryTimingSession(
-        meta={"session_id": session_id, "search_kind": "chat", "query_text": message}
-    )
-
-    try:
-        ask_result = session.ask(
-            message,
-            top_k=body.top_k,
-            min_match_percent=body.min_match_percent,
-            sort=body.sort,
-            timing=timing,
-        )
-    except Exception as exc:  # noqa: BLE001
-        logger.exception("Query failed")
-        raise HTTPException(status_code=500, detail=format_query_error(exc)) from exc
-
-    spec = ask_result.spec
-    notes = build_interpretation_notes(
-        spec,
-        min_match_percent=ask_result.min_match_percent,
-        relaxed_min_score=ask_result.relaxed_min_score,
-        dense_failed=ask_result.dense_failed,
-        sparse_failed=ask_result.sparse_failed,
-    )
-
-    result_cards = build_result_cards(ask_result.results)
+    turn = _start_chat_turn(body, user_id)
+    result_cards = build_result_cards(turn.ask_result.results)
     results_out = [_result_card_out(c) for c in result_cards]
-    parsed_out = _parsed_with_notes(spec, notes)
-    search_event_id = record_search_from_results(
-        query_text=message,
-        user_id=user_id,
-        session_id=session_id,
-        search_kind="chat",
-        results=ask_result.results,
-        spec=spec,
-        ask_ms=timing.ask_ms(),
-        timings_ms=timing.timings_ms(),
-    )
-
-    corpus = build_corpus_context()
-    indexed_count = corpus.indexed_count
-    follow_up_future = _follow_up_executor.submit(
-        generate_follow_up_suggestions,
-        message,
-        ask_result,
-        notes,
-        corpus=corpus,
-    )
+    parsed_out = _parsed_with_notes(turn.spec, turn.notes)
 
     def event_stream() -> Iterator[str]:
-        yield _sse_event(
-            {
-                "type": "metadata",
-                "session_id": session_id,
-                "search_event_id": search_event_id,
-                "results": [r.model_dump() for r in results_out],
-                "parsed_query": parsed_out.model_dump() if parsed_out else None,
-            }
-        )
         full_message: List[str] = []
+        finalized = False
+
+        def _preserve_turn(extra: Optional[dict] = None) -> None:
+            # The turn and its timings must survive stream errors AND client
+            # disconnects; losing them made sessions forget exchanges.
+            nonlocal finalized
+            if finalized:
+                return
+            finalized = True
+            turn.session.record_turn(turn.message, "".join(full_message))
+            _finalize_chat_turn(turn, extra_stats=extra)
+
         try:
-            with timing.timed("conversational_reply"):
+            yield _sse_event(
+                {
+                    "type": "metadata",
+                    "session_id": turn.session_id,
+                    "search_event_id": turn.search_event_id,
+                    "results": [r.model_dump() for r in results_out],
+                    "parsed_query": parsed_out.model_dump() if parsed_out else None,
+                }
+            )
+            with turn.timing.timed("conversational_reply"):
                 for chunk in iter_conversational_reply_text(
-                    message,
-                    ask_result,
-                    notes,
-                    indexed_count=indexed_count,
+                    turn.message,
+                    turn.ask_result,
+                    turn.notes,
+                    indexed_count=turn.indexed_count,
                 ):
                     if not chunk:
                         continue
                     full_message.append(chunk)
                     yield _sse_event({"type": "token", "text": chunk})
+        except GeneratorExit:
+            _preserve_turn({"stream_disconnected": True})
+            raise
         except Exception as exc:  # noqa: BLE001
             logger.exception("Chat stream failed")
             yield _sse_event({"type": "error", "detail": str(exc)})
-            timing_log = finalize_query_timing(
-                timing,
-                search_event_id=search_event_id,
-                stats={
-                    "session_id": session_id,
-                    "query_text": message,
-                    "search_kind": "chat",
-                    "result_count": len(ask_result.results),
-                    "stream_error": str(exc),
-                },
-            )
-            attach_search_timings(
-                search_event_id,
-                total_ms=timing.total_ms(),
-                ask_ms=timing.ask_ms(),
-                reply_ms=timing.reply_ms(),
-                timings_ms=timing.timings_ms(),
-                timing_log=timing_log,
-            )
+            _preserve_turn({"stream_error": str(exc)})
             return
 
-        assistant_message = "".join(full_message)
-        with timing.timed("follow_ups"):
-            try:
-                follow_ups = follow_up_future.result(timeout=15)
-            except Exception:  # noqa: BLE001
-                logger.exception("Follow-up suggestions failed")
-                follow_ups = []
-        session.record_turn(message, assistant_message)
-        timing_log = finalize_query_timing(
-            timing,
-            search_event_id=search_event_id,
-            stats={
-                "session_id": session_id,
-                "query_text": message,
-                "search_kind": "chat",
-                "result_count": len(ask_result.results),
-            },
-        )
-        attach_search_timings(
-            search_event_id,
-            total_ms=timing.total_ms(),
-            ask_ms=timing.ask_ms(),
-            reply_ms=timing.reply_ms(),
-            timings_ms=timing.timings_ms(),
-            timing_log=timing_log,
-        )
+        follow_ups = _collect_follow_ups(turn)
+        _preserve_turn()
         yield _sse_event(
             {
                 "type": "done",
-                "assistant_message": assistant_message,
+                "assistant_message": "".join(full_message),
                 "follow_up_suggestions": follow_ups,
             }
         )
@@ -728,7 +698,8 @@ async def similar(
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     except Exception as exc:  # noqa: BLE001
         logger.exception("Similar search failed")
-        raise HTTPException(status_code=500, detail=str(exc)) from exc
+        status, detail = classify_model_error(exc)
+        raise HTTPException(status_code=status, detail=detail) from exc
 
     results = outcome.results
     spec = outcome.spec
@@ -1447,7 +1418,8 @@ async def deck_suggest(
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     except Exception as exc:  # noqa: BLE001
         logger.exception("Deck suggest failed")
-        raise HTTPException(status_code=500, detail=f"Deck suggest failed: {exc}") from exc
+        status, detail = classify_model_error(exc)
+        raise HTTPException(status_code=status, detail=detail) from exc
 
     return _deck_suggest_response(result)
 
