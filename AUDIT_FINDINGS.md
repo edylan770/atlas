@@ -700,3 +700,16 @@ Chroma client (I8) and boto3 client/semaphore (R7 tail) need locked lazy init.
 - **D1** Deck SSE progressive streaming. **D2** Presigned/CDN image serving.
   **D3** Frontend F2/F3/F4 fixes. **D4** Admin scale prep (P6/P7).
   **D5** Tesseract full removal. **D6** UI version stamp (designed, unshipped).
+
+### A/B results — 2026-07-28 (uncommitted work)
+- **Caption prompt v2** (verbatim-transcription examples + reading-order/overflow
+  rules): +61% visible-text captured (2,110 -> 3,400 chars across 86 images;
+  22 vs 18 images with text). Calendar: "30" -> all 30 dates. Dense-text
+  Medicare form: 681 chars transcribed, verified field-by-field against the
+  image, zero hallucination. Retrieval eval unchanged at 15/15. SHIP.
+- **Lane ablation** (new VISUAL_LANE_ENABLED knob + CAPTION_TEXT_LANE_ENABLED):
+  both / visual-only / text-only are indistinguishable at 86 images on both
+  the standard 15-query set and an 8-query discriminating set (flags verified
+  active via weight_sum probes). No evidence to drop a lane yet; keep BOTH as
+  default, re-run this ablation at production corpus scale (knobs + eval
+  scripts ready: ab_eval.py, ab_eval_lanes.py in the session workspace).

@@ -41,7 +41,7 @@ class SpeculativeEmbeds:
     """
 
     text: str
-    visual: "Future"
+    visual: Optional["Future"]
     caption_text: Optional["Future"]
 
 
@@ -50,7 +50,11 @@ def start_speculative_embeds(query_text: str) -> Optional[SpeculativeEmbeds]:
     text = (query_text or "").strip()
     if not text or not SETTINGS.speculative_query_embed:
         return None
-    visual = _lane_executor.submit(lambda: get_embedder().embed_text([text])[0])
+    if not SETTINGS.visual_lane_enabled and not SETTINGS.caption_text_lane_enabled:
+        return None
+    visual: Optional[Future] = None
+    if SETTINGS.visual_lane_enabled:
+        visual = _lane_executor.submit(lambda: get_embedder().embed_text([text])[0])
     caption: Optional[Future] = None
     if SETTINGS.caption_text_lane_enabled:
         caption = _lane_executor.submit(lambda: get_text_embedder().embed_query(text))
@@ -220,7 +224,7 @@ def search(
     def _visual_lane() -> List[tuple[str, float]]:
         with _timed("embed_visual"):
             query_emb = None
-            if spec_ok:
+            if spec_ok and speculative.visual is not None:
                 try:
                     query_emb = speculative.visual.result()
                 except Exception as exc:  # noqa: BLE001
@@ -246,19 +250,31 @@ def search(
             )
 
     # Both dense lanes are independent Bedrock+Chroma round-trips: overlap them.
-    visual_future = _lane_executor.submit(_visual_lane)
+    visual_future = (
+        _lane_executor.submit(_visual_lane)
+        if SETTINGS.visual_lane_enabled
+        else None
+    )
     text_future = (
         _lane_executor.submit(_text_lane)
         if SETTINGS.caption_text_lane_enabled
         else None
     )
+    if visual_future is None and text_future is None:
+        logger.error(
+            "Both dense lanes are disabled (VISUAL_LANE_ENABLED and "
+            "CAPTION_TEXT_LANE_ENABLED are false); search cannot rank."
+        )
+        return SearchOutcome(candidates=[], dense_failed=True, weight_sum=0.0)
 
-    try:
-        dense_hits = visual_future.result()
-    except Exception as exc:  # noqa: BLE001
-        visual_failed = True
-        logger.warning("Visual dense search failed (%s): %s", type(exc).__name__, exc)
-        dense_hits = []
+    dense_hits: List[tuple[str, float]] = []
+    if visual_future is not None:
+        try:
+            dense_hits = visual_future.result()
+        except Exception as exc:  # noqa: BLE001
+            visual_failed = True
+            logger.warning("Visual dense search failed (%s): %s", type(exc).__name__, exc)
+            dense_hits = []
 
     text_hits: List[tuple[str, float]] = []
     if text_future is not None:
@@ -285,10 +301,10 @@ def search(
         text_hits = [(i, sc) for i, sc in text_hits if i in active_ids]
         sparse_hits = [(i, sc) for i, sc in sparse_hits if i in active_ids]
 
-    # Report dense failure only when no dense lane produced results.
-    dense_failed = visual_failed and (
-        text_failed or not SETTINGS.caption_text_lane_enabled
-    )
+    # Report dense failure only when every ENABLED dense lane failed.
+    visual_ok = SETTINGS.visual_lane_enabled and not visual_failed
+    text_ok = SETTINGS.caption_text_lane_enabled and not text_failed
+    dense_failed = not visual_ok and not text_ok
 
     with _timed("rrf_rank"):
         merged = rrf_merge_lanes(dense_hits, text_hits, sparse_hits, rrf, sparse_weight=0.0)
@@ -324,11 +340,7 @@ def search(
                 kept.append(c)
             merged = kept
 
-    active_weight_sum = (0.0 if visual_failed else 1.0) + (
-        1.0
-        if SETTINGS.caption_text_lane_enabled and not text_failed
-        else 0.0
-    )
+    active_weight_sum = (1.0 if visual_ok else 0.0) + (1.0 if text_ok else 0.0)
 
     return SearchOutcome(
         candidates=merged,

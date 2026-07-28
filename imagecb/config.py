@@ -65,6 +65,12 @@ class Settings:
         or "cohere.rerank-v3-5:0"
     )
 
+    # Visual dense lane: cross-modal retrieval over Titan image vectors.
+    # Disable (with the caption-text lane on) for text-embedding-only ranking.
+    visual_lane_enabled: bool = field(
+        default_factory=lambda: (_env("VISUAL_LANE_ENABLED", "true") or "true").lower()
+        in ("1", "true", "yes", "on")
+    )
     # Caption-text dense lane: text-to-text retrieval over caption documents.
     caption_text_lane_enabled: bool = field(
         default_factory=lambda: (_env("CAPTION_TEXT_LANE_ENABLED", "true") or "true").lower()
