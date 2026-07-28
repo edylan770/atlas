@@ -91,3 +91,28 @@ def test_caption_json_from_legacy_flat_dict():
     assert cap.short_caption == "Company logo on white background"
     assert cap.readable_text == "ACME"
     assert cap.tags == ["logo", "brand"]
+
+
+def test_caption_prompt_demands_verbatim_transcription():
+    """Batch A drift guard: the verbatim rules must survive future prompt edits."""
+    from imagecb.caption.examples import format_few_shot_for_prompt
+    from imagecb.caption.schema import CAPTION_JSON_SCHEMA
+    from imagecb.models.vlm import CAPTION_USER_PROMPT_TEMPLATE
+
+    prompt = CAPTION_USER_PROMPT_TEMPLATE
+    assert "verbatim transcription of ALL clearly legible text" in prompt
+    assert "natural reading order" in prompt
+    assert "too much text to transcribe completely" in prompt
+
+    schema_desc = CAPTION_JSON_SCHEMA["properties"]["grounded"]["properties"][
+        "readable_text"
+    ]["description"]
+    assert "Verbatim transcription" in schema_desc
+    assert "Never invent or guess text" in schema_desc
+
+    examples = format_few_shot_for_prompt()
+    # the text-dense example teaches exhaustive transcription
+    assert "Support Plans" in examples
+    assert "Enterprise | $1,999" in examples
+    # the chart example transcribes its own declared axis labels/legend
+    assert "North America" in examples

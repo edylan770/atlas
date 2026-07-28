@@ -31,11 +31,11 @@ CAPTION_JSON_SCHEMA: Dict[str, Any] = {
                 },
                 "readable_text": {
                     "type": "string",
-                    "description": "Verbatim transcription of all clearly legible text, exactly as written (titles, labels, axis values, table cells). Never invent or guess text. Empty if none.",
+                    "description": "Verbatim transcription of all clearly legible text, exactly as written (titles, labels, axis values, table cells), in natural reading order with one line/row per newline. If too much text to transcribe completely, transcribe the most prominent text and set text_read_uncertain true. Never invent or guess text. Empty if none.",
                 },
                 "text_read_uncertain": {
                     "type": "boolean",
-                    "description": "True when text is present but partially illegible.",
+                    "description": "True when text is present but partially illegible, or when there was too much text to transcribe completely.",
                 },
                 "asset_type": {
                     "type": "string",

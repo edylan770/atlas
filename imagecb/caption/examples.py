@@ -87,7 +87,10 @@ CAPTION_FEW_SHOT_EXAMPLES: List[Tuple[str, Dict[str, Any]]] = [
             "grounded": {
                 "objects": ["bar chart", "axis labels", "legend"],
                 "scene": "presentation slide",
-                "readable_text": "Q3 2024",
+                "readable_text": (
+                    "Quarterly Sales by Region\nQ3 2024\nRevenue ($M)\n"
+                    "0 20 40 60 80\nNorth America\nEMEA\nAPAC\nLATAM"
+                ),
                 "text_read_uncertain": False,
                 "asset_type": "chart",
             },
@@ -115,6 +118,44 @@ CAPTION_FEW_SHOT_EXAMPLES: List[Tuple[str, Dict[str, Any]]] = [
             },
         },
     ),
+    (
+        "Presentation slide: text-dense pricing table",
+        {
+            "image_name": "Support Plan Pricing Table",
+            "grounded": {
+                "objects": ["table", "column headers", "price figures"],
+                "scene": "presentation slide",
+                "readable_text": (
+                    "Support Plans\nPlan | Monthly | Response SLA | Channels\n"
+                    "Basic | $99 | 48 hours | Email\n"
+                    "Business | $499 | 8 hours | Email, Phone\n"
+                    "Enterprise | $1,999 | 1 hour | Email, Phone, Dedicated TAM\n"
+                    "All prices in USD. Annual billing saves 15%."
+                ),
+                "text_read_uncertain": False,
+                "asset_type": "table",
+            },
+            "interpretive": {
+                "theme": "product pricing",
+                "use_case": "sales proposal or pricing discussion",
+                "short_caption": "Three-tier support plan pricing table with SLAs",
+                "detailed_description": (
+                    "A pricing table compares Basic, Business, and Enterprise "
+                    "support plans by monthly cost, response SLA, and support "
+                    "channels, with an annual billing discount note."
+                ),
+            },
+            "search": {
+                "tags": ["table", "pricing", "plan", "support", "cost"],
+                "recommended_cases": [
+                    "support plan pricing table",
+                    "tiered pricing comparison",
+                    "service level agreement table",
+                ],
+                "aliases": ["price list", "SLA tiers", "rate card"],
+            },
+        },
+    )
 ]
 
 

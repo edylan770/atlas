@@ -52,7 +52,7 @@ CAPTION_USER_PROMPT_TEMPLATE = (
     "{vocab_block}\n\n"
     "Return via the emit_caption tool with:\n"
     "- image_name: short title (<= 8 words)\n"
-    "- grounded: objects (visible only), scene, readable_text (verbatim transcription of ALL clearly legible text exactly as written - titles, labels, axis values, table cells; never invent or guess text; empty if none), "
+    "- grounded: objects (visible only), scene, readable_text (verbatim transcription of ALL clearly legible text exactly as written - titles, labels, axis values, table cells; transcribe in natural reading order, one line or row per newline; if there is too much text to transcribe completely, transcribe the most prominent text and set text_read_uncertain true; never invent or guess text; empty if none), "
     "text_read_uncertain (true if text is partial/illegible), asset_type (exactly one "
     "value from the taxonomy below)\n"
     "Asset type taxonomy:\n{asset_type_block}\n"
