@@ -1,10 +1,14 @@
+import { useState } from "react";
+
 import type { SimilarityAxis } from "../api/client";
 import type { ResultCard as ResultCardType } from "../types";
+import { Lightbox } from "./Lightbox";
 import { ResultCard } from "./ResultCard";
 
 interface ResultsGridProps {
   results: ResultCardType[];
   loading?: boolean;
+  pending?: boolean;
   onFindSimilar?: (imageId: string, imageName: string) => void;
   searchEventId?: string | null;
   sessionId?: string | null;
@@ -17,6 +21,7 @@ interface ResultsGridProps {
 export function ResultsGrid({
   results,
   loading = false,
+  pending = false,
   onFindSimilar,
   searchEventId,
   sessionId,
@@ -25,6 +30,26 @@ export function ResultsGrid({
   similarityAxis,
   onSimilarResults,
 }: ResultsGridProps) {
+  const [previewIndex, setPreviewIndex] = useState<number | null>(null);
+
+  if (results.length === 0 && pending) {
+    // Skeleton grid while a search is in flight.
+    return (
+      <div
+        className="grid min-h-0 flex-1 auto-rows-min grid-cols-2 gap-3 overflow-y-auto p-3"
+        data-testid="results-skeleton"
+        aria-label="Loading results"
+      >
+        {Array.from({ length: 6 }).map((_, i) => (
+          <div
+            key={i}
+            className="h-44 animate-pulse rounded-lg bg-navy-100 ring-1 ring-navy-200"
+          />
+        ))}
+      </div>
+    );
+  }
+
   if (results.length === 0) {
     return (
       <div className="flex min-h-0 flex-1 flex-col items-center justify-center p-8 text-center text-navy-500">
@@ -48,7 +73,7 @@ export function ResultsGrid({
 
   return (
     <div className="grid min-h-0 flex-1 auto-rows-min grid-cols-2 gap-3 overflow-y-auto p-3">
-      {results.map((card) => (
+      {results.map((card, i) => (
         <ResultCard
           key={card.image_id}
           card={card}
@@ -60,8 +85,17 @@ export function ResultsGrid({
           minMatchPercent={minMatchPercent}
           similarityAxis={similarityAxis}
           onSimilarResults={onSimilarResults}
+          onOpenPreview={() => setPreviewIndex(i)}
         />
       ))}
+      {previewIndex !== null && (
+        <Lightbox
+          cards={results}
+          index={previewIndex}
+          onClose={() => setPreviewIndex(null)}
+          onNavigate={setPreviewIndex}
+        />
+      )}
     </div>
   );
 }

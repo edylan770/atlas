@@ -1,5 +1,6 @@
 import { recordInteraction } from "../api/telemetry";
 import { sendSimilar, type SimilarityAxis } from "../api/client";
+import { downloadCardImage } from "../imageDownload";
 import type { ResultCard as ResultCardType } from "../types";
 
 interface ResultCardProps {
@@ -12,6 +13,7 @@ interface ResultCardProps {
   minMatchPercent?: number;
   similarityAxis?: SimilarityAxis;
   onSimilarResults?: (results: ResultCardType[], searchEventId?: string | null) => void;
+  onOpenPreview?: () => void;
 }
 
 export function ResultCard({
@@ -24,17 +26,11 @@ export function ResultCard({
   minMatchPercent = 0,
   similarityAxis = "balanced",
   onSimilarResults,
+  onOpenPreview,
 }: ResultCardProps) {
   const displayName =
     card.image_name || card.provenance.source_name || "this image";
 
-  const downloadFileName = () => {
-    const base = (card.image_name || card.provenance.source_name || card.image_id)
-      .replace(/[^\w.-]+/g, "_")
-      .slice(0, 80);
-    if (/\.(png|jpe?g|webp|gif|bmp|tiff?)$/i.test(base)) return base;
-    return `${base}.png`;
-  };
   const assetTypeLabel = card.asset_type
     ? card.asset_type.charAt(0).toUpperCase() + card.asset_type.slice(1)
     : "";
@@ -52,29 +48,7 @@ export function ResultCard({
     e.stopPropagation();
     if (!card.has_image_file) return;
     track("download");
-    try {
-      const res = await fetch(card.image_url);
-      if (!res.ok) throw new Error("Download failed");
-      const blob = await res.blob();
-      const ext =
-        blob.type === "image/jpeg"
-          ? ".jpg"
-          : blob.type === "image/webp"
-            ? ".webp"
-            : ".png";
-      let name = downloadFileName();
-      if (!/\.(png|jpe?g|webp|gif|bmp|tiff?)$/i.test(name)) name += ext;
-      const url = URL.createObjectURL(blob);
-      const anchor = document.createElement("a");
-      anchor.href = url;
-      anchor.download = name;
-      document.body.appendChild(anchor);
-      anchor.click();
-      anchor.remove();
-      URL.revokeObjectURL(url);
-    } catch {
-      window.open(card.image_url, "_blank", "noopener");
-    }
+    await downloadCardImage(card);
   };
 
   const handleOpenSource = (e: React.MouseEvent) => {
@@ -110,7 +84,19 @@ export function ResultCard({
       onClick={handleView}
       role="presentation"
     >
-      <div className="relative h-28 bg-navy-50 sm:h-32">
+      <div
+        className={`relative h-28 bg-navy-50 sm:h-32 ${card.has_image_file && onOpenPreview ? "cursor-zoom-in" : ""}`}
+        onClick={
+          card.has_image_file && onOpenPreview
+            ? (e) => {
+                e.stopPropagation();
+                track("view");
+                onOpenPreview();
+              }
+            : undefined
+        }
+        role="presentation"
+      >
         {card.has_image_file ? (
           <img
             src={card.thumb_url || card.image_url}

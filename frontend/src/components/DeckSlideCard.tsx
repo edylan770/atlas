@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { forceDeckSlide, saveSlideDecision } from "../api/deckClient";
 import type { ResultSort, SlideDecision, SlideSuggestion } from "../types";
+import { Lightbox } from "./Lightbox";
 import { ResultCard } from "./ResultCard";
 
 interface DeckSlideCardProps {
@@ -25,6 +26,7 @@ export function DeckSlideCard({
   onSlideUpdate,
 }: DeckSlideCardProps) {
   const [textOpen, setTextOpen] = useState(false);
+  const [previewIndex, setPreviewIndex] = useState<number | null>(null);
   const [forcing, setForcing] = useState(false);
   const [forceError, setForceError] = useState<string | null>(null);
 
@@ -162,11 +164,24 @@ export function DeckSlideCard({
 
       {slide.results.length > 0 ? (
         <div className="flex gap-3 overflow-x-auto p-4">
-          {slide.results.map((card) => (
+          {slide.results.map((card, i) => (
             <div key={card.image_id} className="w-64 shrink-0">
-              <ResultCard card={card} topK={topK} minMatchPercent={minMatchPercent} />
+              <ResultCard
+                card={card}
+                topK={topK}
+                minMatchPercent={minMatchPercent}
+                onOpenPreview={() => setPreviewIndex(i)}
+              />
             </div>
           ))}
+          {previewIndex !== null && (
+            <Lightbox
+              cards={slide.results}
+              index={previewIndex}
+              onClose={() => setPreviewIndex(null)}
+              onNavigate={setPreviewIndex}
+            />
+          )}
         </div>
       ) : (
         <p className="px-4 py-6 text-center text-sm text-navy-500">
