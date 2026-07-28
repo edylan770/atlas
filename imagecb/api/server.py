@@ -11,6 +11,36 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 
+
+class SpaStaticFiles(StaticFiles):
+    """Static files with SPA fallback: unknown paths serve index.html.
+
+    Client-side routes (/admin, /deck) must load on direct navigation and
+    refresh; without this only "/" worked. API paths keep JSON 404s.
+    """
+
+    async def get_response(self, path: str, scope):  # type: ignore[override]
+        from starlette.exceptions import HTTPException as StarletteHTTPException
+
+        def _is_spa_route() -> bool:
+            # Only client-side routes fall back: no /api paths, and no
+            # file-like paths (a missing asset must stay a 404, not become
+            # index.html masquerading as JavaScript).
+            if path.startswith("api"):
+                return False
+            last = path.rsplit("/", 1)[-1]
+            return "." not in last
+
+        try:
+            response = await super().get_response(path, scope)
+        except StarletteHTTPException as exc:
+            if exc.status_code == 404 and _is_spa_route():
+                return await super().get_response("index.html", scope)
+            raise
+        if response.status_code == 404 and _is_spa_route():
+            return await super().get_response("index.html", scope)
+        return response
+
 from imagecb.api.routes import router
 from imagecb.api.static_ui import resolve_static_dir
 from imagecb.admin.routes import router as admin_router
@@ -112,7 +142,7 @@ def create_app() -> FastAPI:
 
     static, _kind = resolve_static_dir()
     if static is not None:
-        app.mount("/", StaticFiles(directory=str(static), html=True), name="static")
+        app.mount("/", SpaStaticFiles(directory=str(static), html=True), name="static")
 
     return app
 

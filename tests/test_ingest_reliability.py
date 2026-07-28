@@ -121,7 +121,9 @@ def test_ingest_paths_batched_defers_bm25_once(tmp_path):
     with patch("imagecb.ingest.ingest_paths", side_effect=fake_ingest_paths), patch(
         "imagecb.ingest._finalize_ingest", side_effect=fake_finalize
     ):
-        stats = ingest_paths_batched(paths, batch_size=2, defer_bm25=True, workers=2)
+        stats = ingest_paths_batched(
+                paths, batch_size=2, defer_bm25=True, workers=2, auto_repair=False
+            )
 
     assert stats["batches"] == 3
     assert stats["files"] == 5

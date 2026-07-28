@@ -30,3 +30,21 @@ def test_shipped_frontend_dist_includes_deck_route():
         "Shipped bundle missing /deck. Run: cd frontend && npm run build && "
         "python scripts/sync_frontend_dist.py"
     )
+
+
+def test_spa_routes_serve_index_and_api_404s_stay_json():
+    from fastapi.testclient import TestClient
+
+    from imagecb.api.server import create_app
+
+    client = TestClient(create_app())
+    for route in ("/admin", "/deck", "/admin/ingestions"):
+        r = client.get(route)
+        assert r.status_code == 200, route
+        assert "text/html" in r.headers["content-type"], route
+    r = client.get("/api/definitely-not-a-route")
+    assert r.status_code == 404
+    assert r.headers["content-type"].startswith("application/json")
+    # a missing asset must 404, not silently become index.html
+    r = client.get("/assets/index-STALEHASH.js")
+    assert r.status_code == 404
