@@ -1,14 +1,11 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Link } from "react-router-dom";
 import { fetchStatus } from "../api/client";
-import {
-  loadSlideDecisions,
-  suggestDeck,
-} from "../api/deckClient";
+import { suggestDeck } from "../api/deckClient";
 import { AtlasAcronymLine, AtlasWordmark } from "../components/AtlasBranding";
 import { DeckSlideCard } from "../components/DeckSlideCard";
 import { SortSelect } from "../components/SortSelect";
-import type { DeckSuggestResponse, ResultSort, SlideDecision, SlideSuggestion } from "../types";
+import type { DeckSuggestResponse, ResultSort, SlideSuggestion } from "../types";
 import { defaultSearchSort } from "../sortResults";
 
 export default function DeckSuggestPage() {
@@ -21,7 +18,6 @@ export default function DeckSuggestPage() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [response, setResponse] = useState<DeckSuggestResponse | null>(null);
-  const [decisions, setDecisions] = useState<Record<number, SlideDecision>>({});
   const inputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
@@ -53,7 +49,6 @@ export default function DeckSuggestPage() {
     try {
       const res = await suggestDeck(file, { topK, minMatchPercent, sort: sortBy });
       setResponse(res);
-      setDecisions(loadSlideDecisions(res.deck_hash));
     } catch (e) {
       setError(e instanceof Error ? e.message : "Upload failed");
       setResponse(null);
@@ -72,10 +67,6 @@ export default function DeckSuggestPage() {
         ),
       };
     });
-  };
-
-  const setDecision = (slideIndex: number, decision: SlideDecision) => {
-    setDecisions((d) => ({ ...d, [slideIndex]: decision }));
   };
 
   return (
@@ -193,11 +184,9 @@ export default function DeckSuggestPage() {
                 key={slide.slide_index}
                 slide={slide}
                 deckHash={response.deck_hash}
-                decision={decisions[slide.slide_index]}
                 topK={topK}
                 minMatchPercent={minMatchPercent}
                 sort={sortBy}
-                onDecision={setDecision}
                 onSlideUpdate={updateSlide}
               />
             ))}

@@ -8,6 +8,7 @@ import {
   setAdminApiKey,
   verifyAdminApiKey,
 } from "../api/adminClient";
+import { CorpusIngestHost } from "./CorpusIngestHost";
 
 const navLinkClass = ({ isActive }: { isActive: boolean }) =>
   isActive
@@ -99,7 +100,7 @@ export function AdminKeyGate({ children }: { children: React.ReactNode }) {
   );
 }
 
-function AdminHeader() {
+function AdminHeader({ onOpenCorpus }: { onOpenCorpus: () => void }) {
   return (
     <header className="border-b border-navy-800 bg-navy-900 text-white shadow-md">
       <div className="mx-auto flex max-w-6xl flex-col gap-2.5 px-5 py-2.5 sm:flex-row sm:items-center sm:justify-between sm:gap-4">
@@ -134,6 +135,13 @@ function AdminHeader() {
               Back to search
             </NavLink>
           </nav>
+          <button
+            type="button"
+            onClick={onOpenCorpus}
+            className="rounded-lg bg-brand-500 px-3.5 py-1.5 text-sm font-semibold text-white shadow-sm transition hover:bg-brand-400"
+          >
+            Add to Database
+          </button>
           <img
             src={tistaLogoUrl}
             alt="Tista — science and technology corporation"
@@ -163,12 +171,15 @@ function AdminFooter() {
 }
 
 export function AdminLayout({ children }: { children: React.ReactNode }) {
+  const [corpusOpen, setCorpusOpen] = useState(false);
+
   return (
     <AdminKeyGate>
       <div className="flex min-h-screen flex-col bg-navy-50">
-        <AdminHeader />
+        <AdminHeader onOpenCorpus={() => setCorpusOpen(true)} />
         <main className="mx-auto w-full max-w-6xl flex-1 p-6">{children}</main>
         <AdminFooter />
+        <CorpusIngestHost open={corpusOpen} onOpenChange={setCorpusOpen} />
       </div>
     </AdminKeyGate>
   );

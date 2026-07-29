@@ -51,14 +51,6 @@ export function ResultCard({
     await downloadCardImage(card);
   };
 
-  const handleOpenSource = (e: React.MouseEvent) => {
-    e.preventDefault();
-    e.stopPropagation();
-    if (card.source_url) {
-      window.open(card.source_url, "_blank", "noopener");
-    }
-  };
-
   const handleSimilar = async () => {
     track("similar");
     try {
@@ -208,29 +200,18 @@ export function ResultCard({
             Find similar
           </button>
         )}
-        {(card.source_url || showInlineSimilar) && (
+        {showInlineSimilar && (
           <div
             className="mt-0.5 flex flex-wrap gap-2 border-t border-navy-100 pt-1"
             onClick={(e) => e.stopPropagation()}
           >
-            {card.source_url && (
-              <button
-                type="button"
-                onClick={handleOpenSource}
-                className="text-[9px] font-medium text-brand-600 hover:underline"
-              >
-                Open source file
-              </button>
-            )}
-            {showInlineSimilar && (
-              <button
-                type="button"
-                onClick={() => void handleSimilar()}
-                className="text-[9px] font-medium text-brand-600 hover:underline"
-              >
-                Similar
-              </button>
-            )}
+            <button
+              type="button"
+              onClick={() => void handleSimilar()}
+              className="text-[9px] font-medium text-brand-600 hover:underline"
+            >
+              Similar
+            </button>
           </div>
         )}
       </div>

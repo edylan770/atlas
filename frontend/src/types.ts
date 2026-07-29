@@ -202,5 +202,3 @@ export interface DeckSuggestResponse {
 export interface DeckForceResponse {
   slide: SlideSuggestion;
 }
-
-export type SlideDecision = "accepted" | "dismissed";

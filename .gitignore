@@ -45,3 +45,6 @@ desktop.ini
 # Local test image sets (not for the repo)
 OneDrive_*/
 semantic-image-search.git/
+
+# Local production limit-break probes (not for the repo)
+scripts/limit_break_chat.py

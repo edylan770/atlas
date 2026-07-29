@@ -5,10 +5,9 @@ interface HeaderProps {
   indexedCount: number;
   /** When set, status fetch failed — do not treat count as authoritative. */
   statusError?: string | null;
-  onOpenCorpus: () => void;
 }
 
-export function Header({ indexedCount, statusError, onOpenCorpus }: HeaderProps) {
+export function Header({ indexedCount, statusError }: HeaderProps) {
   const statusUnavailable = Boolean(statusError);
   return (
     <header className="border-b border-navy-800 bg-navy-900 text-white shadow-md">
@@ -42,13 +41,6 @@ export function Header({ indexedCount, statusError, onOpenCorpus }: HeaderProps)
               </>
             )}
           </span>
-          <button
-            type="button"
-            onClick={onOpenCorpus}
-            className="rounded-lg bg-brand-500 px-3.5 py-1.5 text-sm font-semibold text-white shadow-sm transition hover:bg-brand-400"
-          >
-            Add to Database
-          </button>
           <img
             src={tistaLogoUrl}
             alt="Tista — science and technology corporation"
