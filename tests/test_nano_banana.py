@@ -68,6 +68,7 @@ def test_parse_gemini_secret_plaintext():
 
 def test_parse_gemini_secret_json_variants():
     assert parse_gemini_secret_string('{"api_key":"k1"}') == "k1"
+    assert parse_gemini_secret_string('{"API_KEY":"k0"}') == "k0"
     assert parse_gemini_secret_string('{"GEMINI_API_KEY":"k2"}') == "k2"
     assert parse_gemini_secret_string('{"gemini_api_key":"k3"}') == "k3"
 

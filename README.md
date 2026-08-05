@@ -123,8 +123,8 @@ Lightbox **Edit** uses Google Gemini Nano Banana 2 (`gemini-3.1-flash-image` by 
 **Production:** leave `GEMINI_API_KEY` empty and grant the task/instance role
 `secretsmanager:GetSecretValue` on secret `gemini` in `us-east-1`
 (`arn:aws:secretsmanager:us-east-1:ACCOUNT:secret:gemini-*`). The secret string
-may be a plaintext API key or JSON with `api_key` / `GEMINI_API_KEY` /
-`gemini_api_key`. Override name/region with `GEMINI_SECRET_NAME` /
+may be a plaintext API key or JSON with `api_key` / `API_KEY` /
+`GEMINI_API_KEY` / `gemini_api_key`. Override name/region with `GEMINI_SECRET_NAME` /
 `GEMINI_SECRET_REGION`; override model with `NANO_BANANA_MODEL`.
 
 Edited images submitted via **Add to database** appear under Admin → **Pending additions** until an admin accepts (full ingest) or declines (deletes staged blobs only).

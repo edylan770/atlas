@@ -28,12 +28,19 @@ def parse_gemini_secret_string(raw: str) -> str:
             raise ValueError("Gemini secret JSON is invalid") from exc
         if not isinstance(payload, dict):
             raise ValueError("Gemini secret JSON must be an object")
-        for key in ("api_key", "GEMINI_API_KEY", "gemini_api_key", "GeminiApiKey"):
+        for key in (
+            "api_key",
+            "API_KEY",
+            "GEMINI_API_KEY",
+            "gemini_api_key",
+            "GeminiApiKey",
+        ):
             value = payload.get(key)
             if isinstance(value, str) and value.strip():
                 return value.strip()
         raise ValueError(
-            "Gemini secret JSON must include api_key, GEMINI_API_KEY, or gemini_api_key"
+            "Gemini secret JSON must include api_key, API_KEY, GEMINI_API_KEY, "
+            "or gemini_api_key"
         )
     return text
 
