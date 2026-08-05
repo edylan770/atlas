@@ -119,38 +119,39 @@ export function ResultCard({
         >
           {card.match_percent}%
         </span>
-        {card.has_image_file && (
-          <button
-            type="button"
-            onClick={(e) => void handleDownloadImage(e)}
-            title="Download Image"
-            aria-label="Download Image"
-            className="absolute bottom-1.5 inset-x-1.5 flex items-center justify-center gap-1 rounded-md bg-white/95 px-2 py-1 text-[10px] font-semibold text-navy-800 shadow ring-1 ring-navy-200 transition hover:bg-brand-50 hover:text-brand-700 hover:ring-brand-300"
-          >
-            <svg
-              className="h-3.5 w-3.5"
-              fill="none"
-              viewBox="0 0 24 24"
-              stroke="currentColor"
-              strokeWidth={2}
-              aria-hidden
-            >
-              <path
-                strokeLinecap="round"
-                strokeLinejoin="round"
-                d="M4 16v2a2 2 0 002 2h12a2 2 0 002-2v-2M7 10l5 5m0 0l5-5m-5 5V4"
-              />
-            </svg>
-            Download Image
-          </button>
-        )}
       </div>
       <div className="relative z-10 flex shrink-0 flex-col gap-1 border-t border-navy-100 bg-white p-2">
-        {card.image_name && (
-          <p className="line-clamp-1 text-xs font-semibold leading-tight text-navy-900">
-            {card.image_name}
-          </p>
-        )}
+        <div className="flex items-start gap-1">
+          {card.image_name && (
+            <p className="line-clamp-1 flex-1 text-xs font-semibold leading-tight text-navy-900">
+              {card.image_name}
+            </p>
+          )}
+          {card.has_image_file && (
+            <button
+              type="button"
+              onClick={(e) => void handleDownloadImage(e)}
+              title="Download Image"
+              aria-label="Download Image"
+              className="ml-auto shrink-0 rounded p-0.5 text-navy-600 transition hover:bg-brand-50 hover:text-brand-700"
+            >
+              <svg
+                className="h-3.5 w-3.5"
+                fill="none"
+                viewBox="0 0 24 24"
+                stroke="currentColor"
+                strokeWidth={2}
+                aria-hidden
+              >
+                <path
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  d="M4 16v2a2 2 0 002 2h12a2 2 0 002-2v-2M7 10l5 5m0 0l5-5m-5 5V4"
+                />
+              </svg>
+            </button>
+          )}
+        </div>
         {hasDetails && (
           <details
             className="group relative"
