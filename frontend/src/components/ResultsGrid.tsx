@@ -45,7 +45,7 @@ export function ResultsGrid({
         {Array.from({ length: 6 }).map((_, i) => (
           <div
             key={i}
-            className="h-44 animate-pulse rounded-lg bg-navy-100 ring-1 ring-navy-200"
+            className="h-56 animate-pulse rounded-lg bg-navy-100 ring-1 ring-navy-200 sm:h-60"
           />
         ))}
       </div>

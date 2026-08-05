@@ -70,14 +70,23 @@ export function ResultCard({
   const showPrimarySimilar = Boolean(onFindSimilar && card.has_image_file);
   const showInlineSimilar = Boolean(onSimilarResults && !onFindSimilar);
 
+  const hasDetails =
+    Boolean(assetTypeLabel) ||
+    card.provenance.chips.length > 0 ||
+    (card.tags && card.tags.length > 0) ||
+    Boolean(card.use_case) ||
+    Boolean(card.caption) ||
+    (card.recommended_cases && card.recommended_cases.length > 0) ||
+    Boolean(card.match_hint);
+
   return (
     <article
-      className="flex flex-col overflow-hidden rounded-lg bg-white shadow-sm ring-1 ring-navy-200 transition hover:shadow-md hover:ring-brand-300"
+      className="relative flex h-56 flex-col overflow-hidden rounded-lg bg-white shadow-sm ring-1 ring-navy-200 transition hover:shadow-md hover:ring-brand-300 sm:h-60"
       onClick={handleView}
       role="presentation"
     >
       <div
-        className={`relative h-28 bg-navy-50 sm:h-32 ${card.has_image_file && onOpenPreview ? "cursor-zoom-in" : ""}`}
+        className={`relative min-h-0 flex-1 bg-navy-50 ${card.has_image_file && onOpenPreview ? "cursor-zoom-in" : ""}`}
         onClick={
           card.has_image_file && onOpenPreview
             ? (e) => {
@@ -136,73 +145,98 @@ export function ResultCard({
           </button>
         )}
       </div>
-      <div className="flex flex-1 flex-col gap-1 p-2">
+      <div className="relative z-10 flex shrink-0 flex-col gap-1 border-t border-navy-100 bg-white p-2">
         {card.image_name && (
           <p className="line-clamp-1 text-xs font-semibold leading-tight text-navy-900">
             {card.image_name}
           </p>
         )}
-        <div className="flex flex-wrap gap-0.5">
-          {assetTypeLabel && (
-            <span className="rounded bg-navy-200 px-1.5 py-px text-[9px] font-semibold text-navy-800">
-              {assetTypeLabel}
-            </span>
-          )}
-          {card.provenance.chips.slice(0, 3).map((chip) => (
-            <span
-              key={chip}
-              className="rounded bg-navy-100 px-1.5 py-px text-[9px] font-medium text-navy-700"
-            >
-              {chip}
-            </span>
-          ))}
-        </div>
-        {card.tags && card.tags.length > 0 && (
-          <div className="flex flex-wrap gap-0.5">
-            {card.tags.slice(0, 4).map((tag) => (
-              <span
-                key={tag}
-                className="rounded bg-brand-50 px-1 py-px text-[9px] text-brand-800"
-              >
-                {tag}
-              </span>
-            ))}
-          </div>
-        )}
-        {card.use_case && (
-          <p className="line-clamp-1 text-[9px] italic text-navy-600">{card.use_case}</p>
-        )}
-        {card.caption && (
-          <p className="line-clamp-2 text-[10px] leading-snug text-navy-800">
-            {card.caption}
-          </p>
-        )}
-        {card.recommended_cases && card.recommended_cases.length > 0 && (
-          <p className="line-clamp-1 text-[9px] text-navy-500" title={card.recommended_cases.join("\n")}>
-            Try: {card.recommended_cases[0]}
-          </p>
-        )}
-        {card.match_hint && (
-          <p
-            className="line-clamp-1 text-[9px] text-navy-500"
-            title={card.match_hint}
+        {hasDetails && (
+          <details
+            className="group relative"
+            onClick={(e) => e.stopPropagation()}
           >
-            {card.match_hint}
-          </p>
+            <summary className="flex cursor-pointer list-none items-center gap-1 text-[10px] font-medium text-navy-600 marker:content-none [&::-webkit-details-marker]:hidden">
+              <span
+                className="inline-block text-[9px] text-navy-400 transition group-open:rotate-90"
+                aria-hidden
+              >
+                ▸
+              </span>
+              <span>Details</span>
+            </summary>
+            <div className="absolute bottom-full left-0 right-0 z-20 mb-0 max-h-36 overflow-y-auto border-t border-navy-100 bg-white/95 p-2 shadow-md backdrop-blur-sm">
+              <div className="flex flex-col gap-1">
+                <div className="flex flex-wrap gap-0.5">
+                  {assetTypeLabel && (
+                    <span className="rounded bg-navy-200 px-1.5 py-px text-[9px] font-semibold text-navy-800">
+                      {assetTypeLabel}
+                    </span>
+                  )}
+                  {card.provenance.chips.slice(0, 3).map((chip) => (
+                    <span
+                      key={chip}
+                      className="rounded bg-navy-100 px-1.5 py-px text-[9px] font-medium text-navy-700"
+                    >
+                      {chip}
+                    </span>
+                  ))}
+                </div>
+                {card.tags && card.tags.length > 0 && (
+                  <div className="flex flex-wrap gap-0.5">
+                    {card.tags.slice(0, 4).map((tag) => (
+                      <span
+                        key={tag}
+                        className="rounded bg-brand-50 px-1 py-px text-[9px] text-brand-800"
+                      >
+                        {tag}
+                      </span>
+                    ))}
+                  </div>
+                )}
+                {card.use_case && (
+                  <p className="line-clamp-1 text-[9px] italic text-navy-600">
+                    {card.use_case}
+                  </p>
+                )}
+                {card.caption && (
+                  <p className="line-clamp-2 text-[10px] leading-snug text-navy-800">
+                    {card.caption}
+                  </p>
+                )}
+                {card.recommended_cases && card.recommended_cases.length > 0 && (
+                  <p
+                    className="line-clamp-1 text-[9px] text-navy-500"
+                    title={card.recommended_cases.join("\n")}
+                  >
+                    Try: {card.recommended_cases[0]}
+                  </p>
+                )}
+                {card.match_hint && (
+                  <p
+                    className="line-clamp-1 text-[9px] text-navy-500"
+                    title={card.match_hint}
+                  >
+                    {card.match_hint}
+                  </p>
+                )}
+              </div>
+            </div>
+          </details>
         )}
         {showPrimarySimilar && (
           <button
             type="button"
             disabled={findSimilarDisabled}
             onClick={() => onFindSimilar!(card.image_id, displayName)}
-            className="mt-0.5 w-full rounded border border-brand-200 bg-brand-50 py-1 text-[10px] font-medium text-brand-800 transition hover:bg-brand-100 disabled:opacity-50"
+            className="w-full rounded border border-brand-200 bg-brand-50 py-1 text-[10px] font-medium text-brand-800 transition hover:bg-brand-100 disabled:opacity-50"
           >
             Find similar
           </button>
         )}
         {showInlineSimilar && (
           <div
-            className="mt-0.5 flex flex-wrap gap-2 border-t border-navy-100 pt-1"
+            className="flex flex-wrap gap-2 border-t border-navy-100 pt-1"
             onClick={(e) => e.stopPropagation()}
           >
             <button
