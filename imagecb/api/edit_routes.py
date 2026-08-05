@@ -16,8 +16,7 @@ from imagecb.api.edit_sessions import (
     get_edit_session,
 )
 from imagecb.api.rate_limit import check_llm_rate_limit
-from imagecb.config import SETTINGS
-from imagecb.models.secrets import is_nano_banana_available
+from imagecb.models.secrets import is_nano_banana_available, nano_banana_status
 from imagecb.paths import image_fallbacks
 from imagecb.pending_edits import create_pending_edit
 from imagecb.storage import blob_store, metadata_db
@@ -75,10 +74,8 @@ def _session_payload(session_id: str, session) -> dict:
 
 @router.get("/status")
 def edit_status():
-    return {
-        "available": is_nano_banana_available(),
-        "model": SETTINGS.nano_banana_model,
-    }
+    """Public availability probe. Includes safe diagnostics when unavailable."""
+    return nano_banana_status()
 
 
 @router.post("/sessions")

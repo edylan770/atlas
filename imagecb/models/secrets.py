@@ -65,6 +65,16 @@ def _fetch_from_secrets_manager() -> str:
     )
 
 
+def _safe_error_message(exc: BaseException) -> str:
+    """Public diagnostic text — never include secret values."""
+    name = type(exc).__name__
+    text = str(exc).strip() or name
+    # Truncate long AWS error blobs; keep the actionable prefix.
+    if len(text) > 280:
+        text = text[:277] + "..."
+    return f"{name}: {text}" if not text.startswith(name) else text
+
+
 def get_gemini_api_key(*, force_refresh: bool = False) -> str:
     """Return the Gemini API key (env first, else Secrets Manager). Cached."""
     global _cached_gemini_key, _gemini_resolved
@@ -80,7 +90,7 @@ def get_gemini_api_key(*, force_refresh: bool = False) -> str:
             return _cached_gemini_key
         try:
             _cached_gemini_key = _fetch_from_secrets_manager()
-        except Exception:
+        except Exception as exc:
             logger.exception(
                 "Failed to load Gemini API key from Secrets Manager "
                 "(secret=%s region=%s)",
@@ -90,7 +100,8 @@ def get_gemini_api_key(*, force_refresh: bool = False) -> str:
             raise RuntimeError(
                 "Gemini API key is not configured. Set GEMINI_API_KEY or grant "
                 f"secretsmanager:GetSecretValue on secret "
-                f"{SETTINGS.gemini_secret_name!r} in {SETTINGS.gemini_secret_region}."
+                f"{SETTINGS.gemini_secret_name!r} in {SETTINGS.gemini_secret_region}. "
+                f"Underlying error: {_safe_error_message(exc)}"
             ) from None
         _gemini_resolved = True
         return _cached_gemini_key
@@ -103,6 +114,38 @@ def is_nano_banana_available() -> bool:
         return True
     except Exception:
         return False
+
+
+def nano_banana_status(*, force_refresh: bool = False) -> dict:
+    """Availability plus safe diagnostics (no secret values)."""
+    base = {
+        "available": False,
+        "model": SETTINGS.nano_banana_model,
+        "source": None,
+        "secret_name": SETTINGS.gemini_secret_name,
+        "secret_region": SETTINGS.gemini_secret_region,
+        "error": None,
+    }
+    env_key = (SETTINGS.gemini_api_key or "").strip()
+    if env_key:
+        try:
+            get_gemini_api_key(force_refresh=force_refresh)
+            base["available"] = True
+            base["source"] = "env"
+            return base
+        except Exception as exc:
+            base["source"] = "env"
+            base["error"] = _safe_error_message(exc)
+            return base
+    try:
+        get_gemini_api_key(force_refresh=force_refresh)
+        base["available"] = True
+        base["source"] = "secrets_manager"
+        return base
+    except Exception as exc:
+        base["source"] = "secrets_manager"
+        base["error"] = _safe_error_message(exc)
+        return base
 
 
 def reset_gemini_secret_cache() -> None:

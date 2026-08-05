@@ -91,14 +91,18 @@ async def _lifespan(_app: FastAPI):
     from imagecb.storage.index_backup import maybe_auto_restore_on_startup
 
     try:
-        from imagecb.models.secrets import is_nano_banana_available
+        from imagecb.models.secrets import nano_banana_status
 
+        status = nano_banana_status()
         logger.info(
-            "Nano Banana edit: available=%s model=%s secret=%s region=%s",
-            is_nano_banana_available(),
-            SETTINGS.nano_banana_model,
-            SETTINGS.gemini_secret_name,
-            SETTINGS.gemini_secret_region,
+            "Nano Banana edit: available=%s model=%s source=%s secret=%s "
+            "region=%s error=%s",
+            status.get("available"),
+            status.get("model"),
+            status.get("source"),
+            status.get("secret_name"),
+            status.get("secret_region"),
+            status.get("error"),
         )
     except Exception:  # noqa: BLE001
         logger.exception("Nano Banana availability check failed")

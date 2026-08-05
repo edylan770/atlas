@@ -16,6 +16,7 @@ from imagecb.api.edit_sessions import clear_edit_sessions
 from imagecb.api.server import create_app
 from imagecb.config import SETTINGS
 from imagecb.models.secrets import (
+    nano_banana_status,
     parse_gemini_secret_string,
     reset_gemini_secret_cache,
 )
@@ -76,6 +77,41 @@ def test_parse_gemini_secret_json_variants():
 def test_parse_gemini_secret_rejects_empty_json():
     with pytest.raises(ValueError):
         parse_gemini_secret_string("{}")
+
+
+def test_nano_banana_status_from_env(monkeypatch):
+    monkeypatch.setattr(
+        "imagecb.models.secrets.SETTINGS",
+        replace(SETTINGS, gemini_api_key="env-key-xyz"),
+    )
+    status = nano_banana_status(force_refresh=True)
+    assert status["available"] is True
+    assert status["source"] == "env"
+    assert status["error"] is None
+
+
+def test_nano_banana_status_reports_sm_error(monkeypatch):
+    monkeypatch.setattr(
+        "imagecb.models.secrets.SETTINGS",
+        replace(
+            SETTINGS,
+            gemini_api_key=None,
+            gemini_secret_name="gemini",
+            gemini_secret_region="us-east-1",
+        ),
+    )
+
+    def _boom():
+        raise RuntimeError("AccessDeniedException: not allowed")
+
+    monkeypatch.setattr(
+        "imagecb.models.secrets._fetch_from_secrets_manager", _boom
+    )
+    status = nano_banana_status(force_refresh=True)
+    assert status["available"] is False
+    assert status["source"] == "secrets_manager"
+    assert status["secret_name"] == "gemini"
+    assert "AccessDenied" in (status["error"] or "")
 
 
 def test_pending_create_and_decline(tmp_path):
