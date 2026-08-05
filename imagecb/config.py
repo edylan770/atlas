@@ -36,6 +36,21 @@ class Settings:
     # API keys (only needed for cloud providers)
     openai_api_key: Optional[str] = field(default_factory=lambda: _env("OPENAI_API_KEY"))
     anthropic_api_key: Optional[str] = field(default_factory=lambda: _env("ANTHROPIC_API_KEY"))
+    # Gemini / Nano Banana: prefer GEMINI_API_KEY for local; production loads from
+    # Secrets Manager (see gemini_secret_name / gemini_secret_region).
+    gemini_api_key: Optional[str] = field(default_factory=lambda: _env("GEMINI_API_KEY"))
+    gemini_secret_name: str = field(
+        default_factory=lambda: _env("GEMINI_SECRET_NAME", "gemini") or "gemini"
+    )
+    gemini_secret_region: str = field(
+        default_factory=lambda: _env("GEMINI_SECRET_REGION")
+        or _env("AWS_REGION", "us-east-1")
+        or "us-east-1"
+    )
+    nano_banana_model: str = field(
+        default_factory=lambda: _env("NANO_BANANA_MODEL", "gemini-3.1-flash-image")
+        or "gemini-3.1-flash-image"
+    )
 
     # AWS region for Bedrock. Bedrock auth (AWS_BEARER_TOKEN_BEDROCK or standard
     # AWS credentials) is resolved implicitly by boto3 from the environment.

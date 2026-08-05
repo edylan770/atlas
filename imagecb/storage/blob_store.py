@@ -89,6 +89,35 @@ def thumb_key(image_id: str) -> str:
     return _key(SETTINGS.s3_prefix, "thumbs", f"{image_id}.jpg")
 
 
+def pending_edit_key(pending_id: str) -> str:
+    return _key(SETTINGS.s3_prefix, "pending-edits", f"{safe_filename(pending_id)}.png")
+
+
+def pending_edit_thumb_key(pending_id: str) -> str:
+    return _key(
+        SETTINGS.s3_prefix, "pending-edits", "thumbs", f"{safe_filename(pending_id)}.jpg"
+    )
+
+
+def pending_edit_ref(pending_id: str) -> str:
+    if SETTINGS.blob_storage_backend == "s3":
+        return s3_uri(pending_edit_key(pending_id))
+    return str(
+        (SETTINGS.data_dir / SETTINGS.s3_prefix / "pending-edits" / f"{pending_id}.png").resolve()
+    )
+
+
+def persist_pending_edit(pending_id: str, data: bytes) -> str:
+    """Write staged pending-edit PNG; return durable reference."""
+    return put_bytes(data, pending_edit_key(pending_id), content_type="image/png")
+
+
+def persist_pending_edit_thumb(pending_id: str, data: bytes) -> str:
+    return put_bytes(
+        data, pending_edit_thumb_key(pending_id), content_type="image/jpeg"
+    )
+
+
 def thumb_ref(image_id: str) -> str:
     """Canonical durable reference for an image's display thumbnail."""
     if SETTINGS.blob_storage_backend == "s3":
@@ -293,6 +322,14 @@ def put_bytes(
         return s3_uri(key)
 
     relative = PurePosixPath(key)
+    # Pending-edit blobs (including their thumbs) always live under data_dir
+    # using the full key path — do not collide with corpus image thumbs.
+    if "pending-edits" in relative.parts:
+        path = SETTINGS.data_dir.joinpath(*relative.parts)
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_bytes(data)
+        return str(path.resolve())
+
     namespace = relative.parts[-2] if len(relative.parts) >= 2 else ""
     if namespace == "images":
         path = SETTINGS.image_cache_dir / relative.name

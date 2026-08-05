@@ -469,3 +469,45 @@ export function cancelIngestJob(jobId: string): Promise<IngestJob> {
     { method: "POST" },
   );
 }
+
+export interface PendingEditItem {
+  pending_id: string;
+  source_image_id: string;
+  staged_ref?: string;
+  thumb_ref?: string | null;
+  last_prompt?: string | null;
+  status: string;
+  created_at?: string | null;
+  image_url: string;
+  thumb_url: string;
+}
+
+export function fetchPendingEdits(
+  limit = 100,
+): Promise<{ items: PendingEditItem[] }> {
+  return adminRequest(`/api/admin/pending-edits?limit=${limit}`);
+}
+
+export function acceptPendingEdit(pendingId: string): Promise<{
+  ok: boolean;
+  pending_id: string;
+  source_image_id: string;
+  new_image_id?: string | null;
+  ingest_stats?: unknown;
+}> {
+  return adminRequest(
+    `/api/admin/pending-edits/${encodeURIComponent(pendingId)}/accept`,
+    { method: "POST" },
+  );
+}
+
+export function declinePendingEdit(pendingId: string): Promise<{
+  ok: boolean;
+  pending_id: string;
+  status: string;
+}> {
+  return adminRequest(
+    `/api/admin/pending-edits/${encodeURIComponent(pendingId)}/decline`,
+    { method: "POST" },
+  );
+}

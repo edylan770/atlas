@@ -27,6 +27,9 @@ import {
   restoreImage,
   softDeleteImage,
   cancelIngestJob,
+  fetchPendingEdits,
+  acceptPendingEdit,
+  declinePendingEdit,
   type AnalyticsSummary,
   type CaptionQualityFilter,
   type CorpusHealth,
@@ -34,6 +37,7 @@ import {
   type IndexBackupInfo,
   type IngestDiagnostics,
   type IngestPreflight,
+  type PendingEditItem,
   type SearchQualityItem,
   type SearchQualityLists,
 } from "../api/adminClient";
@@ -1520,6 +1524,147 @@ function IngestionsPage() {
   );
 }
 
+function PendingAdditionsPage() {
+  const [items, setItems] = useState<PendingEditItem[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const [busyId, setBusyId] = useState<string | null>(null);
+  const [actionError, setActionError] = useState<string | null>(null);
+
+  const load = useCallback(async () => {
+    setLoading(true);
+    setError(null);
+    try {
+      const res = await fetchPendingEdits(100);
+      setItems(res.items);
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    void load();
+  }, [load]);
+
+  const handleAccept = async (pendingId: string) => {
+    setBusyId(pendingId);
+    setActionError(null);
+    try {
+      await acceptPendingEdit(pendingId);
+      await load();
+    } catch (err: unknown) {
+      setActionError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setBusyId(null);
+    }
+  };
+
+  const handleDecline = async (pendingId: string) => {
+    setBusyId(pendingId);
+    setActionError(null);
+    try {
+      await declinePendingEdit(pendingId);
+      await load();
+    } catch (err: unknown) {
+      setActionError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setBusyId(null);
+    }
+  };
+
+  return (
+    <div className="space-y-4">
+      <div className="flex items-start justify-between gap-3">
+        <div>
+          <h2 className="text-lg font-semibold text-navy-900">Pending additions</h2>
+          <p className="mt-1 text-sm text-navy-600">
+            Nano Banana edits submitted by chat users. Accept runs a full ingest as a
+            new corpus image; decline deletes the staged files only.
+          </p>
+        </div>
+        <button
+          type="button"
+          onClick={() => void load()}
+          className="rounded-md border border-navy-200 bg-white px-3 py-1.5 text-xs font-medium text-navy-800 hover:bg-navy-50"
+        >
+          Refresh
+        </button>
+      </div>
+      {error && <p className="text-sm text-red-700">{error}</p>}
+      {actionError && <p className="text-sm text-red-700">{actionError}</p>}
+      {loading ? (
+        <p className="text-sm text-navy-500">Loading…</p>
+      ) : items.length === 0 ? (
+        <p className="rounded-lg bg-white p-6 text-sm text-navy-500 ring-1 ring-navy-200">
+          No pending additions.
+        </p>
+      ) : (
+        <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+          {items.map((item) => {
+            const busy = busyId === item.pending_id;
+            return (
+              <article
+                key={item.pending_id}
+                className="flex flex-col overflow-hidden rounded-lg bg-white ring-1 ring-navy-200"
+              >
+                <div className="aspect-video bg-navy-50">
+                  <img
+                    src={item.thumb_url || item.image_url}
+                    alt={item.last_prompt || item.pending_id}
+                    className="h-full w-full object-contain"
+                    loading="lazy"
+                  />
+                </div>
+                <div className="flex flex-1 flex-col gap-1 p-3 text-xs">
+                  <p className="text-navy-500">
+                    Source:{" "}
+                    <a
+                      className="font-medium text-brand-700 hover:underline"
+                      href={`/api/images/${item.source_image_id}`}
+                      target="_blank"
+                      rel="noreferrer"
+                    >
+                      {item.source_image_id}
+                    </a>
+                  </p>
+                  {item.created_at && (
+                    <p className="text-navy-500">Submitted: {item.created_at}</p>
+                  )}
+                  {item.last_prompt && (
+                    <p className="line-clamp-3 text-navy-800" title={item.last_prompt}>
+                      {item.last_prompt}
+                    </p>
+                  )}
+                  <div className="mt-auto flex flex-wrap gap-2 pt-2">
+                    <button
+                      type="button"
+                      disabled={busy}
+                      onClick={() => void handleAccept(item.pending_id)}
+                      className="rounded-md bg-brand-500 px-2.5 py-1 text-xs font-semibold text-white hover:bg-brand-600 disabled:opacity-50"
+                    >
+                      {busy ? "Working…" : "Accept"}
+                    </button>
+                    <button
+                      type="button"
+                      disabled={busy}
+                      onClick={() => void handleDecline(item.pending_id)}
+                      className="rounded-md border border-red-200 bg-red-50 px-2.5 py-1 text-xs font-semibold text-red-800 hover:bg-red-100 disabled:opacity-50"
+                    >
+                      Decline
+                    </button>
+                  </div>
+                </div>
+              </article>
+            );
+          })}
+        </div>
+      )}
+    </div>
+  );
+}
+
 export default function AdminApp() {
   return (
     <AdminLayout>
@@ -1528,6 +1673,7 @@ export default function AdminApp() {
         <Route path="/quality" element={<QualityPage />} />
         <Route path="/corpus" element={<CorpusPage />} />
         <Route path="/ingestions" element={<IngestionsPage />} />
+        <Route path="/pending" element={<PendingAdditionsPage />} />
         <Route path="/audit" element={<AuditPage />} />
       </Routes>
     </AdminLayout>

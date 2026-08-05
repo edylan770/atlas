@@ -8,14 +8,18 @@ interface LightboxProps {
   index: number;
   onClose: () => void;
   onNavigate: (index: number) => void;
+  onEdit?: (card: ResultCardType) => void;
 }
 
 /**
  * In-app image preview: opens instantly on the already-cached thumbnail and
  * swaps to the full-resolution image when it finishes loading. Esc / backdrop
  * click closes; arrow keys or on-screen buttons move through the result set.
+ *
+ * Layout: header / stage / footer are locked rows. The stage uses min-h-0 +
+ * overflow-hidden so images never paint over the title or action buttons.
  */
-export function Lightbox({ cards, index, onClose, onNavigate }: LightboxProps) {
+export function Lightbox({ cards, index, onClose, onNavigate, onEdit }: LightboxProps) {
   const card = cards[index];
   const [fullLoaded, setFullLoaded] = useState(false);
   const closeRef = useRef<HTMLButtonElement>(null);
@@ -81,14 +85,14 @@ export function Lightbox({ cards, index, onClose, onNavigate }: LightboxProps) {
       onClick={onClose}
     >
       <div
-        className="flex max-h-full w-full max-w-4xl flex-col overflow-hidden rounded-xl bg-white shadow-2xl"
+        className="flex h-full max-h-[min(100%,56rem)] w-full max-w-4xl flex-col overflow-hidden rounded-xl bg-white shadow-2xl"
         onClick={(e) => e.stopPropagation()}
       >
-        <div className="flex items-center justify-between gap-3 border-b border-navy-100 px-4 py-2.5">
-          <p className="line-clamp-1 text-sm font-semibold text-navy-900">
+        <div className="relative z-10 flex shrink-0 items-center justify-between gap-3 border-b border-navy-100 bg-white px-4 py-2.5">
+          <p className="min-w-0 flex-1 truncate text-sm font-semibold text-navy-900">
             {displayName}
           </p>
-          <div className="flex items-center gap-3">
+          <div className="flex shrink-0 items-center gap-3">
             <span
               data-testid="lightbox-counter"
               className="text-xs tabular-nums text-navy-500"
@@ -121,14 +125,14 @@ export function Lightbox({ cards, index, onClose, onNavigate }: LightboxProps) {
           </div>
         </div>
 
-        <div className="relative flex min-h-[40vh] flex-1 items-center justify-center bg-navy-50">
+        <div className="relative min-h-0 flex-1 overflow-hidden bg-navy-50">
           {/* Thumbnail base layer: on screen instantly from browser cache. */}
           <img
             data-testid="lightbox-thumb"
             src={card.thumb_url || card.image_url}
             alt=""
             aria-hidden
-            className={`max-h-[65vh] w-auto max-w-full object-contain transition-opacity duration-200 ${
+            className={`absolute inset-0 m-auto max-h-full max-w-full object-contain p-2 transition-opacity duration-200 ${
               fullLoaded ? "opacity-0" : "opacity-100 blur-[1px]"
             }`}
           />
@@ -138,7 +142,7 @@ export function Lightbox({ cards, index, onClose, onNavigate }: LightboxProps) {
             src={card.image_url}
             alt={card.caption || displayName}
             onLoad={() => setFullLoaded(true)}
-            className={`absolute inset-0 m-auto max-h-[65vh] w-auto max-w-full object-contain transition-opacity duration-200 ${
+            className={`absolute inset-0 m-auto max-h-full max-w-full object-contain p-2 transition-opacity duration-200 ${
               fullLoaded ? "opacity-100" : "opacity-0"
             }`}
           />
@@ -147,7 +151,7 @@ export function Lightbox({ cards, index, onClose, onNavigate }: LightboxProps) {
               data-testid="lightbox-loading"
               role="status"
               aria-label="Loading full image"
-              className="absolute bottom-3 right-3 flex items-center gap-1.5 rounded-full bg-navy-900/80 px-2.5 py-1 text-[10px] font-medium text-white"
+              className="absolute bottom-3 right-3 z-10 flex items-center gap-1.5 rounded-full bg-navy-900/80 px-2.5 py-1 text-[10px] font-medium text-white"
             >
               <span className="h-1.5 w-1.5 animate-bounce rounded-full bg-white [animation-delay:-200ms]" />
               <span className="h-1.5 w-1.5 animate-bounce rounded-full bg-white [animation-delay:-100ms]" />
@@ -161,7 +165,7 @@ export function Lightbox({ cards, index, onClose, onNavigate }: LightboxProps) {
               data-testid="lightbox-prev"
               onClick={() => goTo(index - 1)}
               aria-label="Previous image"
-              className="absolute left-2 top-1/2 -translate-y-1/2 rounded-full bg-white/90 p-2 text-navy-700 shadow ring-1 ring-navy-200 transition hover:bg-white"
+              className="absolute left-2 top-1/2 z-10 -translate-y-1/2 rounded-full bg-white/90 p-2 text-navy-700 shadow ring-1 ring-navy-200 transition hover:bg-white"
             >
               <svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2} aria-hidden>
                 <path strokeLinecap="round" strokeLinejoin="round" d="M15 19l-7-7 7-7" />
@@ -174,7 +178,7 @@ export function Lightbox({ cards, index, onClose, onNavigate }: LightboxProps) {
               data-testid="lightbox-next"
               onClick={() => goTo(index + 1)}
               aria-label="Next image"
-              className="absolute right-2 top-1/2 -translate-y-1/2 rounded-full bg-white/90 p-2 text-navy-700 shadow ring-1 ring-navy-200 transition hover:bg-white"
+              className="absolute right-2 top-1/2 z-10 -translate-y-1/2 rounded-full bg-white/90 p-2 text-navy-700 shadow ring-1 ring-navy-200 transition hover:bg-white"
             >
               <svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2} aria-hidden>
                 <path strokeLinecap="round" strokeLinejoin="round" d="M9 5l7 7-7 7" />
@@ -183,7 +187,7 @@ export function Lightbox({ cards, index, onClose, onNavigate }: LightboxProps) {
           )}
         </div>
 
-        <div className="flex flex-wrap items-center gap-2 border-t border-navy-100 px-4 py-2.5">
+        <div className="relative z-10 flex shrink-0 flex-wrap items-center gap-2 border-t border-navy-100 bg-white px-4 py-2.5">
           <span className="rounded bg-brand-500 px-1.5 py-px text-[10px] font-semibold text-white">
             {card.match_percent}%
           </span>
@@ -201,19 +205,31 @@ export function Lightbox({ cards, index, onClose, onNavigate }: LightboxProps) {
             </span>
           ))}
           {card.caption && (
-            <p className="w-full text-xs leading-snug text-navy-700 sm:w-auto sm:flex-1 sm:truncate">
+            <p className="min-w-0 flex-1 truncate text-xs leading-snug text-navy-700">
               {card.caption}
             </p>
           )}
           {card.has_image_file && (
-            <button
-              type="button"
-              data-testid="lightbox-download"
-              onClick={() => void downloadCardImage(card)}
-              className="ml-auto rounded border border-brand-200 bg-brand-50 px-2.5 py-1 text-xs font-medium text-brand-800 transition hover:bg-brand-100"
-            >
-              Download
-            </button>
+            <div className="ml-auto flex shrink-0 items-center gap-2">
+              {onEdit && (
+                <button
+                  type="button"
+                  data-testid="lightbox-edit"
+                  onClick={() => onEdit(card)}
+                  className="rounded border border-navy-200 bg-white px-2.5 py-1 text-xs font-medium text-navy-800 transition hover:bg-navy-50"
+                >
+                  Edit
+                </button>
+              )}
+              <button
+                type="button"
+                data-testid="lightbox-download"
+                onClick={() => void downloadCardImage(card)}
+                className="rounded border border-brand-200 bg-brand-50 px-2.5 py-1 text-xs font-medium text-brand-800 transition hover:bg-brand-100"
+              >
+                Download
+              </button>
+            </div>
           )}
         </div>
       </div>

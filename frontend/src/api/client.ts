@@ -770,3 +770,66 @@ export async function sendSimilar(
     sort,
   );
 }
+
+export interface EditSessionState {
+  session_id: string;
+  source_image_id: string;
+  image_url: string;
+  turn_count: number;
+  last_prompt: string | null;
+  submitted: boolean;
+  turns: { prompt: string }[];
+}
+
+export interface EditStatusResponse {
+  available: boolean;
+  model: string;
+}
+
+export async function fetchEditStatus(): Promise<EditStatusResponse> {
+  return request<EditStatusResponse>("/api/edit/status");
+}
+
+export async function createEditSession(
+  imageId: string,
+): Promise<EditSessionState> {
+  return request<EditSessionState>("/api/edit/sessions", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ image_id: imageId }),
+  });
+}
+
+export async function postEditTurn(
+  sessionId: string,
+  prompt: string,
+): Promise<EditSessionState> {
+  return request<EditSessionState>(
+    `/api/edit/sessions/${encodeURIComponent(sessionId)}/turn`,
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ prompt }),
+    },
+  );
+}
+
+export async function submitEditSession(
+  sessionId: string,
+): Promise<{ ok: boolean; pending: PendingEditItem }> {
+  return request(`/api/edit/sessions/${encodeURIComponent(sessionId)}/submit`, {
+    method: "POST",
+  });
+}
+
+export interface PendingEditItem {
+  pending_id: string;
+  source_image_id: string;
+  staged_ref?: string;
+  thumb_ref?: string | null;
+  last_prompt?: string | null;
+  status: string;
+  created_at?: string | null;
+  image_url: string;
+  thumb_url: string;
+}

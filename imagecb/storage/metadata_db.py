@@ -75,11 +75,27 @@ class ImageRecord(Base):
     caption_quality = Column(String, nullable=True)  # ok | weak | failed
     text_read_uncertain = Column(Integer, nullable=True)  # 0/1
     asset_type = Column(String, nullable=True, index=True)
+    # Set when an image was accepted from a Nano Banana pending edit.
+    parent_image_id = Column(String, nullable=True, index=True)
 
     created_at = Column(DateTime, default=datetime.utcnow)
 
     deleted_at = Column(DateTime, nullable=True, index=True)
     deleted_by = Column(String, nullable=True)
+
+
+class PendingEdit(IngestJobBase):
+    """Staged Nano Banana edit awaiting admin accept/decline."""
+
+    __tablename__ = "pending_edits"
+
+    pending_id = Column(String, primary_key=True)
+    source_image_id = Column(String, nullable=False, index=True)
+    staged_ref = Column(String, nullable=False)
+    thumb_ref = Column(String, nullable=True)
+    last_prompt = Column(Text, nullable=True)
+    status = Column(String, nullable=False, default="pending", index=True)
+    created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
 
 
 class IngestJob(IngestJobBase):
@@ -139,6 +155,7 @@ def _migrate_schema(engine) -> None:
             ("caption_quality", "ALTER TABLE images ADD COLUMN caption_quality TEXT"),
             ("text_read_uncertain", "ALTER TABLE images ADD COLUMN text_read_uncertain INTEGER"),
             ("asset_type", "ALTER TABLE images ADD COLUMN asset_type TEXT"),
+            ("parent_image_id", "ALTER TABLE images ADD COLUMN parent_image_id TEXT"),
         ):
             if col not in cols:
                 conn.execute(text(ddl))

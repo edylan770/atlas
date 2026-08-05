@@ -419,3 +419,122 @@ def admin_reindex_image(
         details={"caption_quality": result.get("caption_quality")},
     )
     return {"ok": True, **result}
+
+
+@router.get("/pending-edits")
+def admin_list_pending_edits(
+    limit: int = Query(100, ge=1, le=500),
+    _: str = Depends(require_admin),
+):
+    from imagecb.pending_edits import list_pending_edits
+
+    return {"items": list_pending_edits(limit=limit)}
+
+
+@router.get("/pending-edits/{pending_id}/image")
+def admin_pending_edit_image(
+    pending_id: str,
+    _: str = Depends(require_admin),
+):
+    import io
+
+    from fastapi.responses import StreamingResponse
+
+    from imagecb.pending_edits import read_pending_image_bytes
+
+    try:
+        data = read_pending_image_bytes(pending_id)
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail="pending edit not found") from exc
+    return StreamingResponse(
+        io.BytesIO(data),
+        media_type="image/png",
+        headers={
+            "Cache-Control": "no-store",
+            "Content-Disposition": f'inline; filename="pending-{pending_id}.png"',
+        },
+    )
+
+
+@router.get("/pending-edits/{pending_id}/thumb")
+def admin_pending_edit_thumb(
+    pending_id: str,
+    _: str = Depends(require_admin),
+):
+    import io
+
+    from fastapi.responses import StreamingResponse
+
+    from imagecb.pending_edits import read_pending_image_bytes, read_pending_thumb_bytes
+
+    try:
+        data = read_pending_thumb_bytes(pending_id)
+        if data is None:
+            data = read_pending_image_bytes(pending_id)
+            media = "image/png"
+        else:
+            media = "image/jpeg"
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail="pending edit not found") from exc
+    return StreamingResponse(
+        io.BytesIO(data),
+        media_type=media,
+        headers={"Cache-Control": "no-store"},
+    )
+
+
+@router.post("/pending-edits/{pending_id}/accept")
+def admin_accept_pending_edit(
+    pending_id: str,
+    actor: str = Depends(require_admin),
+):
+    from imagecb.ingest import IngestInProgressError
+    from imagecb.pending_edits import accept_pending_edit
+
+    try:
+        result = accept_pending_edit(pending_id)
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail="pending edit not found") from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except IngestInProgressError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    except Exception as exc:  # noqa: BLE001
+        logger.exception("Accept pending edit failed: %s", pending_id)
+        raise HTTPException(status_code=500, detail=f"accept failed: {exc}") from exc
+
+    audit.append_audit(
+        actor=actor,
+        action="accept_pending_edit",
+        target_type="pending_edit",
+        target_id=pending_id,
+        details={
+            "source_image_id": result.get("source_image_id"),
+            "new_image_id": result.get("new_image_id"),
+        },
+    )
+    return {"ok": True, **result}
+
+
+@router.post("/pending-edits/{pending_id}/decline")
+def admin_decline_pending_edit(
+    pending_id: str,
+    actor: str = Depends(require_admin),
+):
+    from imagecb.pending_edits import decline_pending_edit
+
+    try:
+        snapshot = decline_pending_edit(pending_id)
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail="pending edit not found") from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    audit.append_audit(
+        actor=actor,
+        action="decline_pending_edit",
+        target_type="pending_edit",
+        target_id=pending_id,
+        details={"source_image_id": snapshot.get("source_image_id")},
+    )
+    return {"ok": True, "pending_id": pending_id, "status": "declined"}

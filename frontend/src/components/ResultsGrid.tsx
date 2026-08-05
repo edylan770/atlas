@@ -2,6 +2,7 @@ import { useState } from "react";
 
 import type { SimilarityAxis } from "../api/client";
 import type { ResultCard as ResultCardType } from "../types";
+import { ImageEditSession } from "./ImageEditSession";
 import { Lightbox } from "./Lightbox";
 import { ResultCard } from "./ResultCard";
 
@@ -31,6 +32,7 @@ export function ResultsGrid({
   onSimilarResults,
 }: ResultsGridProps) {
   const [previewIndex, setPreviewIndex] = useState<number | null>(null);
+  const [editCard, setEditCard] = useState<ResultCardType | null>(null);
 
   if (results.length === 0 && pending) {
     // Skeleton grid while a search is in flight.
@@ -88,12 +90,25 @@ export function ResultsGrid({
           onOpenPreview={() => setPreviewIndex(i)}
         />
       ))}
-      {previewIndex !== null && (
+      {previewIndex !== null && !editCard && (
         <Lightbox
           cards={results}
           index={previewIndex}
           onClose={() => setPreviewIndex(null)}
           onNavigate={setPreviewIndex}
+          onEdit={(c) => {
+            setEditCard(c);
+          }}
+        />
+      )}
+      {editCard && (
+        <ImageEditSession
+          card={editCard}
+          onBack={() => setEditCard(null)}
+          onClose={() => {
+            setEditCard(null);
+            setPreviewIndex(null);
+          }}
         />
       )}
     </div>

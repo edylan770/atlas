@@ -1,6 +1,8 @@
 import { useState } from "react";
 import { forceDeckSlide } from "../api/deckClient";
 import type { ResultSort, SlideSuggestion } from "../types";
+import type { ResultCard as ResultCardType } from "../types";
+import { ImageEditSession } from "./ImageEditSession";
 import { Lightbox } from "./Lightbox";
 import { ResultCard } from "./ResultCard";
 
@@ -23,6 +25,7 @@ export function DeckSlideCard({
 }: DeckSlideCardProps) {
   const [textOpen, setTextOpen] = useState(false);
   const [previewIndex, setPreviewIndex] = useState<number | null>(null);
+  const [editCard, setEditCard] = useState<ResultCardType | null>(null);
   const [forcing, setForcing] = useState(false);
   const [forceError, setForceError] = useState<string | null>(null);
 
@@ -138,12 +141,25 @@ export function DeckSlideCard({
               />
             </div>
           ))}
-          {previewIndex !== null && (
+          {previewIndex !== null && !editCard && (
             <Lightbox
               cards={slide.results}
               index={previewIndex}
               onClose={() => setPreviewIndex(null)}
               onNavigate={setPreviewIndex}
+              onEdit={(c) => {
+                setEditCard(c);
+              }}
+            />
+          )}
+          {editCard && (
+            <ImageEditSession
+              card={editCard}
+              onBack={() => setEditCard(null)}
+              onClose={() => {
+                setEditCard(null);
+                setPreviewIndex(null);
+              }}
             />
           )}
         </div>

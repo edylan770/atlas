@@ -114,13 +114,28 @@ OPENAI_API_KEY=sk-...    # or ANTHROPIC_API_KEY=...
 
 Embeddings and reranking remain on Bedrock.
 
+### 5. Optional: Nano Banana 2 (Gemini image edit)
+
+Lightbox **Edit** uses Google Gemini Nano Banana 2 (`gemini-3.1-flash-image` by default).
+
+**Local/dev:** set `GEMINI_API_KEY` in `.env`.
+
+**Production:** leave `GEMINI_API_KEY` empty and grant the task/instance role
+`secretsmanager:GetSecretValue` on secret `gemini` in `us-east-1`
+(`arn:aws:secretsmanager:us-east-1:ACCOUNT:secret:gemini-*`). The secret string
+may be a plaintext API key or JSON with `api_key` / `GEMINI_API_KEY` /
+`gemini_api_key`. Override name/region with `GEMINI_SECRET_NAME` /
+`GEMINI_SECRET_REGION`; override model with `NANO_BANANA_MODEL`.
+
+Edited images submitted via **Add to database** appear under Admin → **Pending additions** until an admin accepts (full ingest) or declines (deletes staged blobs only).
+
 ## Production operations
 
 ### Security boundaries
 
 | Surface | Auth |
 |---------|------|
-| Chat, similar, deck suggest, image/source downloads | **Open** (no API key) |
+| Chat, similar, deck suggest, image/source downloads, Nano Banana edit sessions | **Open** (no API key) |
 | Ingest (`/api/ingest*`) and all `/api/admin/*` | `ADMIN_API_KEY` via `X-Admin-Api-Key` or `Authorization: Bearer <key>` |
 | Pipeline Lab (`/lab`, `/api/lab/*`) | **Open** (experimental; disable by removing the experiments router if undesired) |
 
@@ -192,6 +207,31 @@ For `BLOB_STORAGE_BACKEND=local`, back up the entire `./data` volume (SQLite, Ch
 - [Docker Desktop](https://www.docker.com/products/docker-desktop/) or Docker Engine + Compose v2
 - A `.env` with Bedrock (or other provider) credentials and `ADMIN_API_KEY`
 
+### Nano Banana / Gemini in Docker
+
+The image installs `google-genai` from `requirements.txt`. The container loads the
+Gemini key the same way boto3 loads Bedrock/S3 credentials:
+
+| Environment | How the key is loaded |
+|-------------|------------------------|
+| **Production EC2/ECS** (instance or task role) | Leave `GEMINI_API_KEY` unset. Grant the **task/instance role** `secretsmanager:GetSecretValue` on secret `gemini` in `us-east-1`. The app fetches it at runtime. |
+| **Local Docker** with AWS creds | Export `AWS_ACCESS_KEY_ID` / `AWS_SECRET_ACCESS_KEY` (and optional session token) on the host, or put them in `.env`. Compose forwards them into the container. |
+| **Local Docker** without AWS | Set `GEMINI_API_KEY=...` in `.env` (skips Secrets Manager). |
+
+Check availability after boot: `GET /api/edit/status` → `{"available": true, ...}`.
+
+**IAM example** (attach to the same role that already talks to Bedrock/S3):
+
+```json
+{
+  "Effect": "Allow",
+  "Action": ["secretsmanager:GetSecretValue"],
+  "Resource": "arn:aws:secretsmanager:us-east-1:579382252153:secret:gemini-*"
+}
+```
+
+Do **not** bake the Gemini key into the image. Prefer the role + Secrets Manager path in production.
+
 ### Start
 
 ```powershell
@@ -244,7 +284,7 @@ Object layout under the prefix:
 - `index-backups/` — versioned index snapshots
 - `ingest-logs/` / `query-logs/` — timing reports when enabled
 
-**IAM (instance role preferred):** `s3:GetObject`, `s3:PutObject`, `s3:DeleteObject` on `arn:aws:s3:::your-private-corpus-bucket/imagecb/*`, plus `s3:ListBucket` scoped to that prefix; Bedrock invoke/converse for configured models. Do not put long-lived AWS access keys in `.env`.
+**IAM (instance role preferred):** `s3:GetObject`, `s3:PutObject`, `s3:DeleteObject` on `arn:aws:s3:::your-private-corpus-bucket/imagecb/*`, plus `s3:ListBucket` scoped to that prefix; Bedrock invoke/converse for configured models; and (for Nano Banana) `secretsmanager:GetSecretValue` on `arn:aws:secretsmanager:us-east-1:ACCOUNT:secret:gemini-*`. Do not put long-lived AWS access keys in `.env`.
 
 Configure bucket CORS for browser PUTs to your real web origin, and a lifecycle rule that expires `imagecb/staging/` after about seven days.
 
@@ -374,6 +414,7 @@ CI fails if `frontend_dist` drifts from `frontend/`. Optional: `npm run dev` →
 | Find similar | From a result card → new chat turn via `POST /api/similar` with that `image_id` |
 | Open source file | `GET /api/sources/{id}` (original pptx/pdf/image) |
 | Download image | `GET /api/images/{id}` display PNG |
+| Edit image (Nano Banana 2) | Lightbox **Edit** opens an iterative edit chat (`POST /api/edit/sessions` + `/turn`); Download latest or **Add to database** (stages a pending addition for admin review) |
 | Telemetry | Card view / download / similar → `POST /api/telemetry/interaction` linked by `search_event_id` |
 | Multi-turn refine | Follow-ups re-query the **full corpus** with history + prior `QuerySpec` + prior top-result summary (no locked previous-hit pool) |
 | Parsed query | Stream metadata includes `parsed_query` and interpretation notes; the React UI stores them on the turn but does not render a dedicated interpretation panel |
@@ -418,6 +459,7 @@ Gate with `ADMIN_API_KEY` (entered in the browser after unlock; kept in sessionS
 | `/admin/quality` | Tables of zero-result, weak-result, and no-interaction searches with stage timing columns |
 | `/admin/corpus` | Index health; reconcile; full repair; purge unrecoverable; S3 backup/restore; corpus grid (quality filter, sort); bulk repair failed/weak captions; per-image regenerate caption, reindex, soft-delete; orphans; soft-deleted restore; near-duplicate clusters |
 | `/admin/ingestions` | Active/recent jobs; cancel; runtime diagnostics (`APP_BUILD_ID` mismatch warning); ingest preflight; deep link `?job=` |
+| `/admin/pending` | Nano Banana pending additions: preview, Accept (full ingest as new image with `parent_image_id`), Decline (delete staged blobs only) |
 | `/admin/audit` | Admin action audit log |
 
 `GET /api/admin/analytics/funnel` exists for per–search-event funnel detail but has **no Admin UI page** yet.
@@ -440,6 +482,8 @@ Open experimental UI (no admin key) to compare ranking variants for one query (`
 | `GET /api/corpus/catalog` | Browse recent corpus rows |
 | `POST /api/telemetry/interaction` | view / download / similar |
 | `GET /api/images/{id}` / `GET /api/sources/{id}` | Display PNG / original source |
+| `POST /api/edit/sessions` / `/turn` / `/submit` | Nano Banana 2 iterative edit; submit stages a pending addition |
+| `GET /api/admin/pending-edits` + accept/decline | Admin review of staged edits |
 | `POST /api/deck/suggest` / `POST /api/deck/force` | Deck pipeline |
 | `POST /api/ingest*` / `/api/ingest/jobs*` | Admin-keyed ingest |
 

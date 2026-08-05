@@ -142,4 +142,27 @@ describe("Lightbox", () => {
     );
     expect(screen.queryByTestId("lightbox-download")).toBeNull();
   });
+
+  it("calls onEdit when Edit is clicked", () => {
+    const onEdit = vi.fn();
+    render(
+      <Lightbox
+        cards={cards}
+        index={0}
+        onClose={() => {}}
+        onNavigate={() => {}}
+        onEdit={onEdit}
+      />,
+    );
+    fireEvent.click(screen.getByTestId("lightbox-edit"));
+    expect(onEdit).toHaveBeenCalledTimes(1);
+    expect(onEdit.mock.calls[0][0].image_id).toBe("a");
+  });
+
+  it("hides Edit when onEdit is not provided", () => {
+    render(
+      <Lightbox cards={cards} index={0} onClose={() => {}} onNavigate={() => {}} />,
+    );
+    expect(screen.queryByTestId("lightbox-edit")).toBeNull();
+  });
 });

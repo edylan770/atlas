@@ -23,6 +23,18 @@ services:
       DECK_CACHE_DIR: /app/data/deck_cache
       TESSERACT_CMD: /usr/bin/tesseract
       BOOTSTRAP_CORPUS_DIR: ""
+      # Pass through host AWS auth so the container can call Bedrock, S3, and
+      # Secrets Manager (Nano Banana / secret name "gemini") the same way.
+      AWS_REGION: ${AWS_REGION:-us-east-1}
+      AWS_DEFAULT_REGION: ${AWS_DEFAULT_REGION:-${AWS_REGION:-us-east-1}}
+      AWS_ACCESS_KEY_ID: ${AWS_ACCESS_KEY_ID:-}
+      AWS_SECRET_ACCESS_KEY: ${AWS_SECRET_ACCESS_KEY:-}
+      AWS_SESSION_TOKEN: ${AWS_SESSION_TOKEN:-}
+      AWS_BEARER_TOKEN_BEDROCK: ${AWS_BEARER_TOKEN_BEDROCK:-}
+      # Optional: set GEMINI_API_KEY in .env for local Docker without SM access.
+      GEMINI_SECRET_NAME: ${GEMINI_SECRET_NAME:-gemini}
+      GEMINI_SECRET_REGION: ${GEMINI_SECRET_REGION:-us-east-1}
+      NANO_BANANA_MODEL: ${NANO_BANANA_MODEL:-gemini-3.1-flash-image}
     healthcheck:
       test: ["CMD", "curl", "-f", "http://127.0.0.1:8080/api/health"]
       interval: 30s

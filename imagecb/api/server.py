@@ -42,6 +42,7 @@ class SpaStaticFiles(StaticFiles):
         return response
 
 from imagecb.api.routes import router
+from imagecb.api.edit_routes import router as edit_router
 from imagecb.api.static_ui import resolve_static_dir
 from imagecb.admin.routes import router as admin_router
 from imagecb.config import SETTINGS
@@ -89,6 +90,19 @@ async def _lifespan(_app: FastAPI):
     from imagecb.repair import assess_index_health, reconcile_index_safe
     from imagecb.storage.index_backup import maybe_auto_restore_on_startup
 
+    try:
+        from imagecb.models.secrets import is_nano_banana_available
+
+        logger.info(
+            "Nano Banana edit: available=%s model=%s secret=%s region=%s",
+            is_nano_banana_available(),
+            SETTINGS.nano_banana_model,
+            SETTINGS.gemini_secret_name,
+            SETTINGS.gemini_secret_region,
+        )
+    except Exception:  # noqa: BLE001
+        logger.exception("Nano Banana availability check failed")
+
     restore_info = maybe_auto_restore_on_startup()
     if restore_info.get("restored"):
         logger.info(
@@ -121,6 +135,9 @@ async def _lifespan(_app: FastAPI):
 
 def create_app() -> FastAPI:
     ensure_telemetry_schema()
+    from imagecb.pending_edits import ensure_pending_edits_schema
+
+    ensure_pending_edits_schema()
     app = FastAPI(title="Imagecb", version="1.0.0", lifespan=_lifespan)
 
     app.add_middleware(
@@ -132,6 +149,7 @@ def create_app() -> FastAPI:
     )
 
     app.include_router(router)
+    app.include_router(edit_router)
     app.include_router(admin_router)
 
     # --- Pipeline Lab (experimental, remove this block + imagecb/experiments to uninstall) ---
