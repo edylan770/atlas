@@ -95,11 +95,16 @@ function DashboardPage() {
   const [health, setHealth] = useState<CorpusHealth | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [healthError, setHealthError] = useState<string | null>(null);
+  const [days, setDays] = useState<7 | 30 | 90>(90);
 
   useEffect(() => {
-    fetchAnalyticsSummary()
+    setSummary(null);
+    fetchAnalyticsSummary(days)
       .then(setSummary)
       .catch((e) => setError(e instanceof Error ? e.message : String(e)));
+  }, [days]);
+
+  useEffect(() => {
     fetchCorpusHealth()
       .then(setHealth)
       .catch((e) => setHealthError(e instanceof Error ? e.message : String(e)));
@@ -116,9 +121,27 @@ function DashboardPage() {
 
   return (
     <div className="space-y-6">
-      <div>
-        <h2 className="text-lg font-semibold text-navy-900">Dashboard</h2>
-        <p className="text-xs text-navy-500">Last 7 days</p>
+      <div className="flex flex-wrap items-end justify-between gap-3">
+        <div>
+          <h2 className="text-lg font-semibold text-navy-900">Dashboard</h2>
+          <p className="text-xs text-navy-500">Last {days} days</p>
+        </div>
+        <div className="flex gap-1 rounded-lg bg-navy-100 p-1" role="group" aria-label="Time window">
+          {([7, 30, 90] as const).map((n) => (
+            <button
+              key={n}
+              type="button"
+              onClick={() => setDays(n)}
+              className={
+                days === n
+                  ? "rounded-md bg-white px-3 py-1 text-xs font-medium text-navy-900 shadow-sm"
+                  : "rounded-md px-3 py-1 text-xs font-medium text-navy-600 hover:text-navy-900"
+              }
+            >
+              {n}d
+            </button>
+          ))}
+        </div>
       </div>
       <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
         <StatCard label="Total searches" value={summary.total_searches} />
@@ -241,19 +264,39 @@ function QualityTable({ title, items }: { title: string; items: SearchQualityIte
 function QualityPage() {
   const [data, setData] = useState<SearchQualityLists | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [days, setDays] = useState<7 | 30 | 90>(90);
 
   useEffect(() => {
-    fetchSearchQuality()
+    setData(null);
+    fetchSearchQuality(50, days)
       .then(setData)
       .catch((e) => setError(e instanceof Error ? e.message : String(e)));
-  }, []);
+  }, [days]);
 
   if (error) return <p className="text-red-600">{error}</p>;
   if (!data) return <p className="text-navy-500">Loading…</p>;
 
   return (
     <div className="space-y-8">
-      <h2 className="text-lg font-semibold text-navy-900">Search quality</h2>
+      <div className="flex flex-wrap items-end justify-between gap-3">
+        <h2 className="text-lg font-semibold text-navy-900">Search quality</h2>
+        <div className="flex gap-1 rounded-lg bg-navy-100 p-1" role="group" aria-label="Time window">
+          {([7, 30, 90] as const).map((n) => (
+            <button
+              key={n}
+              type="button"
+              onClick={() => setDays(n)}
+              className={
+                days === n
+                  ? "rounded-md bg-white px-3 py-1 text-xs font-medium text-navy-900 shadow-sm"
+                  : "rounded-md px-3 py-1 text-xs font-medium text-navy-600 hover:text-navy-900"
+              }
+            >
+              {n}d
+            </button>
+          ))}
+        </div>
+      </div>
       <QualityTable title="Zero results" items={data.zero_result} />
       <QualityTable title="Weak results" items={data.weak_result} />
       <QualityTable title="No interaction" items={data.no_interaction} />

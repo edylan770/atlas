@@ -355,6 +355,17 @@ class Settings:
     weak_result_score_threshold: float = field(
         default_factory=lambda: float(_env("WEAK_RESULT_SCORE_THRESHOLD", "0.25") or "0.25")
     )
+    # Search/interaction analytics live on the blob backend (S3 or DATA_DIR),
+    # not SQLite — survives index restore / empty EC2 volumes.
+    telemetry_backend: str = field(
+        default_factory=lambda: (_env("TELEMETRY_BACKEND", "blob") or "blob").lower()
+    )
+    telemetry_retention_days: int = field(
+        default_factory=lambda: int(_env("TELEMETRY_RETENTION_DAYS", "90") or "90")
+    )
+    telemetry_default_window_days: int = field(
+        default_factory=lambda: int(_env("TELEMETRY_DEFAULT_WINDOW_DAYS", "90") or "90")
+    )
 
     # Visual fallback: when Cohere rerank's top result is weak, re-rank the
     # chat turn's candidates by pure Titan visual similarity (Candidate.dense_score).

@@ -61,6 +61,8 @@ export interface AnalyticsSummary {
   weak_result_rate: number;
   no_interaction_rate: number;
   weak_score_threshold: number;
+  retention_days?: number;
+  window_days?: number;
 }
 
 export interface SearchQualityLists {
@@ -247,12 +249,17 @@ export interface IngestPreflight {
   }>;
 }
 
-export function fetchAnalyticsSummary(days = 7): Promise<AnalyticsSummary> {
+export function fetchAnalyticsSummary(days = 90): Promise<AnalyticsSummary> {
   return adminRequest(`/api/admin/analytics/summary?days=${days}`);
 }
 
-export function fetchSearchQuality(limit = 50): Promise<SearchQualityLists> {
-  return adminRequest(`/api/admin/analytics/search-quality?limit=${limit}`);
+export function fetchSearchQuality(
+  limit = 50,
+  days = 90,
+): Promise<SearchQualityLists> {
+  return adminRequest(
+    `/api/admin/analytics/search-quality?limit=${limit}&days=${days}`,
+  );
 }
 
 export function fetchFunnel(searchEventId: string): Promise<unknown> {

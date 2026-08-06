@@ -198,7 +198,7 @@ python -m imagecb.cli restore-index <backup_id> --yes
 
 `backup-index` quiesces ingest while snapshotting. `restore-index` **replaces** the live local index; `--yes` is mandatory.
 
-For `BLOB_STORAGE_BACKEND=local`, back up the entire `./data` volume (SQLite, Chroma, BM25, hubness, uploads, image cache). Telemetry/search events live in the same SQLite database as corpus metadata.
+For `BLOB_STORAGE_BACKEND=local`, back up the entire `./data` volume (SQLite, Chroma, BM25, hubness, uploads, image cache, and `telemetry/` analytics under the data dir). Admin search/interaction analytics are **not** stored in SQLite — they live under `{S3_PREFIX}/telemetry/v1/` on S3 (or the same key layout under `DATA_DIR` when local), so an index restore does not wipe dashboard stats.
 
 ## Docker
 
@@ -455,8 +455,8 @@ Gate with `ADMIN_API_KEY` (entered in the browser after unlock; kept in sessionS
 
 | Route | Features |
 |-------|----------|
-| `/admin` | 7-day KPIs: searches, zero/weak/no-interaction rates, interactions; caption health (failed/weak) |
-| `/admin/quality` | Tables of zero-result, weak-result, and no-interaction searches with stage timing columns |
+| `/admin` | Configurable window (7/30/90 days, default 90): searches, zero/weak/no-interaction rates, interactions; caption health (failed/weak) |
+| `/admin/quality` | Tables of zero-result, weak-result, and no-interaction searches (same window) with stage timing columns |
 | `/admin/corpus` | Index health; reconcile; full repair; purge unrecoverable; S3 backup/restore; corpus grid (quality filter, sort); bulk repair failed/weak captions; per-image regenerate caption, reindex, soft-delete; orphans; soft-deleted restore; near-duplicate clusters |
 | `/admin/ingestions` | Active/recent jobs; cancel; runtime diagnostics (`APP_BUILD_ID` mismatch warning); ingest preflight; deep link `?job=` |
 | `/admin/pending` | Nano Banana pending additions: preview, Accept (full ingest as new image with `parent_image_id`), Decline (delete staged blobs only) |
@@ -559,7 +559,7 @@ parse_query → metadata pre-filter → visual dense + caption-text dense
 | System | Behavior |
 |--------|----------|
 | Blobs | `BLOB_STORAGE_BACKEND=local` or `s3`; image/source routes stream from disk or S3 |
-| Telemetry | `search_events` on every chat/similar; `interaction_events` for view/download/similar; admin audit log for mutations |
+| Telemetry | Gzipped JSON search/interaction events under `{S3_PREFIX}/telemetry/v1/` (S3 or local DATA_DIR mirror) with daily rollups for admin KPIs; retention `TELEMETRY_RETENTION_DAYS` (default 90). Admin audit log remains in SQLite. Suggested S3 lifecycle: expire `…/telemetry/v1/` after 90 days. |
 | Query timing | Stage timings when `QUERY_TIMING_LOG=true`; optional persist under `query-logs/`; surfaced in Admin Search quality |
 | Soft delete | Drop Chroma vectors + rebuild BM25; keep SQLite + PNGs; restore re-embeds |
 | Hubness index | Rebuilt at ingest; applied when `rerank()` / visual-only ranking runs (not chat fusion) |
@@ -665,5 +665,5 @@ tests/             Pytest suite
 - No live folder watcher — re-run `ingest` or use **Add to Database**.
 - Aimed at hundreds to low thousands of images; for larger corpora consider Qdrant/Milvus and OpenSearch/Tantivy.
 - All model inference runs through cloud APIs — no local GPU required.
-- SQLite schema (including telemetry) migrates automatically on startup; still take a data-volume or S3 index backup before major upgrades.
+- SQLite schema (including admin audit) migrates automatically on startup; search/interaction analytics live under `{S3_PREFIX}/telemetry/v1/` and are independent of index restore. Still take a data-volume or S3 index backup before major upgrades.
 - Pipeline Lab variant descriptions may lag the production chat path; trust [How it works](#how-it-works) over lab labels.

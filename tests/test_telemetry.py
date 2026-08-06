@@ -1,18 +1,18 @@
-"""Search and interaction telemetry."""
+"""Search and interaction telemetry (blob/S3 store)."""
 
 from __future__ import annotations
 
-import json
+from dataclasses import replace
 from datetime import datetime
 
 import pytest
 
+from imagecb.config import SETTINGS
 from imagecb.retrieval.query_parser import QuerySpec
 from imagecb.retrieval.rerank import RankedResult
-from imagecb.storage.metadata_db import ImageRecord, get_engine, session_scope
-from imagecb.telemetry.models import SearchEvent
+from imagecb.storage.metadata_db import ImageRecord
+from imagecb.telemetry import s3_store
 from imagecb.telemetry.recorder import record_interaction, record_search_from_results
-from imagecb.telemetry.schema import ensure_telemetry_schema
 
 
 def _sample_record(image_id: str) -> ImageRecord:
@@ -26,14 +26,24 @@ def _sample_record(image_id: str) -> ImageRecord:
     )
 
 
-@pytest.fixture(autouse=True)
-def _ensure_db():
-    get_engine()
-    ensure_telemetry_schema()
-    yield
+@pytest.fixture
+def telemetry_dir(tmp_path, monkeypatch):
+    settings = replace(
+        SETTINGS,
+        blob_storage_backend="local",
+        data_dir=tmp_path,
+        s3_prefix="imagecb",
+        telemetry_retention_days=90,
+        telemetry_default_window_days=90,
+    )
+    monkeypatch.setattr(s3_store, "SETTINGS", settings)
+    monkeypatch.setattr("imagecb.storage.blob_store.SETTINGS", settings)
+    monkeypatch.setattr("imagecb.telemetry.recorder.SETTINGS", settings)
+    s3_store.invalidate_quality_cache()
+    yield tmp_path
 
 
-def test_record_search_and_interaction_linkage():
+def test_record_search_and_interaction_linkage(telemetry_dir):
     results = [
         RankedResult(
             image_id="img-a",
@@ -62,17 +72,20 @@ def test_record_search_and_interaction_linkage():
     )
     assert iid
 
-    with session_scope() as s:
-        from sqlalchemy import select
+    row = s3_store.get_search_event(event_id)
+    assert row is not None
+    assert row["served_image_ids"] == ["img-a"]
+    assert row["top_score"] == 0.5
+    assert row["result_count"] == 1
+    assert row["has_interaction"] is True
 
-        row = s.execute(select(SearchEvent).where(SearchEvent.id == event_id)).scalar_one()
-        served = json.loads(row.served_image_ids_json)
-        assert served == ["img-a"]
-        assert row.top_score == 0.5
-        assert row.result_count == 1
+    rollup = s3_store.load_daily_rollup(s3_store._dt_str(datetime.utcnow()))
+    assert rollup["total_searches"] == 1
+    assert rollup["interaction_count"] == 1
+    assert rollup["no_interaction_count"] == 0
 
 
-def test_interaction_rejects_unknown_image():
+def test_interaction_rejects_unknown_image(telemetry_dir):
     event_id = record_search_from_results(
         query_text="q",
         user_id="u",

@@ -28,7 +28,7 @@ class PurgeOrphanBlobsRequest(BaseModel):
 @router.get("/analytics/summary")
 def admin_analytics_summary(
     since: Optional[str] = Query(None),
-    days: int = Query(7, ge=1, le=365),
+    days: int = Query(90, ge=1, le=365),
     _: str = Depends(require_admin),
 ):
     return analytics.analytics_summary(since=since, days=days)
@@ -37,12 +37,26 @@ def admin_analytics_summary(
 @router.get("/analytics/search-quality")
 def admin_search_quality(
     since: Optional[str] = Query(None),
+    days: Optional[int] = Query(None, ge=1, le=365),
     limit: int = Query(50, ge=1, le=500),
     weak_score_threshold: Optional[float] = Query(None),
     _: str = Depends(require_admin),
 ):
+    resolved_since = since
+    if resolved_since is None and days is not None:
+        from datetime import datetime, timedelta
+
+        resolved_since = (datetime.utcnow() - timedelta(days=days)).isoformat()
+    elif resolved_since is None:
+        from datetime import datetime, timedelta
+
+        from imagecb.config import SETTINGS
+
+        resolved_since = (
+            datetime.utcnow() - timedelta(days=SETTINGS.telemetry_default_window_days)
+        ).isoformat()
     return analytics.search_quality_lists(
-        since=since,
+        since=resolved_since,
         limit=limit,
         weak_score_threshold=weak_score_threshold,
     )

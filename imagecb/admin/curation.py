@@ -25,7 +25,7 @@ from imagecb.paths import (
 )
 from imagecb.storage import blob_store, bm25_index, metadata_db, vector_store
 from imagecb.storage.metadata_db import ImageRecord, get_all_records, session_scope
-from imagecb.telemetry.models import InteractionEvent, SearchEvent
+from imagecb.telemetry import s3_store
 from imagecb.telemetry.schema import ensure_telemetry_schema
 from imagecb.admin.audit import append_audit
 from imagecb.caption.quality import needs_regeneration
@@ -269,25 +269,11 @@ def restore_image(*, image_id: str, actor: str) -> None:
 
 
 def _all_served_image_ids() -> set[str]:
-    ensure_telemetry_schema()
-    served: set[str] = set()
-    with session_scope() as s:
-        rows = s.execute(select(SearchEvent.served_image_ids_json)).all()
-        for (raw,) in rows:
-            try:
-                ids = json.loads(raw or "[]")
-                if isinstance(ids, list):
-                    served.update(str(x) for x in ids)
-            except json.JSONDecodeError:
-                continue
-    return served
+    return s3_store.all_served_image_ids()
 
 
 def _all_interacted_image_ids() -> set[str]:
-    ensure_telemetry_schema()
-    with session_scope() as s:
-        rows = s.execute(select(InteractionEvent.image_id).distinct()).all()
-        return {r[0] for r in rows}
+    return s3_store.all_interacted_image_ids()
 
 
 def corpus_health_summary() -> dict:
