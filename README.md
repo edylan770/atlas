@@ -137,7 +137,8 @@ Edited images submitted via **Add to database** appear under Admin → **Pending
 |---------|------|
 | Chat, similar, deck suggest, image/source downloads, Nano Banana edit sessions | **Open** (no API key) |
 | Ingest (`/api/ingest*`) and all `/api/admin/*` | `ADMIN_API_KEY` via `X-Admin-Api-Key` or `Authorization: Bearer <key>` |
-| Pipeline Lab (`/lab`, `/api/lab/*`) | **Open** (experimental; disable by removing the experiments router if undesired) |
+| Pipeline Lab page (`GET /lab`) | **Open** shell; Compare requires admin session key from `/admin` |
+| Pipeline Lab APIs (`/api/lab/*`) | `ADMIN_API_KEY` via `X-Admin-Api-Key` (same as admin UI) |
 
 The admin UI stores the key in the browser after login. For scripts:
 
@@ -372,7 +373,7 @@ The repo ships a pre-built React bundle at `imagecb/web/frontend_dist/` (no loca
 | http://127.0.0.1:8080/ | Chat search |
 | http://127.0.0.1:8080/deck | Deck suggest |
 | http://127.0.0.1:8080/admin | Admin (`ADMIN_API_KEY`) |
-| http://127.0.0.1:8080/lab | Pipeline Lab (experimental) |
+| http://127.0.0.1:8080/lab | Pipeline Lab (experimental; admin key required to Compare) |
 
 If `frontend_dist` is missing, `serve-web` serves the API only (rebuild the frontend and run `python scripts/sync_frontend_dist.py`).
 
@@ -468,7 +469,7 @@ Gate with `ADMIN_API_KEY` (entered in the browser after unlock; kept in sessionS
 
 ### Pipeline Lab (`/lab`)
 
-Open experimental UI (no admin key) to compare ranking variants for one query (`GET /api/lab/variants`, `POST /api/lab/compare` / stream). **Not** production chat. Variant labels in the lab UI may still describe older 3-lane + rerank baselines; production chat is 2-lane RRF fusion only (see [How it works](#how-it-works)). Remove by deleting `imagecb/experiments` and its router registration in `imagecb/api/server.py`.
+Experimental UI to compare ranking variants for one query (`GET /api/lab/variants`, `POST /api/lab/compare` / stream). The page shell is public; Compare calls require the same admin API key stored when signing in at `/admin` (sent as `X-Admin-Api-Key`). **Not** production chat. Variant labels in the lab UI may still describe older 3-lane + rerank baselines; production chat is 2-lane RRF fusion only (see [How it works](#how-it-works)). Remove by deleting `imagecb/experiments` and its router registration in `imagecb/api/server.py`.
 
 ### Notable APIs
 
@@ -660,7 +661,7 @@ tests/             Pytest suite
 
 ## Notes / limitations
 
-- Single-process deployment. Chat/search/deck/lab are open unless you front the service with auth or network policy; admin and ingest require `ADMIN_API_KEY`.
+- Single-process deployment. Chat/search/deck are open unless you front the service with auth or network policy; admin, ingest, and Pipeline Lab APIs require `ADMIN_API_KEY`.
 - Chat sessions are in-memory; process restart clears multi-turn context (conversation UI history in the browser is separate).
 - No live folder watcher — re-run `ingest` or use **Add to Database**.
 - Aimed at hundreds to low thousands of images; for larger corpora consider Qdrant/Milvus and OpenSearch/Tantivy.

@@ -1,8 +1,9 @@
 """FastAPI routes for the isolated Pipeline Lab.
 
-Exposes a standalone comparison page at ``GET /lab`` and JSON/SSE endpoints
-under ``/api/lab``. Self-contained: delete this package and the lab_router
-block in ``imagecb/api/server.py`` to fully remove the feature.
+Exposes a standalone comparison page at ``GET /lab`` (public shell) and
+admin-gated JSON/SSE endpoints under ``/api/lab``. Self-contained: delete
+this package and the lab router block in ``imagecb/api/server.py`` to fully
+remove the feature.
 """
 
 from __future__ import annotations
@@ -26,10 +27,11 @@ from imagecb.experiments.variants import (
 
 logger = logging.getLogger(__name__)
 
-# Every lab request runs multiple Bedrock calls (parse + search + rerank per
-# variant); admin-gate the whole router so anonymous traffic can't spend or
-# trigger the hubness rebuild.
-lab_router = APIRouter(dependencies=[Depends(require_admin)])
+# Page shell is public (browser navigation cannot send custom auth headers).
+# API routes run multiple Bedrock calls per compare; admin-gate them so
+# anonymous traffic can't spend or trigger the hubness rebuild.
+lab_page_router = APIRouter()
+lab_api_router = APIRouter(dependencies=[Depends(require_admin)])
 
 _LAB_HTML = Path(__file__).resolve().parent / "lab.html"
 
@@ -44,19 +46,19 @@ def _sse_event(payload: dict) -> str:
     return f"data: {json.dumps(payload)}\n\n"
 
 
-@lab_router.get("/lab")
+@lab_page_router.get("/lab")
 def lab_page() -> FileResponse:
     if not _LAB_HTML.is_file():
         raise HTTPException(status_code=404, detail="lab.html not found")
     return FileResponse(_LAB_HTML, media_type="text/html")
 
 
-@lab_router.get("/api/lab/variants")
+@lab_api_router.get("/api/lab/variants")
 def lab_variants() -> dict:
     return {"variants": variant_catalog()}
 
 
-@lab_router.post("/api/lab/compare")
+@lab_api_router.post("/api/lab/compare")
 def lab_compare(body: CompareRequest) -> dict:
     """Run all variants (or one if ``variant`` is set) and return JSON."""
     try:
@@ -70,7 +72,7 @@ def lab_compare(body: CompareRequest) -> dict:
         raise HTTPException(status_code=500, detail="Lab comparison failed") from exc
 
 
-@lab_router.post("/api/lab/compare/stream")
+@lab_api_router.post("/api/lab/compare/stream")
 def lab_compare_stream(body: CompareRequest) -> StreamingResponse:
     """Stream variants as Server-Sent Events so columns render progressively."""
     query = (body.query or "").strip()

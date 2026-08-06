@@ -241,13 +241,43 @@ def _daterange(start: date, end: date) -> Iterable[date]:
         cur += timedelta(days=1)
 
 
+def _parse_dt_token(token: str) -> Optional[date]:
+    """Parse ``dt=YYYY-MM-DD`` or ``dt=YYYY-MM-DD.json`` partition tokens."""
+    if not token.startswith("dt="):
+        return None
+    raw = token[3:]
+    if raw.endswith(".json"):
+        raw = raw[: -len(".json")]
+    if raw.endswith(".json.gz"):
+        raw = raw[: -len(".json.gz")]
+    try:
+        return date.fromisoformat(raw[:10])
+    except ValueError:
+        return None
+
+
+def _existing_dates_under(kind_prefix: str, *, start: date, end: date) -> list[date]:
+    """Return partition dates that already have objects (avoids 90 empty GETs)."""
+    found: set[date] = set()
+    for key in _list_under(kind_prefix):
+        for part in PurePosixPath(key).parts:
+            parsed = _parse_dt_token(part)
+            if parsed is None:
+                continue
+            if start <= parsed <= end:
+                found.add(parsed)
+    return sorted(found)
+
+
 def load_rollups(*, since: datetime, until: Optional[datetime] = None) -> dict[str, int]:
     end = until or _utc_now()
     start = max(since, retention_cutoff())
     totals = dict(EMPTY_ROLLUP)
     if start > end:
         return totals
-    for day in _daterange(start.date(), end.date()):
+    rollup_prefix = blobs._key(_prefix(), "rollups", "daily")
+    days = _existing_dates_under(rollup_prefix, start=start.date(), end=end.date())
+    for day in days:
         rollup = load_daily_rollup(day.isoformat())
         for key in EMPTY_ROLLUP:
             totals[key] += int(rollup.get(key, 0) or 0)
@@ -270,7 +300,9 @@ def iter_search_events(*, since: datetime, until: Optional[datetime] = None) -> 
     start = max(since, retention_cutoff())
     if start > end:
         return
-    for day in _daterange(start.date(), end.date()):
+    search_prefix = blobs._key(_prefix(), "searches")
+    days = _existing_dates_under(search_prefix, start=start.date(), end=end.date())
+    for day in days:
         for event in _iter_partition_events("searches", day):
             created = _parse_created_at(event.get("created_at"))
             if created is None or created < start or created > end:
@@ -287,7 +319,9 @@ def iter_interaction_events(
     start = max(since, retention_cutoff())
     if start > end:
         return
-    for day in _daterange(start.date(), end.date()):
+    interaction_prefix = blobs._key(_prefix(), "interactions")
+    days = _existing_dates_under(interaction_prefix, start=start.date(), end=end.date())
+    for day in days:
         for event in _iter_partition_events("interactions", day):
             created = _parse_created_at(event.get("created_at"))
             if created is None or created < start or created > end:

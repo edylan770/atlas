@@ -157,9 +157,10 @@ def create_app() -> FastAPI:
     app.include_router(admin_router)
 
     # --- Pipeline Lab (experimental, remove this block + imagecb/experiments to uninstall) ---
-    from imagecb.experiments.routes import lab_router
+    from imagecb.experiments.routes import lab_api_router, lab_page_router
 
-    app.include_router(lab_router)
+    app.include_router(lab_page_router)
+    app.include_router(lab_api_router)
     # --- end Pipeline Lab ---
 
     static, _kind = resolve_static_dir()

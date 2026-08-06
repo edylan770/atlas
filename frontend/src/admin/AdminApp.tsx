@@ -297,6 +297,7 @@ function QualityPage() {
           ))}
         </div>
       </div>
+      <QualityTable title="Recent searches" items={data.recent ?? []} />
       <QualityTable title="Zero results" items={data.zero_result} />
       <QualityTable title="Weak results" items={data.weak_result} />
       <QualityTable title="No interaction" items={data.no_interaction} />

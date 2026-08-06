@@ -166,6 +166,17 @@
       }
       .state { color: var(--muted); font-size: 12px; padding: 8px 4px; }
       .err { color: #ff7676; font-size: 12px; padding: 8px 4px; }
+      .gate {
+        margin: 14px 20px 0;
+        padding: 12px 14px;
+        border: 1px solid var(--border);
+        border-radius: 8px;
+        background: var(--panel);
+        color: var(--muted);
+        font-size: 13px;
+      }
+      .gate a { color: var(--accent); }
+      .gate.hidden { display: none; }
       .spinner {
         display: inline-block;
         width: 12px; height: 12px;
@@ -182,8 +193,13 @@
   <body>
     <header>
       <h1>Pipeline Lab</h1>
-      <p>Compare query-time ranking pipelines for a single text query against the current index. Experimental &amp; isolated.</p>
+      <p>Compare query-time ranking pipelines for a single text query against the current index. Experimental &amp; isolated. Requires admin login.</p>
     </header>
+
+    <div class="gate" id="auth-gate">
+      Sign in at <a href="/admin">/admin</a> with the admin API key, then return here.
+      The lab reuses the same browser session key.
+    </div>
 
     <div class="controls">
       <input
@@ -205,6 +221,8 @@
     <div class="board" id="board"></div>
 
     <script>
+      const ADMIN_KEY_STORAGE = "imagecb.adminApiKey";
+
       const $ = (id) => document.getElementById(id);
       const board = $("board");
       const parsed = $("parsed");
@@ -212,8 +230,29 @@
       const topkVal = $("topk-val");
       const runBtn = $("run");
       const queryInput = $("query");
+      const authGate = $("auth-gate");
 
       const columns = {};
+
+      function getAdminApiKey() {
+        return sessionStorage.getItem(ADMIN_KEY_STORAGE) || null;
+      }
+
+      function syncAuthGate() {
+        const key = getAdminApiKey();
+        if (key) {
+          authGate.classList.add("hidden");
+          runBtn.disabled = false;
+          queryInput.disabled = false;
+          topk.disabled = false;
+        } else {
+          authGate.classList.remove("hidden");
+          runBtn.disabled = true;
+          queryInput.disabled = true;
+          topk.disabled = true;
+        }
+        return key;
+      }
 
       topk.addEventListener("input", () => (topkVal.textContent = topk.value));
 
@@ -221,6 +260,16 @@
         return String(s || "").replace(/[&<>"']/g, (c) => ({
           "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;",
         }[c]));
+      }
+
+      async function readErrorDetail(res) {
+        try {
+          const body = await res.json();
+          if (body && body.detail) return String(body.detail);
+        } catch {
+          /* ignore */
+        }
+        return res.statusText || ("HTTP " + res.status);
       }
 
       function makeColumn(v) {
@@ -282,6 +331,12 @@
       }
 
       async function run() {
+        const key = syncAuthGate();
+        if (!key) {
+          parsed.innerHTML =
+            `<span class="err">Admin API key required. Sign in at <a href="/admin">/admin</a> first.</span>`;
+          return;
+        }
         const query = queryInput.value.trim();
         if (!query) {
           queryInput.focus();
@@ -296,11 +351,20 @@
         try {
           const res = await fetch("/api/lab/compare/stream", {
             method: "POST",
-            headers: { "Content-Type": "application/json" },
+            headers: {
+              "Content-Type": "application/json",
+              "X-Admin-Api-Key": key,
+            },
             body: JSON.stringify({ query, top_k: Number(topk.value) }),
           });
           if (!res.ok || !res.body) {
-            throw new Error("Request failed: " + res.status);
+            const detail = await readErrorDetail(res);
+            if (res.status === 401 || res.status === 403) {
+              throw new Error(
+                detail + " — sign in again at /admin, then return here."
+              );
+            }
+            throw new Error(detail || ("Request failed: " + res.status));
           }
           const reader = res.body.getReader();
           const decoder = new TextDecoder();
@@ -320,8 +384,8 @@
         } catch (err) {
           parsed.innerHTML = `<span class="err">${escapeHtml(err.message)}</span>`;
         } finally {
-          runBtn.disabled = false;
           runBtn.textContent = "Compare";
+          syncAuthGate();
         }
       }
 
@@ -345,10 +409,12 @@
         }
       }
 
+      syncAuthGate();
       runBtn.addEventListener("click", run);
       queryInput.addEventListener("keydown", (e) => {
         if (e.key === "Enter") run();
       });
+      window.addEventListener("focus", syncAuthGate);
     </script>
   </body>
 </html>

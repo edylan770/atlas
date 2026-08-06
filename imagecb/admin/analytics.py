@@ -103,12 +103,15 @@ def search_quality_lists(
     zero_rows: list[dict] = []
     weak_rows: list[dict] = []
     no_ix_rows: list[dict] = []
+    recent_rows: list[dict] = []
 
     for row in events:
         result_count = int(row.get("result_count") or 0)
         top_score = row.get("top_score")
         eid = str(row.get("id") or "")
 
+        if len(recent_rows) < limit:
+            recent_rows.append(_event_dict(row, category="recent"))
         if result_count == 0 and len(zero_rows) < limit:
             zero_rows.append(_event_dict(row, category="zero_result"))
         if (
@@ -126,13 +129,15 @@ def search_quality_lists(
             no_ix_rows.append(_event_dict(row, category="no_interaction"))
 
         if (
-            len(zero_rows) >= limit
+            len(recent_rows) >= limit
+            and len(zero_rows) >= limit
             and len(weak_rows) >= limit
             and len(no_ix_rows) >= limit
         ):
             break
 
     payload = {
+        "recent": recent_rows,
         "zero_result": zero_rows,
         "weak_result": weak_rows,
         "no_interaction": no_ix_rows,

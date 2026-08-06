@@ -124,11 +124,13 @@ def test_search_quality_categories(telemetry_dir):
     zero_ids = {r["search_event_id"] for r in data["zero_result"]}
     weak_ids = {r["search_event_id"] for r in data["weak_result"]}
     no_ix_ids = {r["search_event_id"] for r in data["no_interaction"]}
+    recent_ids = {r["search_event_id"] for r in data["recent"]}
 
     assert zero_id in zero_ids
     assert weak_id in weak_ids
     assert no_ix_id in no_ix_ids
     assert served_id not in no_ix_ids
+    assert {zero_id, weak_id, served_id, no_ix_id} <= recent_ids
 
 
 def test_display_query_prefers_semantic_for_chat(telemetry_dir):

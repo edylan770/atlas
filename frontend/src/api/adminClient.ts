@@ -66,6 +66,7 @@ export interface AnalyticsSummary {
 }
 
 export interface SearchQualityLists {
+  recent: SearchQualityItem[];
   zero_result: SearchQualityItem[];
   weak_result: SearchQualityItem[];
   no_interaction: SearchQualityItem[];
