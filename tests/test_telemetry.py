@@ -106,3 +106,28 @@ def test_interaction_rejects_unknown_image(telemetry_dir):
             image_id="other",
             interaction_type="view",
         )
+
+
+def test_bump_daily_rollup_does_not_wipe_on_transient_get(telemetry_dir, monkeypatch):
+    """Transient S3 GET failure must not overwrite an existing rollup with zeros+delta."""
+    dt = s3_store._dt_str(datetime.utcnow())
+    s3_store.bump_daily_rollup(dt, {"total_searches": 10, "interaction_count": 3})
+    before = s3_store.load_daily_rollup(dt)
+    assert before["total_searches"] == 10
+
+    key = s3_store.daily_rollup_key(dt)
+    real_get_raw = s3_store._get_raw
+
+    def flaky_get(k: str, *, strict: bool = False):
+        if k == key:
+            raise RuntimeError("simulated S3 timeout")
+        return real_get_raw(k, strict=strict)
+
+    monkeypatch.setattr(s3_store, "_get_raw", flaky_get)
+    with pytest.raises(RuntimeError, match="simulated S3 timeout"):
+        s3_store.bump_daily_rollup(dt, {"total_searches": 1})
+
+    monkeypatch.setattr(s3_store, "_get_raw", real_get_raw)
+    after = s3_store.load_daily_rollup(dt)
+    assert after["total_searches"] == 10
+    assert after["interaction_count"] == 3

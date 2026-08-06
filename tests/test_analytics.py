@@ -187,7 +187,7 @@ def test_event_dict_includes_timing_fields(telemetry_dir):
     assert row["timing_log"].endswith("query-logs/x.txt")
 
 
-def test_analytics_summary_from_rollups(telemetry_dir):
+def test_analytics_summary_from_events(telemetry_dir):
     _add_search(result_count=0, top_score=None, served=[])
     weak = _add_search(result_count=1, top_score=0.1, served=["a"])
     good = _add_search(result_count=1, top_score=0.9, served=["b"])
@@ -201,3 +201,50 @@ def test_analytics_summary_from_rollups(telemetry_dir):
     assert summary["no_interaction_count"] == 1  # weak still no interaction
     assert summary["interaction_count"] == 1
     assert weak  # silence unused if needed
+
+
+def test_analytics_summary_ignores_missing_rollups(telemetry_dir):
+    """Dashboard counts come from events even when daily rollups were never written."""
+    eid = str(uuid.uuid4())
+    created = datetime.utcnow()
+    s3_store.put_search_event(
+        {
+            "id": eid,
+            "created_at": created.isoformat(),
+            "query_text": "no rollup",
+            "user_id": "u",
+            "session_id": None,
+            "search_kind": "chat",
+            "served_image_ids": ["x"],
+            "result_count": 1,
+            "top_score": 0.9,
+            "top_score_kind": "rerank",
+            "parsed_semantic_query": None,
+            "has_interaction": False,
+        }
+    )
+    # Intentionally do not call bump_daily_rollup
+    assert s3_store.load_daily_rollup(s3_store._dt_str(created))["total_searches"] == 0
+
+    summary = analytics.analytics_summary(days=90)
+    assert summary["total_searches"] == 1
+    assert summary["searches_with_results"] == 1
+    assert summary["no_interaction_count"] == 1
+
+
+def test_analytics_summary_ignores_corrupted_rollups(telemetry_dir):
+    """Stale/wiped rollups must not undercount relative to event files."""
+    _add_search(result_count=1, top_score=0.5, served=["a"])
+    _add_search(result_count=0, top_score=None, served=[])
+    dt = s3_store._dt_str(datetime.utcnow())
+    # Simulate a wiped / raced rollup
+    s3_store.put_json(
+        s3_store.daily_rollup_key(dt),
+        {**s3_store.EMPTY_ROLLUP, "dt": dt, "total_searches": 0},
+    )
+    assert s3_store.load_daily_rollup(dt)["total_searches"] == 0
+
+    summary = analytics.analytics_summary(days=90)
+    assert summary["total_searches"] == 2
+    assert summary["zero_result_count"] == 1
+    assert summary["searches_with_results"] == 1

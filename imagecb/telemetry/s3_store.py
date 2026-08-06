@@ -25,8 +25,9 @@ logger = logging.getLogger(__name__)
 
 _VERSION = "v1"
 _rollup_lock = threading.Lock()
-_quality_cache_lock = threading.Lock()
-_quality_cache: dict[str, Any] = {"key": None, "expires": 0.0, "payload": None}
+_telemetry_cache_lock = threading.Lock()
+# cache_key -> (expires_monotonic, payload)
+_telemetry_cache: dict[str, tuple[float, Any]] = {}
 
 EMPTY_ROLLUP: dict[str, int] = {
     "total_searches": 0,
@@ -81,19 +82,28 @@ def _put_raw(key: str, data: bytes, *, content_type: str) -> None:
     blobs.put_bytes(data, key, content_type=content_type)
 
 
-def _get_raw(key: str) -> Optional[bytes]:
+def _get_raw(key: str, *, strict: bool = False) -> Optional[bytes]:
+    """Read object bytes. Missing → None. Other errors: raise if strict, else None."""
     if SETTINGS.blob_storage_backend == "s3" and SETTINGS.s3_bucket:
         try:
             return blobs.read_bytes(blobs.s3_uri(key))
         except Exception as exc:  # noqa: BLE001
             if blobs.is_missing_blob_error(exc):
                 return None
+            if strict:
+                raise
             logger.warning("telemetry get failed for %s: %s", key, exc)
             return None
     path = SETTINGS.data_dir.joinpath(*PurePosixPath(key).parts)
-    if path.is_file():
-        return path.read_bytes()
-    return None
+    try:
+        if path.is_file():
+            return path.read_bytes()
+        return None
+    except OSError:
+        if strict:
+            raise
+        logger.warning("telemetry get failed for %s", key, exc_info=True)
+        return None
 
 
 def _list_under(prefix: str) -> List[str]:
@@ -143,14 +153,16 @@ def put_json(key: str, payload: dict) -> None:
     _put_raw(key, raw, content_type="application/json")
 
 
-def get_json(key: str) -> Optional[dict]:
-    data = _get_raw(key)
+def get_json(key: str, *, strict: bool = False) -> Optional[dict]:
+    data = _get_raw(key, strict=strict)
     if data is None:
         return None
     try:
         loaded = json.loads(data.decode("utf-8"))
         return loaded if isinstance(loaded, dict) else None
     except (json.JSONDecodeError, UnicodeDecodeError) as exc:
+        if strict:
+            raise
         logger.warning("telemetry json decode failed for %s: %s", key, exc)
         return None
 
@@ -203,11 +215,10 @@ def put_interaction_event(event: dict) -> None:
     put_gzip_json(interaction_event_key(dt, interaction_id), event)
 
 
-def load_daily_rollup(dt: str) -> dict[str, int]:
-    loaded = get_json(daily_rollup_key(dt))
-    if not loaded:
-        return dict(EMPTY_ROLLUP)
+def _parse_rollup_payload(loaded: Optional[dict]) -> dict[str, int]:
     out = dict(EMPTY_ROLLUP)
+    if not loaded:
+        return out
     for key in EMPTY_ROLLUP:
         try:
             out[key] = int(loaded.get(key, 0) or 0)
@@ -216,9 +227,17 @@ def load_daily_rollup(dt: str) -> dict[str, int]:
     return out
 
 
+def load_daily_rollup(dt: str) -> dict[str, int]:
+    """Best-effort rollup read (missing/errors → empty). Not used for RMW bumps."""
+    return _parse_rollup_payload(get_json(daily_rollup_key(dt)))
+
+
 def bump_daily_rollup(dt: str, deltas: Dict[str, int]) -> dict[str, int]:
+    """Atomically bump counters. Transient GET failures raise — never overwrite with zeros."""
     with _rollup_lock:
-        current = load_daily_rollup(dt)
+        # strict=True: only treat true missing as empty; network/S3 errors abort the bump
+        loaded = get_json(daily_rollup_key(dt), strict=True)
+        current = _parse_rollup_payload(loaded)
         for key, delta in deltas.items():
             if key not in current:
                 current[key] = 0
@@ -364,23 +383,23 @@ def all_interacted_image_ids() -> set[str]:
 
 
 def invalidate_quality_cache() -> None:
-    with _quality_cache_lock:
-        _quality_cache["key"] = None
-        _quality_cache["expires"] = 0.0
-        _quality_cache["payload"] = None
+    """Clear analytics caches (search quality lists + dashboard summary)."""
+    with _telemetry_cache_lock:
+        _telemetry_cache.clear()
 
 
 def get_quality_cache(cache_key: str) -> Optional[Any]:
-    with _quality_cache_lock:
-        if _quality_cache["key"] == cache_key and time.monotonic() < float(
-            _quality_cache["expires"]
-        ):
-            return _quality_cache["payload"]
+    with _telemetry_cache_lock:
+        entry = _telemetry_cache.get(cache_key)
+        if entry is None:
+            return None
+        expires, payload = entry
+        if time.monotonic() < expires:
+            return payload
+        _telemetry_cache.pop(cache_key, None)
     return None
 
 
 def set_quality_cache(cache_key: str, payload: Any, *, ttl_sec: float = 60.0) -> None:
-    with _quality_cache_lock:
-        _quality_cache["key"] = cache_key
-        _quality_cache["expires"] = time.monotonic() + ttl_sec
-        _quality_cache["payload"] = payload
+    with _telemetry_cache_lock:
+        _telemetry_cache[cache_key] = (time.monotonic() + ttl_sec, payload)

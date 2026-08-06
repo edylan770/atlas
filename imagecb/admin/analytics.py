@@ -200,16 +200,50 @@ def analytics_summary(
     if since_dt < cutoff:
         since_dt = cutoff
 
-    totals = s3_store.load_rollups(since=since_dt)
-    total = int(totals["total_searches"])
-    zero = int(totals["zero_result_count"])
-    weak = int(totals["weak_result_count"])
-    with_results = int(totals["searches_with_results"])
-    no_ix = int(totals["no_interaction_count"])
-    interaction_count = int(totals["interaction_count"])
+    threshold = SETTINGS.weak_result_score_threshold
+    cache_key = f"summary|{since_dt.isoformat()}|{days}|{threshold}"
+    cached = s3_store.get_quality_cache(cache_key)
+    if cached is not None:
+        return cached
+
+    # Event files are the source of truth (same store Search quality uses).
+    # Daily rollups are best-effort only and may lag or be wiped by RMW races.
+    events = list(s3_store.iter_search_events(since=since_dt))
+    interactions = list(s3_store.iter_interaction_events(since=since_dt))
+    interacted = {
+        str(e.get("id"))
+        for e in events
+        if e.get("has_interaction")
+    }
+    interacted |= {
+        str(i["search_event_id"])
+        for i in interactions
+        if i.get("search_event_id")
+    }
+
+    total = 0
+    zero = 0
+    weak = 0
+    with_results = 0
+    no_ix = 0
+    for row in events:
+        total += 1
+        result_count = int(row.get("result_count") or 0)
+        top_score = row.get("top_score")
+        eid = str(row.get("id") or "")
+        if result_count == 0:
+            zero += 1
+        else:
+            with_results += 1
+            if top_score is not None and float(top_score) < threshold:
+                weak += 1
+            if eid not in interacted:
+                no_ix += 1
+
+    interaction_count = len(interactions)
 
     ctr = (interaction_count / with_results) if with_results else 0.0
-    return {
+    payload = {
         "since": since_dt.isoformat(),
         "total_searches": total,
         "zero_result_count": zero,
@@ -221,7 +255,9 @@ def analytics_summary(
         "zero_result_rate": round(zero / total, 4) if total else 0.0,
         "weak_result_rate": round(weak / total, 4) if total else 0.0,
         "no_interaction_rate": round(no_ix / with_results, 4) if with_results else 0.0,
-        "weak_score_threshold": SETTINGS.weak_result_score_threshold,
+        "weak_score_threshold": threshold,
         "retention_days": SETTINGS.telemetry_retention_days,
         "window_days": days,
     }
+    s3_store.set_quality_cache(cache_key, payload)
+    return payload
