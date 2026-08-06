@@ -1,10 +1,10 @@
-"""LLM-generated empty-state query suggestions with in-process cache."""
+"""LLM-generated empty-state query suggestions."""
 
 from __future__ import annotations
 
 import json
+import random
 import re
-import time
 from dataclasses import dataclass
 from typing import List, Optional, Sequence, Tuple
 
@@ -16,6 +16,8 @@ from imagecb.suggestions.corpus_summary import (
     build_corpus_context,
     context_to_prompt_text,
 )
+
+_SUGGESTION_TEMPERATURE = 0.8
 
 SUGGESTIONS_SYSTEM_PROMPT = """You suggest starter search queries for an image search app over \
 ingested slides, PDFs, and standalone images.
@@ -29,6 +31,7 @@ Rules:
 Never invent assets or topics.
 - Never reference source filenames ("images from X.pptx"); filenames in the context are for \
 grounding only.
+- Vary phrasing across requests; prefer diverse topics from the corpus when several are available.
 - Do not include markdown, code fences, or explanation outside the JSON object."""
 
 ONBOARDING_SUGGESTIONS = [
@@ -62,6 +65,8 @@ _FILENAME_FILTER_RE = re.compile(
 )
 _FILENAME_EXT_RE = re.compile(r"\.(?:pptx?|pdf|docx?|xlsx?|png|jpe?g|gif|webp|bmp|tiff?)\b", re.IGNORECASE)
 
+# Retained for tests that clear it; result caching is disabled so each new-chat
+# fetch can get fresh LLM suggestions.
 _cache: dict[str, Tuple[float, List[str]]] = {}
 
 
@@ -69,10 +74,6 @@ _cache: dict[str, Tuple[float, List[str]]] = {}
 class SuggestionsResult:
     suggestions: List[str]
     cached: bool
-
-
-def _cache_key(ctx: CorpusContext, limit: int) -> str:
-    return f"{ctx.fingerprint}|limit:{limit}"
 
 
 def _coerce_suggestions_json(raw: str) -> List[str]:
@@ -285,9 +286,12 @@ def _user_payload(ctx: CorpusContext, limit: int) -> str:
         blocks.append("Corpus topics:\n" + fence("corpus_topics", "\n".join(topic_lines)))
     blocks.append("Corpus context:\n" + fence("corpus_context", context_to_prompt_text(ctx)))
     blocks.insert(0, DATA_GUARD_INSTRUCTION)
+    nonce = random.randint(1000, 9999)
     blocks.append(
         f"Generate exactly {limit} semantic, topic-based suggestions. "
-        "Never use filename-filter phrasing."
+        "Never use filename-filter phrasing. "
+        f"Variation seed {nonce}: vary phrasing and topic mix; "
+        "do not repeat generic stock phrases."
     )
     return "\n\n".join(blocks)
 
@@ -339,7 +343,7 @@ class SuggestionLLM:
             modelId=self.model,
             system=[{"text": system}],
             messages=[{"role": "user", "content": [{"text": user_payload}]}],
-            inferenceConfig={"temperature": 0.3, "maxTokens": 400},
+            inferenceConfig={"temperature": _SUGGESTION_TEMPERATURE, "maxTokens": 400},
         )
         parts = [
             block.get("text", "")
@@ -357,7 +361,7 @@ class SuggestionLLM:
                 {"role": "system", "content": system},
                 {"role": "user", "content": user_payload},
             ],
-            temperature=0.3,
+            temperature=_SUGGESTION_TEMPERATURE,
         )
         return resp.choices[0].message.content or "{}"
 
@@ -366,6 +370,7 @@ class SuggestionLLM:
         msg = client.messages.create(
             model=self.model,
             max_tokens=400,
+            temperature=_SUGGESTION_TEMPERATURE,
             system=system,
             messages=[{"role": "user", "content": user_payload}],
         )
@@ -401,7 +406,11 @@ def generate_suggestions(
     limit: Optional[int] = None,
     ctx: Optional[CorpusContext] = None,
 ) -> SuggestionsResult:
-    """Return suggested queries; uses cache keyed by corpus fingerprint."""
+    """Return suggested queries via LLM, with heuristic fallback.
+
+    Results are not cached so each new-chat empty-state fetch can vary.
+    Corpus context itself remains briefly cached in corpus_summary.
+    """
     n = limit if limit is not None else SETTINGS.suggestions_limit
     n = max(2, min(8, n))
     corpus = ctx if ctx is not None else build_corpus_context()
@@ -412,20 +421,9 @@ def generate_suggestions(
             cached=False,
         )
 
-    key = _cache_key(corpus, n)
-    now = time.monotonic()
-    ttl = SETTINGS.suggestions_cache_ttl_sec
-    cached_entry = _cache.get(key)
-    if cached_entry is not None:
-        ts, items = cached_entry
-        if now - ts < ttl and len(items) >= 2:
-            return SuggestionsResult(
-                suggestions=_trim_suggestions(items, n),
-                cached=True,
-            )
+    try:
+        items = _llm_suggestions(corpus, n)
+    except Exception:  # noqa: BLE001
+        items = _corpus_heuristic_suggestions(corpus, n)
 
-    # Heuristics only on the request path — avoid blocking on Bedrock/OpenAI.
-    items = _corpus_heuristic_suggestions(corpus, n)
-
-    _cache[key] = (now, items)
     return SuggestionsResult(suggestions=items, cached=False)

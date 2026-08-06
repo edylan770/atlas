@@ -1,9 +1,8 @@
-"""Tests for suggestion generation and cache (heuristics on request path)."""
+"""Tests for LLM suggestion generation with heuristic fallback."""
 
 from __future__ import annotations
 
-import time
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 import pytest
 
@@ -74,7 +73,7 @@ def test_empty_corpus_returns_onboarding_without_llm():
     assert result.cached is False
 
 
-def test_indexed_corpus_uses_heuristics_without_llm():
+def test_llm_success_populates_suggestions():
     ctx = _ctx(
         indexed_count=10,
         fingerprint="abc123",
@@ -82,35 +81,87 @@ def test_indexed_corpus_uses_heuristics_without_llm():
         top_tags=("healthcare", "cybersecurity"),
         source_files=(SourceFileStat(name="deck.pptx", source_type="pptx", count=5),),
     )
-    with patch.object(gen_mod, "get_suggestion_llm") as mock_llm:
+    mock_llm = MagicMock()
+    mock_llm.generate.return_value = '{"suggestions": ["A", "B", "C", "D"]}'
+    with patch.object(gen_mod, "get_suggestion_llm", return_value=mock_llm):
         result = generate_suggestions(limit=4, ctx=ctx)
-    mock_llm.assert_not_called()
+    mock_llm.generate.assert_called_once()
+    assert result.suggestions == ["A", "B", "C", "D"]
+    assert "images from" not in " ".join(result.suggestions).lower()
+    assert result.cached is False
+    payload = mock_llm.generate.call_args[0][0]
+    assert "Variation seed" in payload
+
+
+def test_llm_strips_filename_filter_from_output():
+    ctx = _ctx(
+        sample_recommended_cases=("Healthcare technology", "Cybersecurity alerts"),
+        top_tags=("healthcare", "cybersecurity"),
+        source_files=(SourceFileStat(name="report.pptx", source_type="pptx", count=5),),
+        fingerprint="fp-strip",
+    )
+    mock_llm = MagicMock()
+    mock_llm.generate.return_value = (
+        '{"suggestions": ["holographic data analytics", "images from report.pptx", '
+        '"healthcare technology", "cybersecurity alerts"]}'
+    )
+    with patch.object(gen_mod, "get_suggestion_llm", return_value=mock_llm):
+        result = generate_suggestions(limit=4, ctx=ctx)
+    assert "images from report.pptx" not in result.suggestions
+    assert "report.pptx" not in " ".join(result.suggestions).lower()
+    assert len(result.suggestions) == 4
+
+
+def test_llm_failure_falls_back_to_heuristics():
+    ctx = _ctx(
+        indexed_count=10,
+        fingerprint="fail",
+        sample_recommended_cases=("Healthcare technology", "Cybersecurity alerts"),
+        top_tags=("healthcare", "cybersecurity"),
+    )
+    mock_llm = MagicMock()
+    mock_llm.generate.side_effect = RuntimeError("bedrock unavailable")
+    with patch.object(gen_mod, "get_suggestion_llm", return_value=mock_llm):
+        result = generate_suggestions(limit=4, ctx=ctx)
+    mock_llm.generate.assert_called_once()
     assert len(result.suggestions) == 4
     assert "Healthcare technology" in result.suggestions
-    assert "images from" not in " ".join(result.suggestions).lower()
     assert result.cached is False
 
 
-def test_cache_hit_on_second_call():
+def test_thin_llm_parse_falls_back_inside_llm_path():
+    ctx = _ctx(
+        indexed_count=10,
+        sample_recommended_cases=("Healthcare technology", "Cybersecurity alerts"),
+        top_tags=("healthcare",),
+    )
+    mock_llm = MagicMock()
+    mock_llm.generate.return_value = '{"suggestions": ["only-one"]}'
+    with patch.object(gen_mod, "get_suggestion_llm", return_value=mock_llm):
+        result = generate_suggestions(limit=4, ctx=ctx)
+    assert len(result.suggestions) == 4
+    assert "Healthcare technology" in result.suggestions
+
+
+def test_no_sticky_cache_across_requests():
     ctx = _ctx(
         indexed_count=5,
         fingerprint="fp1",
         sample_recommended_cases=("One", "Two", "Three", "Four"),
     )
-    with patch.object(gen_mod, "get_suggestion_llm") as mock_llm:
+    mock_llm = MagicMock()
+    mock_llm.generate.side_effect = [
+        '{"suggestions": ["A1", "A2", "A3", "A4"]}',
+        '{"suggestions": ["B1", "B2", "B3", "B4"]}',
+    ]
+    with patch.object(gen_mod, "get_suggestion_llm", return_value=mock_llm):
         r1 = generate_suggestions(limit=4, ctx=ctx)
         r2 = generate_suggestions(limit=4, ctx=ctx)
-    mock_llm.assert_not_called()
+    assert mock_llm.generate.call_count == 2
     assert r1.cached is False
-    assert r2.cached is True
-    assert r2.suggestions == r1.suggestions
-
-
-def test_cache_key_differs_by_limit():
-    ctx = _ctx(fingerprint="fp1")
-    key_a = gen_mod._cache_key(ctx, 4)
-    key_b = gen_mod._cache_key(ctx, 6)
-    assert key_a != key_b
+    assert r2.cached is False
+    assert r1.suggestions == ["A1", "A2", "A3", "A4"]
+    assert r2.suggestions == ["B1", "B2", "B3", "B4"]
 
 
 def test_heuristic_uses_recommended_cases_not_filename_filters():
@@ -126,7 +177,7 @@ def test_heuristic_uses_recommended_cases_not_filename_filters():
     assert "report.pptx" not in " ".join(items).lower()
 
 
-def test_sparse_indexed_corpus_does_not_use_onboarding():
+def test_sparse_indexed_corpus_llm_failure_does_not_use_onboarding():
     """Indexed rows with thin caption/tag metadata must not show empty-corpus chips."""
     ctx = _ctx(
         indexed_count=50,
@@ -136,28 +187,12 @@ def test_sparse_indexed_corpus_does_not_use_onboarding():
         top_asset_types=(("photo", 30), ("diagram", 20)),
         sample_image_names=("Developer Code Review", "System Architecture"),
     )
-    with patch.object(gen_mod, "get_suggestion_llm") as mock_llm:
+    mock_llm = MagicMock()
+    mock_llm.generate.side_effect = RuntimeError("unavailable")
+    with patch.object(gen_mod, "get_suggestion_llm", return_value=mock_llm):
         result = generate_suggestions(limit=4, ctx=ctx)
-    mock_llm.assert_not_called()
     assert len(result.suggestions) == 4
     assert result.suggestions != ONBOARDING_SUGGESTIONS[:4]
     assert "Upload slides or PDFs" not in result.suggestions
     joined = " ".join(result.suggestions).lower()
     assert "photo" in joined or "developer" in joined or "diagram" in joined
-
-
-def test_cache_expires_after_ttl():
-    ctx = _ctx(
-        indexed_count=2,
-        fingerprint="fp3",
-        sample_recommended_cases=("X", "Y", "Z", "W"),
-    )
-    key = gen_mod._cache_key(ctx, 4)
-    with patch.object(gen_mod, "get_suggestion_llm") as mock_llm:
-        r1 = generate_suggestions(limit=4, ctx=ctx)
-        gen_mod._cache[key] = (time.monotonic() - 10_000, list(r1.suggestions))
-        r2 = generate_suggestions(limit=4, ctx=ctx)
-    mock_llm.assert_not_called()
-    assert r1.cached is False
-    assert r2.cached is False
-    assert r2.suggestions == r1.suggestions
