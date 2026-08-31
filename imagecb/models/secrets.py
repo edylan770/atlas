@@ -4,8 +4,10 @@ from __future__ import annotations
 
 import json
 import logging
+import os
 import threading
-from typing import Optional
+from contextlib import contextmanager
+from typing import Iterator, Optional
 
 from imagecb.config import SETTINGS
 
@@ -45,16 +47,39 @@ def parse_gemini_secret_string(raw: str) -> str:
     return text
 
 
+_AWS_CREDENTIAL_ENV_VARS = (
+    "AWS_ACCESS_KEY_ID",
+    "AWS_SECRET_ACCESS_KEY",
+    "AWS_SESSION_TOKEN",
+)
+
+
+@contextmanager
+def _without_blank_aws_credential_env() -> Iterator[None]:
+    """Drop blank AWS key env vars so boto3 can fall back to the instance role."""
+    saved: dict[str, str] = {}
+    for name in _AWS_CREDENTIAL_ENV_VARS:
+        value = os.environ.get(name)
+        if value is not None and not value.strip():
+            saved[name] = value
+            del os.environ[name]
+    try:
+        yield
+    finally:
+        os.environ.update(saved)
+
+
 def _fetch_from_secrets_manager() -> str:
     import boto3
 
     # Uses the default credential chain (env keys, shared config, instance/task
     # role) — same path as S3 and Bedrock inside Docker/ECS.
-    client = boto3.client(
-        "secretsmanager",
-        region_name=SETTINGS.gemini_secret_region,
-    )
-    resp = client.get_secret_value(SecretId=SETTINGS.gemini_secret_name)
+    with _without_blank_aws_credential_env():
+        client = boto3.client(
+            "secretsmanager",
+            region_name=SETTINGS.gemini_secret_region,
+        )
+        resp = client.get_secret_value(SecretId=SETTINGS.gemini_secret_name)
     if "SecretString" in resp and resp["SecretString"]:
         return parse_gemini_secret_string(resp["SecretString"])
     binary = resp.get("SecretBinary")

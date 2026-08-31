@@ -16,6 +16,8 @@ from imagecb.api.edit_sessions import clear_edit_sessions
 from imagecb.api.server import create_app
 from imagecb.config import SETTINGS
 from imagecb.models.secrets import (
+    _fetch_from_secrets_manager,
+    _without_blank_aws_credential_env,
     nano_banana_status,
     parse_gemini_secret_string,
     reset_gemini_secret_cache,
@@ -88,6 +90,48 @@ def test_nano_banana_status_from_env(monkeypatch):
     assert status["available"] is True
     assert status["source"] == "env"
     assert status["error"] is None
+
+
+def test_without_blank_aws_credential_env_strips_empty_values(monkeypatch):
+    monkeypatch.setenv("AWS_ACCESS_KEY_ID", "")
+    monkeypatch.setenv("AWS_SECRET_ACCESS_KEY", "  ")
+    monkeypatch.setenv("AWS_SESSION_TOKEN", "token")
+
+    with _without_blank_aws_credential_env():
+        assert "AWS_ACCESS_KEY_ID" not in __import__("os").environ
+        assert "AWS_SECRET_ACCESS_KEY" not in __import__("os").environ
+        assert __import__("os").environ.get("AWS_SESSION_TOKEN") == "token"
+
+    assert __import__("os").environ.get("AWS_ACCESS_KEY_ID") == ""
+    assert __import__("os").environ.get("AWS_SECRET_ACCESS_KEY") == "  "
+
+
+def test_fetch_from_secrets_manager_with_blank_aws_env(monkeypatch):
+    monkeypatch.setenv("AWS_ACCESS_KEY_ID", "")
+    monkeypatch.setenv("AWS_SECRET_ACCESS_KEY", "")
+    monkeypatch.setenv("AWS_SESSION_TOKEN", "")
+
+    class _FakeClient:
+        def get_secret_value(self, *, SecretId: str):
+            assert SecretId == "gemini"
+            return {"SecretString": "sm-key-from-aws"}
+
+    def _fake_boto3_client(service_name, *, region_name):
+        assert service_name == "secretsmanager"
+        assert region_name == "us-east-1"
+        return _FakeClient()
+
+    monkeypatch.setattr(
+        "imagecb.models.secrets.SETTINGS",
+        replace(
+            SETTINGS,
+            gemini_secret_name="gemini",
+            gemini_secret_region="us-east-1",
+        ),
+    )
+    monkeypatch.setattr("boto3.client", _fake_boto3_client)
+
+    assert _fetch_from_secrets_manager() == "sm-key-from-aws"
 
 
 def test_nano_banana_status_reports_sm_error(monkeypatch):

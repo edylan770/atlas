@@ -306,6 +306,19 @@ python -m imagecb.cli migrate-blobs-to-s3 --apply
 | Bedrock errors | Refresh `AWS_BEARER_TOKEN_BEDROCK` or check region / model access |
 | `ThrottlingException` / OOM during ingest | Lower `INGEST_WORKERS` and `BEDROCK_MAX_CONCURRENT` (large concurrent ingest can OOM around ~125 images on small instances) |
 | Admin / ingest 503 | Set `ADMIN_API_KEY` in `.env` and recreate the container |
+| Nano Banana unavailable on EC2 | Leave `GEMINI_API_KEY` unset; omit stale `AWS_SESSION_TOKEN` from `.env`; grant instance role `secretsmanager:GetSecretValue` on `gemini-*`; verify `GET /api/edit/status` → `"source":"secrets_manager"` |
+
+### Production EC2 Nano Banana (Secrets Manager)
+
+On EC2, Nano Banana loads the Gemini key from Secrets Manager when `GEMINI_API_KEY` is **not** set in `.env`:
+
+1. **`.env` on the host:** do not set `GEMINI_API_KEY`. Do not copy local dev `AWS_ACCESS_KEY_ID` / `AWS_SECRET_ACCESS_KEY` / `AWS_SESSION_TOKEN` lines (stale session tokens break SM). `AWS_BEARER_TOKEN_BEDROCK` is fine for Bedrock only.
+2. **IAM on the EC2 instance role:** `secretsmanager:GetSecretValue` on `arn:aws:secretsmanager:us-east-1:ACCOUNT:secret:gemini-*` (plus `kms:Decrypt` if the secret uses a customer-managed key).
+3. **Secret value:** plaintext API key or JSON with `api_key` / `GEMINI_API_KEY` / etc. Default secret name `gemini`, region `us-east-1` (`GEMINI_SECRET_NAME` / `GEMINI_SECRET_REGION` to override).
+4. **After deploy:** `docker compose up -d --force-recreate`, then `curl -s http://127.0.0.1:8080/api/edit/status` — expect `"available": true`, `"source": "secrets_manager"`, `"error": null`.
+5. **Outbound HTTPS:** once the key loads, the container must reach Google APIs on port 443.
+
+Root Compose no longer injects empty AWS credential env vars (so the instance role can be used inside the container). Local Docker with real keys in `.env` still works via `env_file`.
 
 ## Usage
 
