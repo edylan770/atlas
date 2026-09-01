@@ -104,6 +104,34 @@ def test_parse_gemini_secret_config_vertex_json():
     assert config.is_vertex is True
 
 
+def test_parse_gemini_secret_config_vertex_express_plaintext_key(monkeypatch):
+    monkeypatch.setattr(
+        "imagecb.models.secrets.SETTINGS",
+        replace(SETTINGS, gemini_vertex_express=False),
+    )
+    config = parse_gemini_secret_config("AQ.test-vertex-express-key")
+    assert config.backend == "vertex_express"
+    assert config.project is None
+
+
+def test_parse_gemini_secret_config_vertex_express_forced_by_env(monkeypatch):
+    monkeypatch.setattr(
+        "imagecb.models.secrets.SETTINGS",
+        replace(SETTINGS, gemini_vertex_express=True),
+    )
+    config = parse_gemini_secret_config("plain-developer-key")
+    assert config.backend == "vertex_express"
+
+
+def test_parse_gemini_secret_config_google_ai_plaintext_without_markers(monkeypatch):
+    monkeypatch.setattr(
+        "imagecb.models.secrets.SETTINGS",
+        replace(SETTINGS, gemini_vertex_express=False),
+    )
+    config = parse_gemini_secret_config("plain-developer-key")
+    assert config.backend == "google_ai"
+
+
 def test_get_gemini_vertex_config_from_env(monkeypatch):
     monkeypatch.setattr(
         "imagecb.models.secrets.SETTINGS",

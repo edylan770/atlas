@@ -32,6 +32,10 @@ services:
       GEMINI_SECRET_NAME: ${GEMINI_SECRET_NAME:-gemini}
       GEMINI_SECRET_REGION: ${GEMINI_SECRET_REGION:-us-east-1}
       NANO_BANANA_MODEL: ${NANO_BANANA_MODEL:-gemini-2.5-flash-image}
+      # Optional: use when the SM secret is a plaintext Vertex Express key (no project_id).
+      GEMINI_VERTEX_PROJECT: ${GEMINI_VERTEX_PROJECT:-}
+      GEMINI_VERTEX_LOCATION: ${GEMINI_VERTEX_LOCATION:-us-central1}
+      GEMINI_VERTEX_EXPRESS: ${GEMINI_VERTEX_EXPRESS:-}
     healthcheck:
       test: ["CMD", "curl", "-f", "http://127.0.0.1:8080/api/health"]
       interval: 30s

@@ -88,6 +88,19 @@ def parse_gemini_secret_string(raw: str) -> str:
     return _parse_secret_payload(raw)[0]
 
 
+def _looks_like_vertex_express_key(api_key: str) -> bool:
+    """Vertex Express keys from GCP console commonly start with AQ."""
+    return (api_key or "").strip().startswith("AQ.")
+
+
+def _use_vertex_express_backend(*, api_key: str, project_id: Optional[str]) -> bool:
+    if project_id:
+        return True
+    if SETTINGS.gemini_vertex_express:
+        return True
+    return _looks_like_vertex_express_key(api_key)
+
+
 def _build_config(
     *,
     api_key: str,
@@ -98,10 +111,13 @@ def _build_config(
     region = (location or SETTINGS.gemini_vertex_location or "us-central1").strip()
     if not region:
         region = "us-central1"
-    # A project marker opts a Secrets Manager payload into Vertex Express.
-    # Express authenticates with the API key alone; project/location remain useful
-    # deployment diagnostics but must not be sent to the standard Vertex endpoint.
-    backend = "vertex_express" if project_id else "google_ai"
+    # Vertex Express authenticates with the API key alone. project/location are
+    # deployment diagnostics only and must not select the ADC/Bearer Vertex endpoint.
+    backend = (
+        "vertex_express"
+        if _use_vertex_express_backend(api_key=api_key, project_id=project_id)
+        else "google_ai"
+    )
     return GeminiConfig(
         api_key=api_key.strip(),
         project=project_id,

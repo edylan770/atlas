@@ -55,6 +55,13 @@ class Settings:
         default_factory=lambda: _env("GEMINI_VERTEX_LOCATION", "us-central1")
         or "us-central1"
     )
+    # Force Vertex Express auth even when the SM secret is a plaintext key (no project_id).
+    gemini_vertex_express: bool = field(
+        default_factory=lambda: (_env("GEMINI_VERTEX_EXPRESS", "") or "")
+        .strip()
+        .lower()
+        in ("1", "true", "yes", "on")
+    )
     nano_banana_model: str = field(
         default_factory=lambda: _env("NANO_BANANA_MODEL", "gemini-2.5-flash-image")
         or "gemini-2.5-flash-image"
