@@ -116,7 +116,7 @@ Embeddings and reranking remain on Bedrock.
 
 ### 5. Optional: Nano Banana 2 (Gemini image edit)
 
-Lightbox **Edit** uses Google Gemini image editing via **Vertex AI** by default
+Lightbox **Edit** uses Google Gemini image editing via **Vertex Express** by default
 (`gemini-2.5-flash-image`). Production loads credentials from Secrets Manager;
 local dev can use `.env` or `.env.gemini.local` (playground only).
 
@@ -129,6 +129,10 @@ local dev can use `.env` or `.env.gemini.local` (playground only).
   "location": "us-central1"
 }
 ```
+
+The JSON `project_id` marks the key as a Vertex Express key and is retained with
+`location` for safe deployment diagnostics. Express requests authenticate with the API
+key and do not send project/location to the standard ADC/Bearer Vertex endpoint.
 
 **Local/dev:** set `GEMINI_API_KEY` and optionally `GEMINI_VERTEX_PROJECT` /
 `GEMINI_VERTEX_LOCATION` in `.env`.
@@ -318,7 +322,7 @@ python -m imagecb.cli migrate-blobs-to-s3 --apply
 | Bedrock errors | Refresh `AWS_BEARER_TOKEN_BEDROCK` or check region / model access |
 | `ThrottlingException` / OOM during ingest | Lower `INGEST_WORKERS` and `BEDROCK_MAX_CONCURRENT` (large concurrent ingest can OOM around ~125 images on small instances) |
 | Admin / ingest 503 | Set `ADMIN_API_KEY` in `.env` and recreate the container |
-| Nano Banana unavailable on EC2 | Leave `GEMINI_API_KEY` unset; omit stale `AWS_SESSION_TOKEN` from `.env`; grant instance role `secretsmanager:GetSecretValue` on `gemini-*`; verify `GET /api/edit/status` → `"source":"secrets_manager"`, `"backend":"vertex"` |
+| Nano Banana unavailable on EC2 | Leave `GEMINI_API_KEY` unset; omit stale `AWS_SESSION_TOKEN` from `.env`; grant instance role `secretsmanager:GetSecretValue` on `gemini-*`; verify `GET /api/edit/status` → `"source":"secrets_manager"`, `"backend":"vertex_express"` |
 | Generate shows Working then fails | `/api/edit/status` only checks key load — open DevTools → Network → `POST .../turn` for the real error; scroll edit chat for red error text; see **Nano Banana troubleshooting** below |
 
 ### Nano Banana troubleshooting (production)
@@ -331,12 +335,13 @@ When **Generate** flashes "Working…" then nothing happens:
 1. Scroll the edit chat panel for red error text (easy to miss).
 2. Browser **DevTools → Network** → click **Generate** → inspect
    `POST /api/edit/sessions/.../turn` (expect **502** with `detail` on Gemini errors).
-3. On the server: `docker compose logs imagecb | grep -i "Nano Banana edit failed"`.
+3. On the server: `docker compose logs imagecb | grep -Ei "Nano Banana edit failed|gemini_edit"`.
 
-Common failures after SM access is fixed: wrong Google API surface (must use **Vertex AI**
-with `project_id` + `location` in the secret), or API key lacks image-generation permission.
+Common failures after SM access is fixed are an invalid/non-Express Google API key, missing
+image-model access, quota exhaustion, or a safety response with no generated image. The UI
+and server log now expose a sanitized error code for each case.
 
-### Production EC2 Nano Banana (Secrets Manager + Vertex AI)
+### Production EC2 Nano Banana (Secrets Manager + Vertex Express)
 
 On EC2, Nano Banana loads Gemini credentials from Secrets Manager when `GEMINI_API_KEY`
 is **not** set in `.env`:
@@ -345,11 +350,12 @@ is **not** set in `.env`:
    token lines. `AWS_BEARER_TOKEN_BEDROCK` is fine for Bedrock only.
 2. **IAM on the EC2 instance role:** `secretsmanager:GetSecretValue` on
    `arn:aws:secretsmanager:us-east-1:ACCOUNT:secret:gemini-*` (plus `kms:Decrypt` if needed).
-3. **Secret value (JSON recommended):** `api_key`, `project_id`, `location` (`us-central1`).
+3. **Secret value (JSON recommended):** Vertex Express `api_key`, plus `project_id` and
+   `location` (`us-central1`) as deployment metadata.
    Optional env overrides: `GEMINI_VERTEX_PROJECT`, `GEMINI_VERTEX_LOCATION`.
 4. **After deploy:** `docker compose up -d --force-recreate`, then
    `GET /api/edit/status` — expect `"available": true`, `"source": "secrets_manager"`,
-   `"backend": "vertex"`, `"project_id"` set, `"error": null`.
+   `"backend": "vertex_express"`, `"project_id"` set, `"error": null`.
 5. **Outbound HTTPS:** container must reach Vertex AI / Google APIs on port 443.
 
 Root Compose no longer injects empty AWS credential env vars (so the instance role can be used inside the container). Local Docker with real keys in `.env` still works via `env_file`.

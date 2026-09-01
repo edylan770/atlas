@@ -16,7 +16,7 @@ from imagecb.api.edit_sessions import (
     get_edit_session,
 )
 from imagecb.api.rate_limit import check_llm_rate_limit
-from imagecb.models.secrets import is_nano_banana_available, nano_banana_status
+from imagecb.models.secrets import nano_banana_status
 from imagecb.paths import image_fallbacks
 from imagecb.pending_edits import create_pending_edit
 from imagecb.storage import blob_store, metadata_db
@@ -35,13 +35,12 @@ class EditTurnRequest(BaseModel):
 
 
 def _require_nano_banana() -> None:
-    if not is_nano_banana_available():
+    status = nano_banana_status()
+    if not status["available"]:
+        reason = status.get("error") or "Gemini configuration could not be loaded"
         raise HTTPException(
             status_code=503,
-            detail=(
-                "Nano Banana editing is unavailable. Configure GEMINI_API_KEY or "
-                "Secrets Manager secret access."
-            ),
+            detail=f"Nano Banana editing is unavailable. {reason}",
         )
 
 
@@ -169,17 +168,32 @@ def edit_turn(
     if session.submitted:
         raise HTTPException(status_code=409, detail="edit session already submitted")
 
-    from imagecb.models.image_edit import edit_image
+    from imagecb.models.image_edit import ImageEditError, edit_image
 
     try:
         result = edit_image(session.working_image_png, body.prompt)
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
-    except Exception as exc:  # noqa: BLE001
-        logger.exception("Nano Banana edit failed for session %s", session_id)
+    except ImageEditError as exc:
+        logger.warning(
+            "Nano Banana edit failed session=%s source_image=%s error_code=%s",
+            session_id,
+            session.source_image_id,
+            exc.code,
+        )
         raise HTTPException(
             status_code=502,
-            detail=f"image edit failed: {exc}",
+            detail=f"Image edit failed [{exc.code}]: {exc}",
+        ) from exc
+    except Exception as exc:  # noqa: BLE001
+        logger.exception(
+            "Nano Banana edit failed session=%s source_image=%s",
+            session_id,
+            session.source_image_id,
+        )
+        raise HTTPException(
+            status_code=502,
+            detail="Image edit failed [internal_error]. Check server logs.",
         ) from exc
 
     session.working_image_png = result

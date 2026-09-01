@@ -44,11 +44,11 @@ class GeminiConfig:
     api_key: str
     project: Optional[str]
     location: str
-    backend: str  # "vertex" | "google_ai"
+    backend: str  # "vertex_express" | "google_ai"
 
     @property
     def is_vertex(self) -> bool:
-        return self.backend == "vertex"
+        return self.backend == "vertex_express"
 
 
 def _first_string(payload: dict, keys: tuple[str, ...]) -> Optional[str]:
@@ -98,7 +98,10 @@ def _build_config(
     region = (location or SETTINGS.gemini_vertex_location or "us-central1").strip()
     if not region:
         region = "us-central1"
-    backend = "vertex" if project_id else "google_ai"
+    # A project marker opts a Secrets Manager payload into Vertex Express.
+    # Express authenticates with the API key alone; project/location remain useful
+    # deployment diagnostics but must not be sent to the standard Vertex endpoint.
+    backend = "vertex_express" if project_id else "google_ai"
     return GeminiConfig(
         api_key=api_key.strip(),
         project=project_id,

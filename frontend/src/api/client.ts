@@ -39,22 +39,46 @@ function withUserHeaders(init?: RequestInit): RequestInit {
 async function request<T>(
   path: string,
   init?: RequestInit,
+  timeoutMs?: number,
 ): Promise<T> {
-  const res = await fetch(`${API_BASE}${path}`, withUserHeaders(init));
-  if (!res.ok) {
-    let detail = res.statusText;
-    try {
-      const body = await res.json();
-      detail = body.detail ?? body.message ?? detail;
-      if (Array.isArray(detail)) {
-        detail = detail.map((d) => d.msg ?? JSON.stringify(d)).join("; ");
+  const controller = timeoutMs ? new AbortController() : null;
+  let timedOut = false;
+  const timer = controller
+    ? globalThis.setTimeout(() => {
+        timedOut = true;
+        controller.abort();
+      }, timeoutMs)
+    : null;
+  try {
+    const requestInit = withUserHeaders({
+      ...init,
+      signal: init?.signal ?? controller?.signal,
+    });
+    const res = await fetch(`${API_BASE}${path}`, requestInit);
+    if (!res.ok) {
+      let detail = res.statusText;
+      try {
+        const body = await res.json();
+        detail = body.detail ?? body.message ?? detail;
+        if (Array.isArray(detail)) {
+          detail = detail.map((d) => d.msg ?? JSON.stringify(d)).join("; ");
+        }
+      } catch {
+        /* ignore */
       }
-    } catch {
-      /* ignore */
+      throw new Error(String(detail));
     }
-    throw new Error(String(detail));
+    return res.json() as Promise<T>;
+  } catch (error) {
+    if (timedOut) {
+      throw new Error(
+        "Image generation timed out after 2 minutes. The server may still be processing it; check the server logs before retrying.",
+      );
+    }
+    throw error;
+  } finally {
+    if (timer !== null) globalThis.clearTimeout(timer);
   }
-  return res.json() as Promise<T>;
 }
 
 export async function fetchStatus(): Promise<StatusResponse> {
@@ -822,6 +846,7 @@ export async function postEditTurn(
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ prompt }),
     },
+    120_000,
   );
 }
 

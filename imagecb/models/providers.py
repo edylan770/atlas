@@ -57,14 +57,11 @@ def get_genai_client() -> Any:
 
                 config = get_gemini_vertex_config()
                 if config.is_vertex:
-                    if not config.project:
-                        raise RuntimeError(
-                            "GEMINI_VERTEX_PROJECT is required for Vertex AI Nano Banana"
-                        )
+                    # Vertex Express API keys use the global publishers endpoint.
+                    # Supplying project/location selects standard Vertex instead,
+                    # which requires ADC/Bearer credentials rather than this key.
                     _genai_client = genai.Client(
                         vertexai=True,
-                        project=config.project,
-                        location=config.location,
                         api_key=config.api_key,
                     )
                 else:

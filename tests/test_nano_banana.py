@@ -4,15 +4,19 @@ from __future__ import annotations
 
 import hashlib
 import io
+from base64 import b64encode
 from dataclasses import replace
 from datetime import datetime
+from types import SimpleNamespace
 from unittest.mock import patch
 
 import pytest
+from fastapi import HTTPException
 from fastapi.testclient import TestClient
 from PIL import Image
 
 from imagecb.api.edit_sessions import clear_edit_sessions
+from imagecb.api.edit_routes import EditTurnRequest, edit_turn
 from imagecb.api.server import create_app
 from imagecb.config import SETTINGS
 from imagecb.models.secrets import (
@@ -25,6 +29,7 @@ from imagecb.models.secrets import (
     reset_gemini_secret_cache,
 )
 from imagecb.models.providers import get_genai_client, reset_provider_clients
+from imagecb.models.image_edit import ImageEditError, edit_image
 from imagecb.pending_edits import (
     accept_pending_edit,
     create_pending_edit,
@@ -95,7 +100,7 @@ def test_parse_gemini_secret_config_vertex_json():
     assert config.api_key == "k1"
     assert config.project == "spatial-airship-460318-g1"
     assert config.location == "us-central1"
-    assert config.backend == "vertex"
+    assert config.backend == "vertex_express"
     assert config.is_vertex is True
 
 
@@ -112,7 +117,7 @@ def test_get_gemini_vertex_config_from_env(monkeypatch):
     config = get_gemini_vertex_config(force_refresh=True)
     assert config.api_key == "env-key"
     assert config.project == "my-gcp-project"
-    assert config.backend == "vertex"
+    assert config.backend == "vertex_express"
 
 
 def test_get_genai_client_uses_vertex_when_project_set(monkeypatch):
@@ -137,9 +142,9 @@ def test_get_genai_client_uses_vertex_when_project_set(monkeypatch):
     client = get_genai_client()
     assert isinstance(client, _FakeClient)
     assert captured["vertexai"] is True
-    assert captured["project"] == "my-gcp-project"
-    assert captured["location"] == "us-central1"
     assert captured["api_key"] == "vertex-key"
+    assert "project" not in captured
+    assert "location" not in captured
 
 
 def test_nano_banana_status_from_env(monkeypatch):
@@ -166,9 +171,129 @@ def test_nano_banana_status_vertex_from_env(monkeypatch):
     )
     status = nano_banana_status(force_refresh=True)
     assert status["available"] is True
-    assert status["backend"] == "vertex"
+    assert status["backend"] == "vertex_express"
     assert status["project_id"] == "proj-123"
     assert status["location"] == "us-central1"
+
+
+@pytest.mark.parametrize("as_base64", [False, True])
+def test_edit_image_extracts_inline_image(monkeypatch, as_base64):
+    output = _png_bytes(color=(90, 80, 70))
+    payload = b64encode(output).decode("ascii") if as_base64 else output
+    response = SimpleNamespace(
+        candidates=[
+            SimpleNamespace(
+                content=SimpleNamespace(
+                    parts=[
+                        SimpleNamespace(
+                            inline_data=SimpleNamespace(data=payload),
+                            text=None,
+                        )
+                    ]
+                ),
+                finish_reason="STOP",
+            )
+        ],
+        parts=None,
+        prompt_feedback=None,
+    )
+    fake_client = SimpleNamespace(
+        models=SimpleNamespace(generate_content=lambda **_kwargs: response)
+    )
+    config = SimpleNamespace(backend="vertex_express")
+    monkeypatch.setattr(
+        "imagecb.models.image_edit.get_gemini_vertex_config", lambda: config
+    )
+    monkeypatch.setattr(
+        "imagecb.models.image_edit.get_genai_client", lambda: fake_client
+    )
+
+    result = edit_image(_png_bytes(), "make it warmer")
+    assert Image.open(io.BytesIO(result)).getpixel((0, 0)) == (90, 80, 70)
+
+
+def test_edit_image_reports_text_only_response(monkeypatch):
+    response = SimpleNamespace(
+        candidates=[
+            SimpleNamespace(
+                content=SimpleNamespace(
+                    parts=[
+                        SimpleNamespace(
+                            inline_data=None,
+                            text="I cannot create that image.",
+                        )
+                    ]
+                ),
+                finish_reason="SAFETY",
+            )
+        ],
+        parts=None,
+        prompt_feedback=SimpleNamespace(block_reason="SAFETY"),
+    )
+    fake_client = SimpleNamespace(
+        models=SimpleNamespace(generate_content=lambda **_kwargs: response)
+    )
+    config = SimpleNamespace(backend="vertex_express")
+    monkeypatch.setattr(
+        "imagecb.models.image_edit.get_gemini_vertex_config", lambda: config
+    )
+    monkeypatch.setattr(
+        "imagecb.models.image_edit.get_genai_client", lambda: fake_client
+    )
+
+    with pytest.raises(ImageEditError) as caught:
+        edit_image(_png_bytes(), "unsafe request")
+    assert caught.value.code == "no_image"
+    assert "SAFETY" in str(caught.value)
+    assert "I cannot create that image" in str(caught.value)
+
+
+def test_edit_image_classifies_provider_permission_error(monkeypatch):
+    def _raise(**_kwargs):
+        raise RuntimeError("403 PERMISSION_DENIED")
+
+    fake_client = SimpleNamespace(
+        models=SimpleNamespace(generate_content=_raise)
+    )
+    config = SimpleNamespace(backend="vertex_express")
+    monkeypatch.setattr(
+        "imagecb.models.image_edit.get_gemini_vertex_config", lambda: config
+    )
+    monkeypatch.setattr(
+        "imagecb.models.image_edit.get_genai_client", lambda: fake_client
+    )
+
+    with pytest.raises(ImageEditError) as caught:
+        edit_image(_png_bytes(), "make it blue")
+    assert caught.value.code == "permission_denied"
+    assert "image-model access" in str(caught.value)
+
+
+def test_edit_turn_returns_actionable_provider_error(monkeypatch):
+    session = SimpleNamespace(
+        working_image_png=_png_bytes(),
+        source_image_id="source-1",
+        submitted=False,
+    )
+    monkeypatch.setattr(
+        "imagecb.api.edit_routes.nano_banana_status",
+        lambda: {"available": True},
+    )
+    monkeypatch.setattr(
+        "imagecb.api.edit_routes.get_edit_session",
+        lambda _session_id: session,
+    )
+    monkeypatch.setattr(
+        "imagecb.models.image_edit.edit_image",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(
+            ImageEditError("authentication_failed", "Gemini rejected the API key.")
+        ),
+    )
+
+    with pytest.raises(HTTPException) as caught:
+        edit_turn("session-1", EditTurnRequest(prompt="make it blue"))
+    assert caught.value.status_code == 502
+    assert "[authentication_failed]" in str(caught.value.detail)
 
 
 def test_without_blank_aws_credential_env_strips_empty_values(monkeypatch):
@@ -353,9 +478,8 @@ def test_edit_session_turn_submit_and_admin_decline(tmp_path):
     ), patch("imagecb.api.rate_limit.SETTINGS", settings), patch(
         "imagecb.models.secrets.SETTINGS", settings
     ), patch(
-        "imagecb.models.secrets.is_nano_banana_available", return_value=True
-    ), patch(
-        "imagecb.api.edit_routes.is_nano_banana_available", return_value=True
+        "imagecb.api.edit_routes.nano_banana_status",
+        return_value={"available": True},
     ), patch(
         "imagecb.models.image_edit.edit_image",
         return_value=_png_bytes(color=(200, 100, 50)),

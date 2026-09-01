@@ -10,6 +10,7 @@ vi.mock("./telemetry", () => ({
 import {
   createIngestJobDirectS3,
   createIngestJobBatched,
+  postEditTurn,
   type IngestJobUploadProgress,
 } from "./client";
 import type { IngestJob } from "../types";
@@ -272,5 +273,33 @@ describe("createIngestJobDirectS3", () => {
     expect(maxActive).toBe(4);
     expect(completed).toBe(235);
     expect(finalizeObservedCompleted).toBe(235);
+  });
+});
+
+describe("postEditTurn", () => {
+  it("aborts and reports a bounded generation timeout", async () => {
+    vi.useFakeTimers();
+    try {
+      vi.stubGlobal(
+        "fetch",
+        vi.fn(
+          (_url: string, init?: RequestInit) =>
+            new Promise((_resolve, reject) => {
+              init?.signal?.addEventListener("abort", () =>
+                reject(new Error("aborted")),
+              );
+            }),
+        ),
+      );
+
+      const pending = postEditTurn("session-1", "make it blue");
+      const rejection = expect(pending).rejects.toThrow(
+        "timed out after 2 minutes",
+      );
+      await vi.advanceTimersByTimeAsync(120_000);
+      await rejection;
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });

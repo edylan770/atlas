@@ -2,9 +2,11 @@ import { useCallback, useEffect, useRef, useState } from "react";
 
 import {
   createEditSession,
+  fetchEditStatus,
   postEditTurn,
   submitEditSession,
   type EditSessionState,
+  type EditStatusResponse,
 } from "../api/client";
 import { downloadCardImage } from "../imageDownload";
 import type { ResultCard as ResultCardType } from "../types";
@@ -59,6 +61,11 @@ export function ImageEditSession({ card, onClose, onBack }: ImageEditSessionProp
   const [busy, setBusy] = useState(false);
   const [bootError, setBootError] = useState<string | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
+  const [editStatus, setEditStatus] = useState<EditStatusResponse | null>(null);
+  const [originalLoadFailed, setOriginalLoadFailed] = useState(false);
+  const [failedTurnImages, setFailedTurnImages] = useState<Set<string>>(
+    () => new Set(),
+  );
   const [submitOk, setSubmitOk] = useState(false);
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const closeRef = useRef<HTMLButtonElement>(null);
@@ -75,18 +82,28 @@ export function ImageEditSession({ card, onClose, onBack }: ImageEditSessionProp
     let cancelled = false;
     setBusy(true);
     setBootError(null);
-    void createEditSession(card.image_id)
-      .then((s) => {
-        if (!cancelled) setSession(s);
-      })
-      .catch((err: unknown) => {
+    setSession(null);
+    setEditStatus(null);
+    setOriginalLoadFailed(false);
+    setFailedTurnImages(new Set());
+    void (async () => {
+      try {
+        const status = await fetchEditStatus();
+        if (cancelled) return;
+        setEditStatus(status);
+        if (!status.available) {
+          throw new Error(status.error || "Gemini configuration is unavailable");
+        }
+        const nextSession = await createEditSession(card.image_id);
+        if (!cancelled) setSession(nextSession);
+      } catch (err: unknown) {
         if (!cancelled) {
           setBootError(err instanceof Error ? err.message : String(err));
         }
-      })
-      .finally(() => {
+      } finally {
         if (!cancelled) setBusy(false);
-      });
+      }
+    })();
     return () => {
       cancelled = true;
     };
@@ -125,6 +142,7 @@ export function ImageEditSession({ card, onClose, onBack }: ImageEditSessionProp
     try {
       const next = await postEditTurn(session.session_id, text);
       setSession(next);
+      setFailedTurnImages(new Set());
       setPrompt("");
       inputRef.current?.focus();
     } catch (err: unknown) {
@@ -240,14 +258,21 @@ export function ImageEditSession({ card, onClose, onBack }: ImageEditSessionProp
             <p className="text-[10px] font-semibold uppercase tracking-wide text-navy-500">
               Original
             </p>
-            {originalSrc ? (
+            {originalSrc && !originalLoadFailed ? (
               <img
                 src={originalSrc}
                 alt={`Original ${displayName}`}
+                onError={() => setOriginalLoadFailed(true)}
                 className="max-h-[min(52vh,520px)] max-w-full object-contain"
               />
             ) : (
-              <p className="text-sm text-navy-500">Image unavailable</p>
+              <p
+                data-testid="edit-original-image-error"
+                className="text-sm text-red-700"
+                role="alert"
+              >
+                Original image could not be loaded.
+              </p>
             )}
             <button
               type="button"
@@ -281,6 +306,15 @@ export function ImageEditSession({ card, onClose, onBack }: ImageEditSessionProp
                 Describe changes below. Edits appear in the chat; the original stays on
                 the left.
               </p>
+              {editStatus?.available && (
+                <p
+                  data-testid="edit-provider-status"
+                  className="text-[10px] text-navy-400"
+                >
+                  {editStatus.model} via {editStatus.backend ?? "Gemini"}
+                  {editStatus.location ? ` (${editStatus.location})` : ""}
+                </p>
+              )}
               {(session?.turns ?? []).map((turn, index) => (
                 <div key={`${index}-${turn.prompt}`} className="space-y-2">
                   <div className="rounded-lg bg-brand-50 px-3 py-2 text-sm text-navy-800 ring-1 ring-brand-100">
@@ -294,11 +328,29 @@ export function ImageEditSession({ card, onClose, onBack }: ImageEditSessionProp
                       <span className="mb-1 block text-[10px] font-semibold uppercase tracking-wide text-navy-500">
                         Edit {index + 1}
                       </span>
-                      <img
-                        src={turn.image_url}
-                        alt={`Edit ${index + 1} of ${displayName}`}
-                        className="max-w-full rounded-lg object-contain ring-1 ring-navy-100"
-                      />
+                      {failedTurnImages.has(turn.image_url) ? (
+                        <div
+                          data-testid={`edit-turn-image-error-${index}`}
+                          className="rounded-lg bg-red-50 px-3 py-4 text-xs text-red-800 ring-1 ring-red-200"
+                          role="alert"
+                        >
+                          The generated image could not be loaded. Retry the edit or
+                          check the session/image request in server logs.
+                        </div>
+                      ) : (
+                        <img
+                          src={`${turn.image_url}${turn.image_url.includes("?") ? "&" : "?"}v=${index + 1}`}
+                          alt={`Edit ${index + 1} of ${displayName}`}
+                          onError={() =>
+                            setFailedTurnImages((current) => {
+                              const next = new Set(current);
+                              next.add(turn.image_url);
+                              return next;
+                            })
+                          }
+                          className="max-w-full rounded-lg object-contain ring-1 ring-navy-100"
+                        />
+                      )}
                     </div>
                     <button
                       type="button"
