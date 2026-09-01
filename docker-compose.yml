@@ -31,7 +31,7 @@ services:
       # Optional: set GEMINI_API_KEY in .env for local Docker without SM access.
       GEMINI_SECRET_NAME: ${GEMINI_SECRET_NAME:-gemini}
       GEMINI_SECRET_REGION: ${GEMINI_SECRET_REGION:-us-east-1}
-      NANO_BANANA_MODEL: ${NANO_BANANA_MODEL:-gemini-3.1-flash-image}
+      NANO_BANANA_MODEL: ${NANO_BANANA_MODEL:-gemini-2.5-flash-image}
     healthcheck:
       test: ["CMD", "curl", "-f", "http://127.0.0.1:8080/api/health"]
       interval: 30s

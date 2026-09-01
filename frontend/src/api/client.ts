@@ -784,6 +784,11 @@ export interface EditSessionState {
 export interface EditStatusResponse {
   available: boolean;
   model: string;
+  backend?: string | null;
+  project_id?: string | null;
+  location?: string | null;
+  source?: string | null;
+  error?: string | null;
 }
 
 export async function fetchEditStatus(): Promise<EditStatusResponse> {

@@ -95,10 +95,13 @@ async def _lifespan(_app: FastAPI):
 
         status = nano_banana_status()
         logger.info(
-            "Nano Banana edit: available=%s model=%s source=%s secret=%s "
-            "region=%s error=%s",
+            "Nano Banana edit: available=%s model=%s backend=%s project=%s "
+            "location=%s source=%s secret=%s region=%s error=%s",
             status.get("available"),
             status.get("model"),
+            status.get("backend"),
+            status.get("project_id"),
+            status.get("location"),
             status.get("source"),
             status.get("secret_name"),
             status.get("secret_region"),

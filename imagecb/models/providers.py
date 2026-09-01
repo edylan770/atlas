@@ -53,9 +53,22 @@ def get_genai_client() -> Any:
             if _genai_client is None:
                 from google import genai
 
-                from imagecb.models.secrets import get_gemini_api_key
+                from imagecb.models.secrets import get_gemini_vertex_config
 
-                _genai_client = genai.Client(api_key=get_gemini_api_key())
+                config = get_gemini_vertex_config()
+                if config.is_vertex:
+                    if not config.project:
+                        raise RuntimeError(
+                            "GEMINI_VERTEX_PROJECT is required for Vertex AI Nano Banana"
+                        )
+                    _genai_client = genai.Client(
+                        vertexai=True,
+                        project=config.project,
+                        location=config.location,
+                        api_key=config.api_key,
+                    )
+                else:
+                    _genai_client = genai.Client(api_key=config.api_key)
     return _genai_client
 
 

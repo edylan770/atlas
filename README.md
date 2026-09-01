@@ -116,16 +116,28 @@ Embeddings and reranking remain on Bedrock.
 
 ### 5. Optional: Nano Banana 2 (Gemini image edit)
 
-Lightbox **Edit** uses Google Gemini Nano Banana 2 (`gemini-3.1-flash-image` by default).
+Lightbox **Edit** uses Google Gemini image editing via **Vertex AI** by default
+(`gemini-2.5-flash-image`). Production loads credentials from Secrets Manager;
+local dev can use `.env` or `.env.gemini.local` (playground only).
 
-**Local/dev:** set `GEMINI_API_KEY` in `.env`.
+**Production secret JSON (recommended):**
+
+```json
+{
+  "api_key": "...",
+  "project_id": "your-gcp-project",
+  "location": "us-central1"
+}
+```
+
+**Local/dev:** set `GEMINI_API_KEY` and optionally `GEMINI_VERTEX_PROJECT` /
+`GEMINI_VERTEX_LOCATION` in `.env`.
 
 **Production:** leave `GEMINI_API_KEY` empty and grant the task/instance role
 `secretsmanager:GetSecretValue` on secret `gemini` in `us-east-1`
-(`arn:aws:secretsmanager:us-east-1:ACCOUNT:secret:gemini-*`). The secret string
-may be a plaintext API key or JSON with `api_key` / `API_KEY` /
-`GEMINI_API_KEY` / `gemini_api_key`. Override name/region with `GEMINI_SECRET_NAME` /
-`GEMINI_SECRET_REGION`; override model with `NANO_BANANA_MODEL`.
+(`arn:aws:secretsmanager:us-east-1:ACCOUNT:secret:gemini-*`). Override name/region
+with `GEMINI_SECRET_NAME` / `GEMINI_SECRET_REGION`; override model with
+`NANO_BANANA_MODEL`.
 
 Edited images submitted via **Add to database** appear under Admin → **Pending additions** until an admin accepts (full ingest) or declines (deletes staged blobs only).
 
@@ -306,17 +318,39 @@ python -m imagecb.cli migrate-blobs-to-s3 --apply
 | Bedrock errors | Refresh `AWS_BEARER_TOKEN_BEDROCK` or check region / model access |
 | `ThrottlingException` / OOM during ingest | Lower `INGEST_WORKERS` and `BEDROCK_MAX_CONCURRENT` (large concurrent ingest can OOM around ~125 images on small instances) |
 | Admin / ingest 503 | Set `ADMIN_API_KEY` in `.env` and recreate the container |
-| Nano Banana unavailable on EC2 | Leave `GEMINI_API_KEY` unset; omit stale `AWS_SESSION_TOKEN` from `.env`; grant instance role `secretsmanager:GetSecretValue` on `gemini-*`; verify `GET /api/edit/status` → `"source":"secrets_manager"` |
+| Nano Banana unavailable on EC2 | Leave `GEMINI_API_KEY` unset; omit stale `AWS_SESSION_TOKEN` from `.env`; grant instance role `secretsmanager:GetSecretValue` on `gemini-*`; verify `GET /api/edit/status` → `"source":"secrets_manager"`, `"backend":"vertex"` |
+| Generate shows Working then fails | `/api/edit/status` only checks key load — open DevTools → Network → `POST .../turn` for the real error; scroll edit chat for red error text; see **Nano Banana troubleshooting** below |
 
-### Production EC2 Nano Banana (Secrets Manager)
+### Nano Banana troubleshooting (production)
 
-On EC2, Nano Banana loads the Gemini key from Secrets Manager when `GEMINI_API_KEY` is **not** set in `.env`:
+`/api/edit/status` returning `"available": true` means the Gemini **key loaded** — it
+does **not** prove image generation works.
 
-1. **`.env` on the host:** do not set `GEMINI_API_KEY`. Do not copy local dev `AWS_ACCESS_KEY_ID` / `AWS_SECRET_ACCESS_KEY` / `AWS_SESSION_TOKEN` lines (stale session tokens break SM). `AWS_BEARER_TOKEN_BEDROCK` is fine for Bedrock only.
-2. **IAM on the EC2 instance role:** `secretsmanager:GetSecretValue` on `arn:aws:secretsmanager:us-east-1:ACCOUNT:secret:gemini-*` (plus `kms:Decrypt` if the secret uses a customer-managed key).
-3. **Secret value:** plaintext API key or JSON with `api_key` / `GEMINI_API_KEY` / etc. Default secret name `gemini`, region `us-east-1` (`GEMINI_SECRET_NAME` / `GEMINI_SECRET_REGION` to override).
-4. **After deploy:** `docker compose up -d --force-recreate`, then `curl -s http://127.0.0.1:8080/api/edit/status` — expect `"available": true`, `"source": "secrets_manager"`, `"error": null`.
-5. **Outbound HTTPS:** once the key loads, the container must reach Google APIs on port 443.
+When **Generate** flashes "Working…" then nothing happens:
+
+1. Scroll the edit chat panel for red error text (easy to miss).
+2. Browser **DevTools → Network** → click **Generate** → inspect
+   `POST /api/edit/sessions/.../turn` (expect **502** with `detail` on Gemini errors).
+3. On the server: `docker compose logs imagecb | grep -i "Nano Banana edit failed"`.
+
+Common failures after SM access is fixed: wrong Google API surface (must use **Vertex AI**
+with `project_id` + `location` in the secret), or API key lacks image-generation permission.
+
+### Production EC2 Nano Banana (Secrets Manager + Vertex AI)
+
+On EC2, Nano Banana loads Gemini credentials from Secrets Manager when `GEMINI_API_KEY`
+is **not** set in `.env`:
+
+1. **`.env` on the host:** do not set `GEMINI_API_KEY`. Do not copy local dev AWS session
+   token lines. `AWS_BEARER_TOKEN_BEDROCK` is fine for Bedrock only.
+2. **IAM on the EC2 instance role:** `secretsmanager:GetSecretValue` on
+   `arn:aws:secretsmanager:us-east-1:ACCOUNT:secret:gemini-*` (plus `kms:Decrypt` if needed).
+3. **Secret value (JSON recommended):** `api_key`, `project_id`, `location` (`us-central1`).
+   Optional env overrides: `GEMINI_VERTEX_PROJECT`, `GEMINI_VERTEX_LOCATION`.
+4. **After deploy:** `docker compose up -d --force-recreate`, then
+   `GET /api/edit/status` — expect `"available": true`, `"source": "secrets_manager"`,
+   `"backend": "vertex"`, `"project_id"` set, `"error": null`.
+5. **Outbound HTTPS:** container must reach Vertex AI / Google APIs on port 443.
 
 Root Compose no longer injects empty AWS credential env vars (so the instance role can be used inside the container). Local Docker with real keys in `.env` still works via `env_file`.
 

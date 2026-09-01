@@ -18,10 +18,13 @@ from imagecb.config import SETTINGS
 from imagecb.models.secrets import (
     _fetch_from_secrets_manager,
     _without_blank_aws_credential_env,
+    get_gemini_vertex_config,
     nano_banana_status,
+    parse_gemini_secret_config,
     parse_gemini_secret_string,
     reset_gemini_secret_cache,
 )
+from imagecb.models.providers import get_genai_client, reset_provider_clients
 from imagecb.pending_edits import (
     accept_pending_edit,
     create_pending_edit,
@@ -36,9 +39,11 @@ from imagecb.telemetry.schema import ensure_telemetry_schema
 @pytest.fixture(autouse=True)
 def _reset():
     reset_gemini_secret_cache()
+    reset_provider_clients()
     clear_edit_sessions()
     yield
     reset_gemini_secret_cache()
+    reset_provider_clients()
     clear_edit_sessions()
 
 
@@ -81,6 +86,62 @@ def test_parse_gemini_secret_rejects_empty_json():
         parse_gemini_secret_string("{}")
 
 
+def test_parse_gemini_secret_config_vertex_json():
+    raw = (
+        '{"api_key":"k1","project_id":"spatial-airship-460318-g1",'
+        '"location":"us-central1"}'
+    )
+    config = parse_gemini_secret_config(raw)
+    assert config.api_key == "k1"
+    assert config.project == "spatial-airship-460318-g1"
+    assert config.location == "us-central1"
+    assert config.backend == "vertex"
+    assert config.is_vertex is True
+
+
+def test_get_gemini_vertex_config_from_env(monkeypatch):
+    monkeypatch.setattr(
+        "imagecb.models.secrets.SETTINGS",
+        replace(
+            SETTINGS,
+            gemini_api_key="env-key",
+            gemini_vertex_project="my-gcp-project",
+            gemini_vertex_location="us-central1",
+        ),
+    )
+    config = get_gemini_vertex_config(force_refresh=True)
+    assert config.api_key == "env-key"
+    assert config.project == "my-gcp-project"
+    assert config.backend == "vertex"
+
+
+def test_get_genai_client_uses_vertex_when_project_set(monkeypatch):
+    captured: dict = {}
+
+    class _FakeClient:
+        pass
+
+    def _fake_client(**kwargs):
+        captured.update(kwargs)
+        return _FakeClient()
+
+    settings = replace(
+        SETTINGS,
+        gemini_api_key="vertex-key",
+        gemini_vertex_project="my-gcp-project",
+        gemini_vertex_location="us-central1",
+    )
+    monkeypatch.setattr("imagecb.models.secrets.SETTINGS", settings)
+    monkeypatch.setattr("google.genai.Client", _fake_client)
+
+    client = get_genai_client()
+    assert isinstance(client, _FakeClient)
+    assert captured["vertexai"] is True
+    assert captured["project"] == "my-gcp-project"
+    assert captured["location"] == "us-central1"
+    assert captured["api_key"] == "vertex-key"
+
+
 def test_nano_banana_status_from_env(monkeypatch):
     monkeypatch.setattr(
         "imagecb.models.secrets.SETTINGS",
@@ -89,7 +150,25 @@ def test_nano_banana_status_from_env(monkeypatch):
     status = nano_banana_status(force_refresh=True)
     assert status["available"] is True
     assert status["source"] == "env"
+    assert status["backend"] == "google_ai"
     assert status["error"] is None
+
+
+def test_nano_banana_status_vertex_from_env(monkeypatch):
+    monkeypatch.setattr(
+        "imagecb.models.secrets.SETTINGS",
+        replace(
+            SETTINGS,
+            gemini_api_key="env-key-xyz",
+            gemini_vertex_project="proj-123",
+            gemini_vertex_location="us-central1",
+        ),
+    )
+    status = nano_banana_status(force_refresh=True)
+    assert status["available"] is True
+    assert status["backend"] == "vertex"
+    assert status["project_id"] == "proj-123"
+    assert status["location"] == "us-central1"
 
 
 def test_without_blank_aws_credential_env_strips_empty_values(monkeypatch):
@@ -149,7 +228,7 @@ def test_nano_banana_status_reports_sm_error(monkeypatch):
         raise RuntimeError("AccessDeniedException: not allowed")
 
     monkeypatch.setattr(
-        "imagecb.models.secrets._fetch_from_secrets_manager", _boom
+        "imagecb.models.secrets._fetch_secret_string_from_secrets_manager", _boom
     )
     status = nano_banana_status(force_refresh=True)
     assert status["available"] is False

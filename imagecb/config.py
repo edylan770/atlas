@@ -47,9 +47,17 @@ class Settings:
         or _env("AWS_REGION", "us-east-1")
         or "us-east-1"
     )
+    # Vertex AI (production Nano Banana). Project may also live in the gemini secret JSON.
+    gemini_vertex_project: Optional[str] = field(
+        default_factory=lambda: _env("GEMINI_VERTEX_PROJECT")
+    )
+    gemini_vertex_location: str = field(
+        default_factory=lambda: _env("GEMINI_VERTEX_LOCATION", "us-central1")
+        or "us-central1"
+    )
     nano_banana_model: str = field(
-        default_factory=lambda: _env("NANO_BANANA_MODEL", "gemini-3.1-flash-image")
-        or "gemini-3.1-flash-image"
+        default_factory=lambda: _env("NANO_BANANA_MODEL", "gemini-2.5-flash-image")
+        or "gemini-2.5-flash-image"
     )
 
     # AWS region for Bedrock. Bedrock auth (AWS_BEARER_TOKEN_BEDROCK or standard

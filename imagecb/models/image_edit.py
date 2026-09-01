@@ -10,7 +10,7 @@ from PIL import Image
 
 from imagecb.config import SETTINGS
 from imagecb.models.providers import get_genai_client
-from imagecb.models.secrets import get_gemini_api_key
+from imagecb.models.secrets import get_gemini_vertex_config
 
 logger = logging.getLogger(__name__)
 
@@ -49,7 +49,7 @@ def edit_image(
         raise ValueError("image_bytes is required")
 
     # Ensure key resolves before constructing the client (clearer errors).
-    get_gemini_api_key()
+    get_gemini_vertex_config()
 
     max_side = max_side if max_side is not None else SETTINGS.ingest_max_image_side
     model_id = model or SETTINGS.nano_banana_model
