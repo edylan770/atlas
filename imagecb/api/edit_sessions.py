@@ -16,12 +16,14 @@ _lock = Lock()
 @dataclass
 class EditTurn:
     prompt: str
+    result_image_png: bytes
     created_at: float = field(default_factory=time.time)
 
 
 @dataclass
 class EditSession:
     source_image_id: str
+    original_image_png: bytes
     working_image_png: bytes
     last_prompt: Optional[str] = None
     turns: List[EditTurn] = field(default_factory=list)
@@ -59,6 +61,7 @@ def create_edit_session(
     session_id = str(uuid.uuid4())
     session = EditSession(
         source_image_id=source_image_id,
+        original_image_png=bytes(working_image_png),
         working_image_png=working_image_png,
     )
     with _lock:

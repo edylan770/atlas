@@ -771,14 +771,20 @@ export async function sendSimilar(
   );
 }
 
+export interface EditTurnState {
+  prompt: string;
+  image_url: string;
+}
+
 export interface EditSessionState {
   session_id: string;
   source_image_id: string;
+  original_image_url: string;
   image_url: string;
   turn_count: number;
   last_prompt: string | null;
   submitted: boolean;
-  turns: { prompt: string }[];
+  turns: EditTurnState[];
 }
 
 export interface EditStatusResponse {

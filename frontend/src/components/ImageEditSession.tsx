@@ -30,6 +30,25 @@ async function downloadPng(url: string, filename: string): Promise<void> {
   URL.revokeObjectURL(objectUrl);
 }
 
+function DownloadIcon({ className = "h-4 w-4" }: { className?: string }) {
+  return (
+    <svg
+      className={className}
+      fill="none"
+      viewBox="0 0 24 24"
+      stroke="currentColor"
+      strokeWidth={2}
+      aria-hidden
+    >
+      <path
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        d="M4 16v2a2 2 0 002 2h12a2 2 0 002-2v-2M7 10l5 5m0 0l5-5m-5 5V4"
+      />
+    </svg>
+  );
+}
+
 /**
  * Full-screen iterative Nano Banana edit chat launched from the lightbox.
  * When Gemini is unavailable, still shows the chrome so the flow can be previewed.
@@ -41,13 +60,16 @@ export function ImageEditSession({ card, onClose, onBack }: ImageEditSessionProp
   const [bootError, setBootError] = useState<string | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
   const [submitOk, setSubmitOk] = useState(false);
-  const [imageBump, setImageBump] = useState(0);
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const closeRef = useRef<HTMLButtonElement>(null);
+  const chatEndRef = useRef<HTMLDivElement>(null);
 
   const displayName =
     card.image_name || card.provenance.source_name || "Image";
   const editingUnavailable = Boolean(bootError) && !session;
+
+  const originalSrc =
+    session?.original_image_url ?? card.image_url ?? card.thumb_url ?? "";
 
   useEffect(() => {
     let cancelled = false;
@@ -90,9 +112,9 @@ export function ImageEditSession({ card, onClose, onBack }: ImageEditSessionProp
     return () => window.removeEventListener("keydown", onKey);
   }, [onClose]);
 
-  const imageSrc = session
-    ? `${session.image_url}?t=${imageBump}`
-    : card.image_url || card.thumb_url || "";
+  useEffect(() => {
+    chatEndRef.current?.scrollIntoView({ behavior: "smooth", block: "end" });
+  }, [session?.turns.length, busy, actionError, submitOk]);
 
   const runTurn = useCallback(async () => {
     if (!session || busy || submitOk || editingUnavailable) return;
@@ -104,7 +126,6 @@ export function ImageEditSession({ card, onClose, onBack }: ImageEditSessionProp
       const next = await postEditTurn(session.session_id, text);
       setSession(next);
       setPrompt("");
-      setImageBump((n) => n + 1);
       inputRef.current?.focus();
     } catch (err: unknown) {
       setActionError(err instanceof Error ? err.message : String(err));
@@ -113,17 +134,30 @@ export function ImageEditSession({ card, onClose, onBack }: ImageEditSessionProp
     }
   }, [session, busy, submitOk, editingUnavailable, prompt]);
 
-  const handleDownload = async () => {
+  const handleDownloadOriginal = async () => {
     setActionError(null);
     try {
-      if (session) {
+      if (session?.original_image_url) {
         await downloadPng(
-          `${session.image_url}?t=${imageBump}`,
-          `edited-${session.source_image_id}.png`,
+          session.original_image_url,
+          `original-${session.source_image_id}.png`,
         );
       } else {
         await downloadCardImage(card);
       }
+    } catch (err: unknown) {
+      setActionError(err instanceof Error ? err.message : String(err));
+    }
+  };
+
+  const handleDownloadTurn = async (turnIndex: number, imageUrl: string) => {
+    if (!session) return;
+    setActionError(null);
+    try {
+      await downloadPng(
+        imageUrl,
+        `edit-${session.source_image_id}-turn-${turnIndex + 1}.png`,
+      );
     } catch (err: unknown) {
       setActionError(err instanceof Error ? err.message : String(err));
     }
@@ -202,28 +236,33 @@ export function ImageEditSession({ card, onClose, onBack }: ImageEditSessionProp
         </header>
 
         <div className="grid min-h-0 flex-1 grid-cols-1 md:grid-cols-2">
-          <div className="relative flex min-h-[36vh] items-center justify-center overflow-hidden bg-navy-50 p-4 md:min-h-0">
-            {imageSrc ? (
+          <div className="flex min-h-[36vh] flex-col items-center justify-center gap-3 bg-navy-50 p-4 md:min-h-0">
+            <p className="text-[10px] font-semibold uppercase tracking-wide text-navy-500">
+              Original
+            </p>
+            {originalSrc ? (
               <img
-                src={imageSrc}
-                alt={`Working edit of ${displayName}`}
-                className="max-h-full max-w-full object-contain"
+                src={originalSrc}
+                alt={`Original ${displayName}`}
+                className="max-h-[min(52vh,520px)] max-w-full object-contain"
               />
             ) : (
               <p className="text-sm text-navy-500">Image unavailable</p>
             )}
-            {busy && !editingUnavailable && (
-              <span
-                role="status"
-                className="absolute bottom-3 right-3 rounded-full bg-navy-900/80 px-2.5 py-1 text-[10px] font-medium text-white"
-              >
-                Working…
-              </span>
-            )}
+            <button
+              type="button"
+              data-testid="edit-download-original"
+              onClick={() => void handleDownloadOriginal()}
+              disabled={busy || (!session && !card.has_image_file) || !originalSrc}
+              className="inline-flex items-center gap-1.5 rounded-md border border-navy-200 bg-white px-3 py-1.5 text-xs font-medium text-navy-800 transition hover:bg-navy-50 disabled:opacity-50"
+            >
+              <DownloadIcon className="h-3.5 w-3.5" />
+              Download original
+            </button>
           </div>
 
           <div className="flex min-h-0 flex-col border-t border-navy-100 md:border-l md:border-t-0">
-            <div className="min-h-0 flex-1 space-y-2 overflow-y-auto p-4">
+            <div className="min-h-0 flex-1 space-y-3 overflow-y-auto p-4">
               {editingUnavailable && (
                 <div
                   data-testid="edit-unavailable-banner"
@@ -239,19 +278,49 @@ export function ImageEditSession({ card, onClose, onBack }: ImageEditSessionProp
                 </div>
               )}
               <p className="text-xs text-navy-500">
-                Describe changes in plain language. Each reply updates the image on the left.
+                Describe changes below. Edits appear in the chat; the original stays on
+                the left.
               </p>
-              {(session?.turns ?? []).map((t, i) => (
-                <div
-                  key={`${i}-${t.prompt}`}
-                  className="rounded-lg bg-brand-50 px-3 py-2 text-sm text-navy-800 ring-1 ring-brand-100"
-                >
-                  <span className="mb-0.5 block text-[10px] font-semibold uppercase tracking-wide text-brand-700">
-                    You
-                  </span>
-                  {t.prompt}
+              {(session?.turns ?? []).map((turn, index) => (
+                <div key={`${index}-${turn.prompt}`} className="space-y-2">
+                  <div className="rounded-lg bg-brand-50 px-3 py-2 text-sm text-navy-800 ring-1 ring-brand-100">
+                    <span className="mb-0.5 block text-[10px] font-semibold uppercase tracking-wide text-brand-700">
+                      You
+                    </span>
+                    {turn.prompt}
+                  </div>
+                  <div className="flex items-start gap-2">
+                    <div className="min-w-0 flex-1">
+                      <span className="mb-1 block text-[10px] font-semibold uppercase tracking-wide text-navy-500">
+                        Edit {index + 1}
+                      </span>
+                      <img
+                        src={turn.image_url}
+                        alt={`Edit ${index + 1} of ${displayName}`}
+                        className="max-w-full rounded-lg object-contain ring-1 ring-navy-100"
+                      />
+                    </div>
+                    <button
+                      type="button"
+                      data-testid={`edit-download-turn-${index}`}
+                      onClick={() => void handleDownloadTurn(index, turn.image_url)}
+                      title={`Download edit ${index + 1}`}
+                      aria-label={`Download edit ${index + 1}`}
+                      className="mt-5 shrink-0 rounded-md p-1.5 text-navy-600 transition hover:bg-navy-100 hover:text-brand-700"
+                    >
+                      <DownloadIcon />
+                    </button>
+                  </div>
                 </div>
               ))}
+              {busy && !editingUnavailable && (
+                <p
+                  role="status"
+                  className="text-xs font-medium text-navy-500"
+                >
+                  Working…
+                </p>
+              )}
               {submitOk && (
                 <div className="rounded-lg bg-emerald-50 px-3 py-2 text-sm text-emerald-900 ring-1 ring-emerald-200">
                   Submitted for admin review. An admin must accept it before it joins the corpus.
@@ -267,6 +336,7 @@ export function ImageEditSession({ card, onClose, onBack }: ImageEditSessionProp
                   <p className="mt-1 text-xs text-red-900/90">{actionError}</p>
                 </div>
               )}
+              <div ref={chatEndRef} />
             </div>
 
             <div className="shrink-0 border-t border-navy-100 p-3">
@@ -305,15 +375,6 @@ export function ImageEditSession({ card, onClose, onBack }: ImageEditSessionProp
                   className="rounded-md bg-brand-500 px-3 py-1.5 text-xs font-semibold text-white transition hover:bg-brand-600 disabled:opacity-50"
                 >
                   Generate
-                </button>
-                <button
-                  type="button"
-                  data-testid="edit-download"
-                  onClick={() => void handleDownload()}
-                  disabled={busy || (!session && !card.has_image_file)}
-                  className="rounded-md border border-navy-200 bg-white px-3 py-1.5 text-xs font-medium text-navy-800 transition hover:bg-navy-50 disabled:opacity-50"
-                >
-                  Download
                 </button>
                 <button
                   type="button"

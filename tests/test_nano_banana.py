@@ -377,6 +377,13 @@ def test_edit_session_turn_submit_and_admin_decline(tmp_path):
         created = client.post("/api/edit/sessions", json={"image_id": image_id})
         assert created.status_code == 200, created.text
         session_id = created.json()["session_id"]
+        assert created.json()["original_image_url"] == (
+            f"/api/edit/sessions/{session_id}/original"
+        )
+
+        original = client.get(f"/api/edit/sessions/{session_id}/original")
+        assert original.status_code == 200
+        assert original.content == png
 
         turn = client.post(
             f"/api/edit/sessions/{session_id}/turn",
@@ -384,10 +391,21 @@ def test_edit_session_turn_submit_and_admin_decline(tmp_path):
         )
         assert turn.status_code == 200, turn.text
         assert turn.json()["turn_count"] == 1
+        turn_payload = turn.json()
+        assert turn_payload["turns"][0]["image_url"] == (
+            f"/api/edit/sessions/{session_id}/turns/0/image"
+        )
+
+        edited_png = _png_bytes(color=(200, 100, 50))
+        turn_img = client.get(turn_payload["turns"][0]["image_url"])
+        assert turn_img.status_code == 200
+        assert turn_img.content == edited_png
+        assert turn_img.content != png
 
         img = client.get(f"/api/edit/sessions/{session_id}/image")
         assert img.status_code == 200
         assert img.headers["content-type"].startswith("image/")
+        assert img.content == edited_png
 
         submitted = client.post(f"/api/edit/sessions/{session_id}/submit")
         assert submitted.status_code == 200, submitted.text

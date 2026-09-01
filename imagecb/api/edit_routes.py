@@ -60,15 +60,36 @@ def _load_corpus_png(image_id: str) -> bytes:
     raise HTTPException(status_code=404, detail="image blob not found") from last_error
 
 
+def _png_response(data: bytes, *, filename: str) -> StreamingResponse:
+    return StreamingResponse(
+        io.BytesIO(data),
+        media_type="image/png",
+        headers={
+            "Content-Disposition": f'inline; filename="{filename}"',
+            "Cache-Control": "no-store",
+            "Content-Length": str(len(data)),
+        },
+    )
+
+
 def _session_payload(session_id: str, session) -> dict:
     return {
         "session_id": session_id,
         "source_image_id": session.source_image_id,
+        "original_image_url": f"/api/edit/sessions/{session_id}/original",
         "image_url": f"/api/edit/sessions/{session_id}/image",
         "turn_count": len(session.turns),
         "last_prompt": session.last_prompt,
         "submitted": session.submitted,
-        "turns": [{"prompt": t.prompt} for t in session.turns],
+        "turns": [
+            {
+                "prompt": t.prompt,
+                "image_url": (
+                    f"/api/edit/sessions/{session_id}/turns/{index}/image"
+                ),
+            }
+            for index, t in enumerate(session.turns)
+        ],
     }
 
 
@@ -105,15 +126,33 @@ def get_session_image(session_id: str):
     session = get_edit_session(session_id)
     if session is None:
         raise HTTPException(status_code=404, detail="edit session not found")
-    data = session.working_image_png
-    return StreamingResponse(
-        io.BytesIO(data),
-        media_type="image/png",
-        headers={
-            "Content-Disposition": f'inline; filename="edit-{session_id}.png"',
-            "Cache-Control": "no-store",
-            "Content-Length": str(len(data)),
-        },
+    return _png_response(
+        session.working_image_png,
+        filename=f"edit-{session_id}.png",
+    )
+
+
+@router.get("/sessions/{session_id}/original")
+def get_session_original(session_id: str):
+    session = get_edit_session(session_id)
+    if session is None:
+        raise HTTPException(status_code=404, detail="edit session not found")
+    return _png_response(
+        session.original_image_png,
+        filename=f"original-{session_id}.png",
+    )
+
+
+@router.get("/sessions/{session_id}/turns/{turn_index}/image")
+def get_session_turn_image(session_id: str, turn_index: int):
+    session = get_edit_session(session_id)
+    if session is None:
+        raise HTTPException(status_code=404, detail="edit session not found")
+    if turn_index < 0 or turn_index >= len(session.turns):
+        raise HTTPException(status_code=404, detail="edit turn not found")
+    return _png_response(
+        session.turns[turn_index].result_image_png,
+        filename=f"edit-{session_id}-turn-{turn_index}.png",
     )
 
 
@@ -147,7 +186,9 @@ def edit_turn(
     session.last_prompt = body.prompt.strip()
     from imagecb.api.edit_sessions import EditTurn
 
-    session.turns.append(EditTurn(prompt=session.last_prompt))
+    session.turns.append(
+        EditTurn(prompt=session.last_prompt, result_image_png=result)
+    )
     return _session_payload(session_id, session)
 
 
