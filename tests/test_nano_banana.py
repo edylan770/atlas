@@ -17,6 +17,7 @@ from PIL import Image
 
 from imagecb.api.edit_sessions import clear_edit_sessions
 from imagecb.api.edit_routes import EditTurnRequest, edit_turn
+from imagecb.api import rate_limit
 from imagecb.api.server import create_app
 from imagecb.config import SETTINGS
 from imagecb.models.secrets import (
@@ -29,7 +30,7 @@ from imagecb.models.secrets import (
     reset_gemini_secret_cache,
 )
 from imagecb.models.providers import get_genai_client, reset_provider_clients
-from imagecb.models.image_edit import ImageEditError, edit_image
+from imagecb.models.image_edit import ImageEditError, _provider_error, edit_image
 from imagecb.pending_edits import (
     accept_pending_edit,
     create_pending_edit,
@@ -46,10 +47,12 @@ def _reset():
     reset_gemini_secret_cache()
     reset_provider_clients()
     clear_edit_sessions()
+    rate_limit.reset()
     yield
     reset_gemini_secret_cache()
     reset_provider_clients()
     clear_edit_sessions()
+    rate_limit.reset()
 
 
 def _png_bytes(color=(10, 20, 30), size=(64, 48)) -> bytes:
@@ -295,6 +298,127 @@ def test_edit_image_classifies_provider_permission_error(monkeypatch):
         edit_image(_png_bytes(), "make it blue")
     assert caught.value.code == "permission_denied"
     assert "image-model access" in str(caught.value)
+
+
+@pytest.mark.parametrize(
+    ("message", "code"),
+    [
+        ("401 Unauthorized: invalid api key", "authentication_failed"),
+        ("403 PERMISSION_DENIED", "permission_denied"),
+        ("404 model not found", "model_unavailable"),
+        ("429 RESOURCE_EXHAUSTED quota exceeded", "quota_exceeded"),
+        ("Deadline exceeded: request timed out", "provider_timeout"),
+        ("boom from SDK", "provider_error"),
+    ],
+)
+def test_provider_error_classifies_common_failures(message, code):
+    err = _provider_error(RuntimeError(message))
+    assert err.code == code
+
+
+def test_edit_image_raises_invalid_image_for_undecodable_inline(monkeypatch):
+    response = SimpleNamespace(
+        candidates=[
+            SimpleNamespace(
+                content=SimpleNamespace(
+                    parts=[
+                        SimpleNamespace(
+                            inline_data=SimpleNamespace(data=b"not-a-real-image"),
+                            text=None,
+                        )
+                    ]
+                ),
+                finish_reason="STOP",
+            )
+        ],
+        parts=None,
+        prompt_feedback=None,
+    )
+    fake_client = SimpleNamespace(
+        models=SimpleNamespace(generate_content=lambda **_kwargs: response)
+    )
+    config = SimpleNamespace(backend="vertex_express")
+    monkeypatch.setattr(
+        "imagecb.models.image_edit.get_gemini_vertex_config", lambda: config
+    )
+    monkeypatch.setattr(
+        "imagecb.models.image_edit.get_genai_client", lambda: fake_client
+    )
+
+    with pytest.raises(ImageEditError) as caught:
+        edit_image(_png_bytes(), "make it blue")
+    assert caught.value.code == "invalid_image"
+
+
+def test_edit_image_empty_candidates_is_no_image(monkeypatch):
+    response = SimpleNamespace(
+        candidates=[],
+        parts=None,
+        prompt_feedback=None,
+    )
+    fake_client = SimpleNamespace(
+        models=SimpleNamespace(generate_content=lambda **_kwargs: response)
+    )
+    config = SimpleNamespace(backend="vertex_express")
+    monkeypatch.setattr(
+        "imagecb.models.image_edit.get_gemini_vertex_config", lambda: config
+    )
+    monkeypatch.setattr(
+        "imagecb.models.image_edit.get_genai_client", lambda: fake_client
+    )
+
+    with pytest.raises(ImageEditError) as caught:
+        edit_image(_png_bytes(), "make it blue")
+    assert caught.value.code == "no_image"
+
+
+def _corpus_client(tmp_path, *, settings_overrides=None, edit_image_return=None):
+    """Build a TestClient with a one-image corpus and Nano Banana mocked available."""
+    overrides = settings_overrides or {}
+    settings_kwargs = {
+        "blob_storage_backend": "local",
+        "data_dir": tmp_path / "data",
+        "image_cache_dir": tmp_path / "data" / "images",
+        "uploads_dir": tmp_path / "data" / "uploads",
+        "sqlite_path": tmp_path / "data" / "test.db",
+        "s3_prefix": "imagecb",
+        "admin_api_key": "test-admin-secret",
+        "gemini_api_key": "fake-gemini-key",
+        "llm_rate_limit_per_minute": 0,
+    }
+    settings_kwargs.update(overrides)
+    settings = replace(SETTINGS, **settings_kwargs)
+    settings.ensure_dirs()
+    (tmp_path / "data" / "images").mkdir(parents=True, exist_ok=True)
+
+    image_id = "corpus-1"
+    png = _png_bytes()
+    image_path = tmp_path / "data" / "images" / f"{image_id}.png"
+    image_path.write_bytes(png)
+
+    edit_return = (
+        edit_image_return
+        if edit_image_return is not None
+        else _png_bytes(color=(200, 100, 50))
+    )
+    patches = _patch_settings(settings)
+    stack = (
+        patches[0],
+        patches[1],
+        patches[2],
+        patches[3],
+        patches[4],
+        patch("imagecb.api.auth.SETTINGS", settings),
+        patch("imagecb.api.rate_limit.SETTINGS", settings),
+        patch("imagecb.models.secrets.SETTINGS", settings),
+        patch("imagecb.api.edit_sessions.SETTINGS", settings),
+        patch(
+            "imagecb.api.edit_routes.nano_banana_status",
+            return_value={"available": True},
+        ),
+        patch("imagecb.models.image_edit.edit_image", return_value=edit_return),
+    )
+    return settings, image_id, png, stack
 
 
 def test_edit_turn_returns_actionable_provider_error(monkeypatch):
@@ -576,3 +700,190 @@ def test_edit_session_turn_submit_and_admin_decline(tmp_path):
         )
         assert declined.status_code == 200
         assert list_pending_edits() == []
+
+
+def test_create_session_returns_503_when_unavailable(tmp_path):
+    settings = replace(
+        SETTINGS,
+        blob_storage_backend="local",
+        data_dir=tmp_path / "data",
+        image_cache_dir=tmp_path / "data" / "images",
+        uploads_dir=tmp_path / "data" / "uploads",
+        sqlite_path=tmp_path / "data" / "test.db",
+        s3_prefix="imagecb",
+        gemini_api_key="fake-gemini-key",
+        llm_rate_limit_per_minute=0,
+    )
+    settings.ensure_dirs()
+    patches = _patch_settings(settings)
+    with patches[0], patches[1], patches[2], patches[3], patches[4], patch(
+        "imagecb.api.rate_limit.SETTINGS", settings
+    ), patch(
+        "imagecb.api.edit_routes.nano_banana_status",
+        return_value={
+            "available": False,
+            "error": "Secrets Manager AccessDenied",
+        },
+    ):
+        client = TestClient(create_app())
+        res = client.post("/api/edit/sessions", json={"image_id": "missing"})
+        assert res.status_code == 503
+        assert "unavailable" in res.json()["detail"].lower()
+        assert "AccessDenied" in res.json()["detail"]
+
+
+def test_edit_api_missing_session_submitted_and_empty_submit(tmp_path):
+    settings, image_id, _png, stack = _corpus_client(tmp_path)
+    with stack[0], stack[1], stack[2], stack[3], stack[4], stack[5], stack[
+        6
+    ], stack[7], stack[8], stack[9], stack[10]:
+        _open_tmp_db(settings)
+        with session_scope() as s:
+            s.add(
+                ImageRecord(
+                    image_id=image_id,
+                    content_hash="hash-corpus-1",
+                    image_path=str(tmp_path / "data" / "images" / f"{image_id}.png"),
+                    source_file=str(tmp_path / "data" / "images" / f"{image_id}.png"),
+                    source_type="image",
+                    created_at=datetime.utcnow(),
+                )
+            )
+
+        client = TestClient(create_app())
+
+        missing = client.post(
+            "/api/edit/sessions/does-not-exist/turn",
+            json={"prompt": "make it blue"},
+        )
+        assert missing.status_code == 404
+
+        created = client.post("/api/edit/sessions", json={"image_id": image_id})
+        assert created.status_code == 200
+        session_id = created.json()["session_id"]
+
+        empty_submit = client.post(f"/api/edit/sessions/{session_id}/submit")
+        assert empty_submit.status_code == 400
+        assert "at least once" in empty_submit.json()["detail"].lower()
+
+        turn = client.post(
+            f"/api/edit/sessions/{session_id}/turn",
+            json={"prompt": "make it blue"},
+        )
+        assert turn.status_code == 200
+
+        submitted = client.post(f"/api/edit/sessions/{session_id}/submit")
+        assert submitted.status_code == 200
+
+        # Submit deletes the session; further turns/submits must 404.
+        after = client.post(
+            f"/api/edit/sessions/{session_id}/turn",
+            json={"prompt": "again"},
+        )
+        assert after.status_code == 404
+
+        second_submit = client.post(f"/api/edit/sessions/{session_id}/submit")
+        assert second_submit.status_code == 404
+
+
+def test_edit_turn_returns_409_when_session_already_submitted(monkeypatch):
+    session = SimpleNamespace(
+        working_image_png=_png_bytes(),
+        source_image_id="source-1",
+        submitted=True,
+    )
+    monkeypatch.setattr(
+        "imagecb.api.edit_routes.nano_banana_status",
+        lambda: {"available": True},
+    )
+    monkeypatch.setattr(
+        "imagecb.api.edit_routes.get_edit_session",
+        lambda _session_id: session,
+    )
+
+    with pytest.raises(HTTPException) as caught:
+        edit_turn("session-1", EditTurnRequest(prompt="make it blue"))
+    assert caught.value.status_code == 409
+    assert "already submitted" in str(caught.value.detail).lower()
+
+
+def test_edit_create_rate_limited(tmp_path):
+    settings, image_id, _png, stack = _corpus_client(
+        tmp_path, settings_overrides={"llm_rate_limit_per_minute": 1}
+    )
+    with stack[0], stack[1], stack[2], stack[3], stack[4], stack[5], stack[
+        6
+    ], stack[7], stack[8], stack[9], stack[10]:
+        _open_tmp_db(settings)
+        with session_scope() as s:
+            s.add(
+                ImageRecord(
+                    image_id=image_id,
+                    content_hash="hash-corpus-1",
+                    image_path=str(tmp_path / "data" / "images" / f"{image_id}.png"),
+                    source_file=str(tmp_path / "data" / "images" / f"{image_id}.png"),
+                    source_type="image",
+                    created_at=datetime.utcnow(),
+                )
+            )
+
+        client = TestClient(create_app())
+        first = client.post("/api/edit/sessions", json={"image_id": image_id})
+        assert first.status_code == 200, first.text
+        second = client.post("/api/edit/sessions", json={"image_id": image_id})
+        assert second.status_code == 429
+        assert "Retry-After" in second.headers
+
+
+def test_edit_session_ttl_eviction_returns_404(tmp_path, monkeypatch):
+    from imagecb.api import edit_sessions as edit_sessions_mod
+
+    settings, image_id, _png, stack = _corpus_client(
+        tmp_path, settings_overrides={"session_ttl_sec": 1}
+    )
+    clock = {"now": 1000.0}
+
+    def fake_monotonic():
+        return clock["now"]
+
+    monkeypatch.setattr("imagecb.api.edit_sessions.time.monotonic", fake_monotonic)
+
+    with stack[0], stack[1], stack[2], stack[3], stack[4], stack[5], stack[
+        6
+    ], stack[7], stack[8], stack[9], stack[10]:
+        _open_tmp_db(settings)
+        with session_scope() as s:
+            s.add(
+                ImageRecord(
+                    image_id=image_id,
+                    content_hash="hash-corpus-1",
+                    image_path=str(tmp_path / "data" / "images" / f"{image_id}.png"),
+                    source_file=str(tmp_path / "data" / "images" / f"{image_id}.png"),
+                    source_type="image",
+                    created_at=datetime.utcnow(),
+                )
+            )
+
+        client = TestClient(create_app())
+        created = client.post("/api/edit/sessions", json={"image_id": image_id})
+        assert created.status_code == 200
+        session_id = created.json()["session_id"]
+
+        # Dataclass default_factory keeps a direct ref to real time.monotonic;
+        # stamp last_used onto the fake clock so TTL eviction is deterministic.
+        with edit_sessions_mod._lock:
+            edit_sessions_mod._sessions[session_id].last_used = clock["now"]
+
+        # Advance past TTL; creating another session triggers eviction.
+        clock["now"] = 1002.5
+        other = client.post("/api/edit/sessions", json={"image_id": image_id})
+        assert other.status_code == 200
+
+        expired = client.get(f"/api/edit/sessions/{session_id}")
+        assert expired.status_code == 404
+
+        expired_turn = client.post(
+            f"/api/edit/sessions/{session_id}/turn",
+            json={"prompt": "too late"},
+        )
+        assert expired_turn.status_code == 404

@@ -107,7 +107,7 @@ describe("ImageEditSession", () => {
     );
   });
 
-  it("shows an explicit error when a generated image cannot load", async () => {
+    it("shows an explicit error when a generated image cannot load", async () => {
     apiMocks.postEditTurn.mockResolvedValue({
       ...emptySession,
       turn_count: 1,
@@ -128,5 +128,86 @@ describe("ImageEditSession", () => {
     fireEvent.error(await screen.findByAltText("Edit 1 of Test image"));
 
     expect(await screen.findByTestId("edit-turn-image-error-0")).toBeTruthy();
+  });
+
+  it("shows unavailable banner and disables generate when Gemini is offline", async () => {
+    apiMocks.fetchEditStatus.mockResolvedValue({
+      available: false,
+      model: "gemini-2.5-flash-image",
+      error: "Secrets Manager AccessDenied",
+    });
+    apiMocks.createEditSession.mockRejectedValue(
+      new Error("Nano Banana editing is unavailable"),
+    );
+
+    render(<ImageEditSession card={card} onClose={() => {}} />);
+
+    expect(await screen.findByTestId("edit-unavailable-banner")).toBeTruthy();
+    expect(
+      (screen.getByTestId("edit-unavailable-banner") as HTMLElement).textContent,
+    ).toMatch(/unavailable|AccessDenied|Gemini/i);
+    expect((screen.getByTestId("edit-send") as HTMLButtonElement).disabled).toBe(
+      true,
+    );
+    expect((screen.getByTestId("edit-submit") as HTMLButtonElement).disabled).toBe(
+      true,
+    );
+    expect((screen.getByTestId("edit-prompt") as HTMLTextAreaElement).disabled).toBe(
+      true,
+    );
+  });
+
+  it("shows submit confirmation and disables further edits", async () => {
+    apiMocks.postEditTurn.mockResolvedValue({
+      ...emptySession,
+      turn_count: 1,
+      last_prompt: "make it blue",
+      turns: [
+        {
+          prompt: "make it blue",
+          image_url: "/api/edit/sessions/session-1/turns/0/image",
+        },
+      ],
+    });
+    apiMocks.submitEditSession.mockResolvedValue({
+      ok: true,
+      pending: {
+        pending_id: "pending-1",
+        source_image_id: "source-1",
+        status: "pending",
+        image_url: "/api/edit/pending/pending-1/image",
+        thumb_url: "/api/edit/pending/pending-1/thumb",
+      },
+    });
+    await renderReady();
+
+    fireEvent.change(screen.getByTestId("edit-prompt"), {
+      target: { value: "make it blue" },
+    });
+    fireEvent.click(screen.getByTestId("edit-send"));
+    await screen.findByAltText("Edit 1 of Test image");
+
+    fireEvent.click(screen.getByTestId("edit-submit"));
+
+    await waitFor(() =>
+      expect(screen.getByText(/Submitted for admin review/i)).toBeTruthy(),
+    );
+    expect((screen.getByTestId("edit-prompt") as HTMLTextAreaElement).disabled).toBe(
+      true,
+    );
+    expect((screen.getByTestId("edit-send") as HTMLButtonElement).disabled).toBe(
+      true,
+    );
+    expect((screen.getByTestId("edit-submit") as HTMLButtonElement).disabled).toBe(
+      true,
+    );
+  });
+
+  it("shows an explicit error when the original image cannot load", async () => {
+    await renderReady();
+
+    fireEvent.error(screen.getByAltText("Original Test image"));
+
+    expect(await screen.findByTestId("edit-original-image-error")).toBeTruthy();
   });
 });

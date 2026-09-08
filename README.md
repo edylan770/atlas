@@ -341,6 +341,32 @@ Common failures after SM access is fixed are an invalid/non-Express Google API k
 image-model access, quota exhaustion, or a safety response with no generated image. The UI
 and server log now expose a sanitized error code for each case.
 
+### Post-deploy Nano Banana smoke checklist
+
+Run after each deploy that touches image editing. No Secrets Manager write access required.
+
+1. **Config probe:** open `GET /api/edit/status` (or `curl -s https://YOUR-HOST/api/edit/status`).
+   Expect `"available": true`, `"source": "secrets_manager"`, `"backend": "vertex_express"`,
+   `"error": null`. If `"backend": "google_ai"`, the Express path is not active (deploy the
+   `AQ.` auto-detect build, or have an admin set `GEMINI_VERTEX_EXPRESS=true` / add
+   `project_id` to the secret JSON).
+2. **Generate once:** open Lightbox → Edit → enter a simple prompt → **Generate**.
+3. **DevTools → Network:**
+   - `POST /api/edit/sessions/.../turn` → **200** and a `turns[0].image_url`
+   - `GET` that turn image URL → **200**, `Content-Type: image/png`
+   - On failure: note the JSON `detail` (`[authentication_failed]`, `[permission_denied]`,
+     `[no_image]`, `[quota_exceeded]`, etc.)
+4. **UI:** edited image appears in the right-hand chat (scroll if needed). Red banner =
+   API failure; “could not be loaded” under the turn = image GET failed after a successful
+   turn POST.
+5. **Server logs (ask whoever has SSH):**  
+   `docker compose logs imagecb | grep -Ei "gemini_edit|Nano Banana edit failed"`  
+   Expect `gemini_edit status=success` for a good run.
+6. **Optional:** **Add to database** → Admin → Pending additions → decline (or accept).
+
+Known deploy constraint: edit sessions are **in-memory** on a single process. Multi-worker
+deployments without sticky sessions can 404 turn images even when Generate returned 200.
+
 ### Production EC2 Nano Banana (Secrets Manager + Vertex Express)
 
 On EC2, Nano Banana loads Gemini credentials from Secrets Manager when `GEMINI_API_KEY`
