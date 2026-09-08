@@ -1,10 +1,13 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
+  createImageSession,
   fetchStatus,
   fetchSuggestions,
+  postEditTurn,
   searchSimilarByImage,
   searchSimilarByImageId,
   sendChatStream,
+  submitEditSession,
 } from "./api/client";
 import {
   createConversation,
@@ -18,12 +21,14 @@ import { AdminNavLink } from "./components/AdminNavLink";
 import { ChatMessageList } from "./components/ChatMessageList";
 import { ChatSidebar } from "./components/ChatSidebar";
 import { Composer } from "./components/Composer";
+import { CreatedImagePanel } from "./components/CreatedImagePanel";
 import { EmptyState } from "./components/EmptyState";
 import { AtlasLoadingScreen, useMinDurationLoading } from "./components/AtlasLoadingScreen";
 import { Header } from "./components/Header";
 import { ResultsGrid } from "./components/ResultsGrid";
 import { SortSelect } from "./components/SortSelect";
 import { defaultSearchSort, sortResultCards } from "./sortResults";
+import { downloadImageUrl } from "./imageDownload";
 import type {
   Conversation,
   ConversationTurn,
@@ -62,6 +67,7 @@ export default function App() {
   const [suggestionsLoading, setSuggestionsLoading] = useState(false);
   const [searchEventId, setSearchEventId] = useState<string | null>(null);
   const [searchSortBy, setSearchSortBy] = useState<ResultSort>(defaultSearchSort());
+  const [addingCreatedId, setAddingCreatedId] = useState<string | null>(null);
 
   const saveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
@@ -74,6 +80,22 @@ export default function App() {
     () => activeConversation?.turns ?? [],
     [activeConversation],
   );
+
+  const createMode = activeConversation?.promptMode === "create";
+  const selectedTurn = useMemo(
+    () => turns.find((t) => t.id === selectedTurnId) ?? null,
+    [turns, selectedTurnId],
+  );
+  const displayedCreateTurn = useMemo(() => {
+    if (!createMode) return null;
+    if (selectedTurn?.kind === "create" && selectedTurn.createdImageUrl) {
+      return selectedTurn;
+    }
+    return (
+      [...turns].reverse().find((t) => t.kind === "create" && t.createdImageUrl) ??
+      null
+    );
+  }, [createMode, selectedTurn, turns]);
 
   const displayResults = useMemo(
     () => sortResultCards(results, searchSortBy),
@@ -553,9 +575,176 @@ export default function App() {
     );
   };
 
+  const handleCreateModeChange = (on: boolean) => {
+    if (!activeConversationId) return;
+    updateConversations((prev) =>
+      prev.map((c) =>
+        c.id === activeConversationId
+          ? { ...c, promptMode: on ? "create" : "search", updatedAt: Date.now() }
+          : c,
+      ),
+    );
+  };
+
+  const runCreate = async (text: string) => {
+    let convId = activeConversationId;
+    let conv = activeConversation;
+    if (!conv || !convId) {
+      const c = createConversation();
+      c.promptMode = "create";
+      conv = c;
+      convId = c.id;
+      setConversations((prev) => {
+        const next = [c, ...prev];
+        persistSoon(next, c.id);
+        return next;
+      });
+      setActiveConversationId(c.id);
+    }
+
+    setError(null);
+    setLoading(true);
+    setInput("");
+    const turnId = newTurnId();
+    const lastCreate = [...conv.turns]
+      .reverse()
+      .find((t) => t.kind === "create");
+    const sessionToRefine =
+      conv.createSessionId && lastCreate && !lastCreate.createSubmitted
+        ? conv.createSessionId
+        : null;
+
+    const pendingTurn: ConversationTurn = {
+      id: turnId,
+      userContent: text,
+      assistantContent: sessionToRefine ? "Refining the image…" : "Creating image…",
+      results: [],
+      parsedQuery: null,
+      kind: "create",
+      createSessionId: sessionToRefine,
+    };
+    updateConversations((prev) =>
+      prev.map((c) => {
+        if (c.id !== convId) return c;
+        const title = c.turns.length === 0 ? titleFromMessage(text) : c.title;
+        return {
+          ...c,
+          title,
+          promptMode: "create",
+          updatedAt: Date.now(),
+          turns: [...c.turns, pendingTurn],
+        };
+      }),
+    );
+    setSelectedTurnId(turnId);
+
+    try {
+      const session = sessionToRefine
+        ? await postEditTurn(sessionToRefine, text)
+        : await createImageSession(text);
+      const imageUrl =
+        session.turns[session.turns.length - 1]?.image_url ?? session.image_url;
+      updateConversations((prev) =>
+        prev.map((c) => {
+          if (c.id !== convId) return c;
+          return {
+            ...c,
+            createSessionId: session.session_id,
+            updatedAt: Date.now(),
+            turns: c.turns.map((t) =>
+              t.id === turnId
+                ? {
+                    ...t,
+                    assistantContent: sessionToRefine
+                      ? "Refined the previous image."
+                      : "Created an image from your prompt.",
+                    createdImageUrl: imageUrl,
+                    createSessionId: session.session_id,
+                    createSubmitted: false,
+                  }
+                : t,
+            ),
+          };
+        }),
+      );
+      setSelectedTurnId(turnId);
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e);
+      setError(msg);
+      updateConversations((prev) =>
+        prev.map((c) => {
+          if (c.id !== convId) return c;
+          return {
+            ...c,
+            updatedAt: Date.now(),
+            turns: c.turns.map((t) =>
+              t.id === turnId
+                ? { ...t, assistantContent: `**Error:** ${msg}` }
+                : t,
+            ),
+          };
+        }),
+      );
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleAddCreated = async (turn: ConversationTurn) => {
+    const sessionId = turn.createSessionId;
+    if (!sessionId || turn.createSubmitted || addingCreatedId) return;
+    setAddingCreatedId(sessionId);
+    setError(null);
+    try {
+      await submitEditSession(sessionId);
+      updateConversations((prev) =>
+        prev.map((c) => {
+          if (c.id !== activeConversationId) return c;
+          return {
+            ...c,
+            createSessionId:
+              c.createSessionId === sessionId ? null : c.createSessionId,
+            updatedAt: Date.now(),
+            turns: c.turns.map((t) =>
+              t.createSessionId === sessionId
+                ? { ...t, createSubmitted: true }
+                : t,
+            ),
+          };
+        }),
+      );
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setAddingCreatedId(null);
+    }
+  };
+
+  const handleDownloadCreated = async (turn: ConversationTurn) => {
+    if (!turn.createdImageUrl) return;
+    setError(null);
+    try {
+      const slug = turn.userContent
+        .trim()
+        .replace(/[^\w\- ]+/g, "")
+        .replace(/\s+/g, "-")
+        .slice(0, 40);
+      await downloadImageUrl(
+        turn.createdImageUrl,
+        `created-${slug || turn.id}.png`,
+      );
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    }
+  };
+
   const handleSend = async () => {
     const text = input.trim();
     if (!text || loading) return;
+    if (createMode) {
+      await runCreate(text);
+      return;
+    }
     await runSearch(text, topK, minMatchPercent);
   };
 
@@ -639,7 +828,7 @@ export default function App() {
             <section className="flex min-h-0 min-w-0 flex-1 flex-col bg-white">
               <div className="flex shrink-0 items-center gap-2 border-b border-navy-100 bg-navy-50 px-4 py-2">
                 <span className="text-xs font-semibold uppercase tracking-wide text-navy-700">
-                  Search
+                  {createMode ? "Create image" : "Search"}
                 </span>
                 {sidebarCollapsed && (
                   <button
@@ -657,6 +846,7 @@ export default function App() {
                     suggestions={suggestions}
                     loading={suggestionsLoading}
                     onPickExample={handleFollowUp}
+                    mode={createMode ? "create" : "search"}
                   />
                 ) : (
                   <ChatMessageList
@@ -666,6 +856,9 @@ export default function App() {
                     onSelectTurn={handleSelectTurn}
                     onFollowUpClick={handleFollowUp}
                     onEditResubmit={handleEditResubmit}
+                    onAddCreated={(turn) => void handleAddCreated(turn)}
+                    onDownloadCreated={(turn) => void handleDownloadCreated(turn)}
+                    addingCreatedId={addingCreatedId}
                   />
                 )}
               </div>
@@ -675,10 +868,12 @@ export default function App() {
                 minMatchPercent={minMatchPercent}
                 similarityAxis={similarityAxis}
                 loading={loading}
+                createMode={createMode}
                 onChange={setInput}
                 onTopKChange={setTopK}
                 onMinMatchPercentChange={setMinMatchPercent}
                 onSimilarityAxisChange={setSimilarityAxis}
+                onCreateModeChange={handleCreateModeChange}
                 onSend={handleSend}
                 onSimilarImageSearch={handleSimilarImageSearch}
               />
@@ -690,13 +885,14 @@ export default function App() {
         <section className="flex min-h-0 min-w-0 flex-[6] flex-col bg-white">
           <div className="flex shrink-0 items-center gap-2 border-b border-navy-100 bg-navy-50 px-4 py-2">
             <span className="text-xs font-semibold uppercase tracking-wide text-navy-700">
-              Results
+              {createMode ? "Created image" : "Results"}
             </span>
-            {results.length > 0 && (
+            {!createMode && results.length > 0 && (
               <span className="text-xs text-navy-500">
                 {results.length} image{results.length !== 1 ? "s" : ""}
               </span>
             )}
+            {!createMode && (
             <div className="ml-auto">
               <SortSelect
                 value={searchSortBy}
@@ -704,7 +900,17 @@ export default function App() {
                 disabled={loading}
               />
             </div>
+            )}
           </div>
+          {createMode ? (
+            <CreatedImagePanel
+              turn={displayedCreateTurn}
+              loading={loading}
+              adding={addingCreatedId === displayedCreateTurn?.createSessionId}
+              onDownload={(turn) => void handleDownloadCreated(turn)}
+              onAdd={(turn) => void handleAddCreated(turn)}
+            />
+          ) : (
           <ResultsGrid
             results={displayResults}
             loading={loading}
@@ -719,6 +925,7 @@ export default function App() {
               setSearchEventId(newSearchEventId ?? null);
             }}
           />
+          )}
         </section>
       </main>
 

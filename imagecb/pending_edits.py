@@ -154,7 +154,7 @@ def accept_pending_edit(pending_id: str) -> dict[str, Any]:
             raise KeyError(pending_id)
         if row.status != "pending":
             raise ValueError(f"pending edit {pending_id} is {row.status}")
-        source_image_id = row.source_image_id
+        source_image_id = (row.source_image_id or "").strip()
         staged_ref = row.staged_ref
         last_prompt = row.last_prompt
 
@@ -163,7 +163,11 @@ def accept_pending_edit(pending_id: str) -> dict[str, Any]:
 
     SETTINGS.ensure_dirs()
     with tempfile.TemporaryDirectory(prefix="nano-banana-accept-") as tmp:
-        filename = f"nano-banana-{source_image_id}-{pending_id}.png"
+        filename = (
+            f"nano-banana-created-{pending_id}.png"
+            if not source_image_id
+            else f"nano-banana-{source_image_id}-{pending_id}.png"
+        )
         path = Path(tmp) / filename
         path.write_bytes(data)
         stats = ingest_paths([path], auto_repair=True)
@@ -172,10 +176,11 @@ def accept_pending_edit(pending_id: str) -> dict[str, Any]:
     new_image_id: Optional[str] = None
     if record is not None:
         new_image_id = record.image_id
-        with session_scope() as s:
-            rec = s.get(metadata_db.ImageRecord, new_image_id)
-            if rec is not None:
-                rec.parent_image_id = source_image_id
+        if source_image_id:
+            with session_scope() as s:
+                rec = s.get(metadata_db.ImageRecord, new_image_id)
+                if rec is not None:
+                    rec.parent_image_id = source_image_id
 
     # Remove pending row + staged blobs (corpus blobs remain).
     with session_scope() as s:

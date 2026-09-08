@@ -1,4 +1,4 @@
-"""Nano Banana 2 (Gemini) image editing."""
+"""Nano Banana 2 (Gemini) image editing and text-to-image creation."""
 
 from __future__ import annotations
 
@@ -115,6 +115,131 @@ def _image_to_png_bytes(img: Image.Image) -> bytes:
     return buf.getvalue()
 
 
+def _collect_response_parts(response: object) -> list[object]:
+    parts: list[object] = []
+    if getattr(response, "candidates", None):
+        for cand in response.candidates or []:
+            content = getattr(cand, "content", None)
+            if content and getattr(content, "parts", None):
+                parts.extend(content.parts)
+    if not parts and getattr(response, "parts", None):
+        parts = list(response.parts)
+    return parts
+
+
+def _png_from_response(response: object) -> bytes:
+    parts = _collect_response_parts(response)
+    found_inline = False
+    for part in parts:
+        inline = getattr(part, "inline_data", None)
+        if inline is None:
+            continue
+        data = getattr(inline, "data", None)
+        if not data:
+            continue
+        found_inline = True
+        try:
+            if isinstance(data, str):
+                import base64
+
+                data = base64.b64decode(data, validate=True)
+            # Normalize to PNG for consistent session/pending storage.
+            out = Image.open(io.BytesIO(data)).convert("RGB")
+            return _image_to_png_bytes(out)
+        except Exception:  # noqa: BLE001
+            continue
+
+    if found_inline:
+        raise ImageEditError(
+            "invalid_image",
+            "Gemini returned image data that could not be decoded.",
+        )
+    diagnostic = _response_diagnostic(response, parts)
+    message = "Gemini completed the request but did not return an image."
+    if diagnostic:
+        message = f"{message} {diagnostic}"
+    raise ImageEditError("no_image", message)
+
+
+def _run_gemini_image(
+    *,
+    contents: list[object],
+    model_id: str,
+    log_event: str,
+) -> bytes:
+    from google.genai import types
+
+    client = get_genai_client()
+    config = get_gemini_vertex_config()
+    started = time.perf_counter()
+    try:
+        response = client.models.generate_content(
+            model=model_id,
+            contents=contents,
+            config=types.GenerateContentConfig(
+                response_modalities=["TEXT", "IMAGE"],
+            ),
+        )
+        result = _png_from_response(response)
+        logger.info(
+            "%s status=success model=%s backend=%s latency_ms=%.1f",
+            log_event,
+            model_id,
+            config.backend,
+            (time.perf_counter() - started) * 1000,
+        )
+        return result
+    except ImageEditError as exc:
+        logger.warning(
+            "%s status=failure model=%s backend=%s latency_ms=%.1f error_code=%s",
+            log_event,
+            model_id,
+            config.backend,
+            (time.perf_counter() - started) * 1000,
+            exc.code,
+        )
+        raise
+    except Exception as exc:
+        public_error = _provider_error(exc)
+        logger.exception(
+            "%s status=failure model=%s backend=%s latency_ms=%.1f error_code=%s",
+            log_event,
+            model_id,
+            config.backend,
+            (time.perf_counter() - started) * 1000,
+            public_error.code,
+        )
+        raise public_error from exc
+
+
+def generate_image(
+    prompt: str,
+    *,
+    model: Optional[str] = None,
+) -> bytes:
+    """Create an image from text with Nano Banana 2; return PNG bytes."""
+    text = (prompt or "").strip()
+    if not text:
+        raise ValueError("prompt is required")
+
+    # Ensure key resolves before constructing the client (clearer errors).
+    get_gemini_vertex_config()
+    model_id = model or SETTINGS.nano_banana_model
+
+    from google.genai import types
+
+    return _run_gemini_image(
+        contents=[
+            types.Content(
+                role="user",
+                parts=[types.Part.from_text(text=text)],
+            )
+        ],
+        model_id=model_id,
+        log_event="gemini_create",
+    )
+
+
 def edit_image(
     image_bytes: bytes,
     prompt: str,
@@ -141,90 +266,16 @@ def edit_image(
 
     from google.genai import types
 
-    client = get_genai_client()
-    config = get_gemini_vertex_config()
-    started = time.perf_counter()
-    try:
-        response = client.models.generate_content(
-            model=model_id,
-            contents=[
-                types.Content(
-                    role="user",
-                    parts=[
-                        types.Part.from_bytes(data=png_in, mime_type="image/png"),
-                        types.Part.from_text(text=text),
-                    ],
-                )
-            ],
-            config=types.GenerateContentConfig(
-                response_modalities=["TEXT", "IMAGE"],
-            ),
-        )
-
-        parts: list[object] = []
-        if getattr(response, "candidates", None):
-            for cand in response.candidates or []:
-                content = getattr(cand, "content", None)
-                if content and getattr(content, "parts", None):
-                    parts.extend(content.parts)
-        if not parts and getattr(response, "parts", None):
-            parts = list(response.parts)
-
-        found_inline = False
-        for part in parts:
-            inline = getattr(part, "inline_data", None)
-            if inline is None:
-                continue
-            data = getattr(inline, "data", None)
-            if not data:
-                continue
-            found_inline = True
-            try:
-                if isinstance(data, str):
-                    import base64
-
-                    data = base64.b64decode(data, validate=True)
-                # Normalize to PNG for consistent session/pending storage.
-                out = Image.open(io.BytesIO(data)).convert("RGB")
-                result = _image_to_png_bytes(out)
-                logger.info(
-                    "gemini_edit status=success model=%s backend=%s latency_ms=%.1f",
-                    model_id,
-                    config.backend,
-                    (time.perf_counter() - started) * 1000,
-                )
-                return result
-            except Exception:  # noqa: BLE001
-                continue
-
-        if found_inline:
-            raise ImageEditError(
-                "invalid_image",
-                "Gemini returned image data that could not be decoded.",
+    return _run_gemini_image(
+        contents=[
+            types.Content(
+                role="user",
+                parts=[
+                    types.Part.from_bytes(data=png_in, mime_type="image/png"),
+                    types.Part.from_text(text=text),
+                ],
             )
-        diagnostic = _response_diagnostic(response, parts)
-        message = "Gemini completed the request but did not return an image."
-        if diagnostic:
-            message = f"{message} {diagnostic}"
-        raise ImageEditError("no_image", message)
-    except ImageEditError as exc:
-        logger.warning(
-            "gemini_edit status=failure model=%s backend=%s latency_ms=%.1f "
-            "error_code=%s",
-            model_id,
-            config.backend,
-            (time.perf_counter() - started) * 1000,
-            exc.code,
-        )
-        raise
-    except Exception as exc:
-        public_error = _provider_error(exc)
-        logger.exception(
-            "gemini_edit status=failure model=%s backend=%s latency_ms=%.1f "
-            "error_code=%s",
-            model_id,
-            config.backend,
-            (time.perf_counter() - started) * 1000,
-            public_error.code,
-        )
-        raise public_error from exc
+        ],
+        model_id=model_id,
+        log_event="gemini_edit",
+    )

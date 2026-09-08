@@ -825,6 +825,20 @@ export async function fetchEditStatus(): Promise<EditStatusResponse> {
   return request<EditStatusResponse>("/api/edit/status");
 }
 
+export async function createImageSession(
+  prompt: string,
+): Promise<EditSessionState> {
+  return request<EditSessionState>(
+    "/api/edit/sessions/create",
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ prompt }),
+    },
+    120_000,
+  );
+}
+
 export async function createEditSession(
   imageId: string,
 ): Promise<EditSessionState> {

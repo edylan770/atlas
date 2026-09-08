@@ -34,6 +34,10 @@ class EditTurnRequest(BaseModel):
     prompt: str = Field(..., min_length=1, max_length=4000)
 
 
+class CreateImageRequest(BaseModel):
+    prompt: str = Field(..., min_length=1, max_length=4000)
+
+
 def _require_nano_banana() -> None:
     status = nano_banana_status()
     if not status["available"]:
@@ -68,6 +72,33 @@ def _png_response(data: bytes, *, filename: str) -> StreamingResponse:
             "Cache-Control": "no-store",
             "Content-Length": str(len(data)),
         },
+    )
+
+
+def _apply_image_error(exc: Exception, *, session_id: str, source_image_id: str) -> HTTPException:
+    from imagecb.models.image_edit import ImageEditError
+
+    if isinstance(exc, ValueError):
+        return HTTPException(status_code=400, detail=str(exc))
+    if isinstance(exc, ImageEditError):
+        logger.warning(
+            "Nano Banana image failed session=%s source_image=%s error_code=%s",
+            session_id,
+            source_image_id,
+            exc.code,
+        )
+        return HTTPException(
+            status_code=502,
+            detail=f"Image generation failed [{exc.code}]: {exc}",
+        )
+    logger.exception(
+        "Nano Banana image failed session=%s source_image=%s",
+        session_id,
+        source_image_id,
+    )
+    return HTTPException(
+        status_code=502,
+        detail="Image generation failed [internal_error]. Check server logs.",
     )
 
 
@@ -109,6 +140,31 @@ def create_session(
         source_image_id=body.image_id,
         working_image_png=png,
     )
+    return _session_payload(session_id, session)
+
+
+@router.post("/sessions/create")
+def create_image_session(
+    body: CreateImageRequest,
+    _rl: None = Depends(check_llm_rate_limit),
+):
+    """Create a new image from a text prompt (no corpus source)."""
+    _require_nano_banana()
+    from imagecb.api.edit_sessions import EditTurn
+    from imagecb.models.image_edit import generate_image
+
+    prompt = body.prompt.strip()
+    try:
+        result = generate_image(prompt)
+    except Exception as exc:  # noqa: BLE001
+        raise _apply_image_error(exc, session_id="new", source_image_id="") from exc
+
+    session_id, session = create_edit_session(
+        source_image_id="",
+        working_image_png=result,
+    )
+    session.last_prompt = prompt
+    session.turns.append(EditTurn(prompt=prompt, result_image_png=result))
     return _session_payload(session_id, session)
 
 
@@ -168,32 +224,15 @@ def edit_turn(
     if session.submitted:
         raise HTTPException(status_code=409, detail="edit session already submitted")
 
-    from imagecb.models.image_edit import ImageEditError, edit_image
+    from imagecb.models.image_edit import edit_image
 
     try:
         result = edit_image(session.working_image_png, body.prompt)
-    except ValueError as exc:
-        raise HTTPException(status_code=400, detail=str(exc)) from exc
-    except ImageEditError as exc:
-        logger.warning(
-            "Nano Banana edit failed session=%s source_image=%s error_code=%s",
-            session_id,
-            session.source_image_id,
-            exc.code,
-        )
-        raise HTTPException(
-            status_code=502,
-            detail=f"Image edit failed [{exc.code}]: {exc}",
-        ) from exc
     except Exception as exc:  # noqa: BLE001
-        logger.exception(
-            "Nano Banana edit failed session=%s source_image=%s",
-            session_id,
-            session.source_image_id,
-        )
-        raise HTTPException(
-            status_code=502,
-            detail="Image edit failed [internal_error]. Check server logs.",
+        raise _apply_image_error(
+            exc,
+            session_id=session_id,
+            source_image_id=session.source_image_id,
         ) from exc
 
     session.working_image_png = result
@@ -223,7 +262,7 @@ def submit_session(
         )
 
     pending = create_pending_edit(
-        source_image_id=session.source_image_id,
+        source_image_id=(session.source_image_id or "").strip(),
         image_bytes=session.working_image_png,
         last_prompt=session.last_prompt,
     )

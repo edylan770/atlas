@@ -102,6 +102,8 @@ export interface ChatStreamCallbacks {
 }
 
 
+export type PromptMode = "search" | "create";
+
 export interface ConversationTurn {
   id: string;
   userContent: string;
@@ -110,6 +112,10 @@ export interface ConversationTurn {
   parsedQuery: ParsedQuery | null;
   searchEventId?: string | null;
   followUpSuggestions?: string[];
+  kind?: PromptMode;
+  createdImageUrl?: string | null;
+  createSessionId?: string | null;
+  createSubmitted?: boolean;
 }
 
 export interface Conversation {
@@ -119,6 +125,8 @@ export interface Conversation {
   createdAt: number;
   updatedAt: number;
   turns: ConversationTurn[];
+  promptMode?: PromptMode;
+  createSessionId?: string | null;
 }
 
 export interface StatusResponse {

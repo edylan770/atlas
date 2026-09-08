@@ -10,6 +10,9 @@ interface ChatMessageListProps {
   onSelectTurn: (turnId: string) => void;
   onFollowUpClick: (text: string) => void;
   onEditResubmit: (turnId: string, text: string) => void;
+  onAddCreated?: (turn: ConversationTurn) => void;
+  onDownloadCreated?: (turn: ConversationTurn) => void;
+  addingCreatedId?: string | null;
 }
 
 function PencilIcon() {
@@ -38,6 +41,9 @@ export function ChatMessageList({
   onSelectTurn,
   onFollowUpClick,
   onEditResubmit,
+  onAddCreated,
+  onDownloadCreated,
+  addingCreatedId = null,
 }: ChatMessageListProps) {
   const latestTurnId = turns.length > 0 ? turns[turns.length - 1]!.id : null;
   const [editingTurnId, setEditingTurnId] = useState<string | null>(null);
@@ -100,8 +106,15 @@ export function ChatMessageList({
         const showFollowUps =
           !loading &&
           isLatest &&
+          turn.kind !== "create" &&
           turn.followUpSuggestions &&
           turn.followUpSuggestions.length > 0;
+        const isCreate = turn.kind === "create";
+        const canAddCreated =
+          isCreate &&
+          Boolean(turn.createdImageUrl) &&
+          Boolean(turn.createSessionId) &&
+          !turn.createSubmitted;
 
         return (
           <div
@@ -139,6 +152,7 @@ export function ChatMessageList({
               </div>
             ) : (
               <div className="group relative flex max-w-[88%] items-start justify-end gap-1.5 self-end">
+                {!isCreate && (
                 <button
                   type="button"
                   onClick={(e) => {
@@ -152,6 +166,7 @@ export function ChatMessageList({
                 >
                   <PencilIcon />
                 </button>
+                )}
                 <button
                   type="button"
                   onClick={() => onSelectTurn(turn.id)}
@@ -179,6 +194,50 @@ export function ChatMessageList({
                 <ReactMarkdown>{turn.assistantContent}</ReactMarkdown>
               </div>
             </button>
+            {isCreate && turn.createdImageUrl && (
+              <div className="mr-auto max-w-[88%] space-y-2">
+                <img
+                  src={turn.createdImageUrl}
+                  alt={turn.userContent}
+                  className="max-h-64 max-w-full rounded-lg object-contain ring-1 ring-navy-100"
+                />
+                <div className="flex flex-wrap items-center gap-2">
+                  {onDownloadCreated && (
+                    <button
+                      type="button"
+                      data-testid="create-download"
+                      onClick={() => onDownloadCreated(turn)}
+                      className="rounded-md border border-navy-200 bg-white px-2.5 py-1 text-xs font-semibold text-navy-700 hover:bg-navy-50"
+                    >
+                      Download
+                    </button>
+                  )}
+                  {canAddCreated && onAddCreated && (
+                    <button
+                      type="button"
+                      data-testid="create-add-to-database"
+                      disabled={loading || addingCreatedId === turn.createSessionId}
+                      onClick={() => onAddCreated(turn)}
+                      className="rounded-md border border-brand-200 bg-brand-50 px-2.5 py-1 text-xs font-semibold text-brand-800 hover:bg-brand-100 disabled:opacity-50"
+                    >
+                      {addingCreatedId === turn.createSessionId
+                        ? "Submitting…"
+                        : "Add to database"}
+                    </button>
+                  )}
+                  {turn.createSubmitted && (
+                    <span className="text-xs text-emerald-800">
+                      Submitted for admin review
+                    </span>
+                  )}
+                </div>
+              </div>
+            )}
+            {isCreate && !turn.createdImageUrl && turn.createSubmitted && (
+              <p className="mr-auto text-xs text-emerald-800">
+                Submitted for admin review
+              </p>
+            )}
 
             {showFollowUps && (
               <SuggestionChips

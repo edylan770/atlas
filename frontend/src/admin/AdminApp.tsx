@@ -1624,8 +1624,8 @@ function PendingAdditionsPage() {
         <div>
           <h2 className="text-lg font-semibold text-navy-900">Pending additions</h2>
           <p className="mt-1 text-sm text-navy-600">
-            Nano Banana edits submitted by chat users. Accept runs a full ingest as a
-            new corpus image; decline deletes the staged files only.
+            Nano Banana edits and created images submitted by chat users. Accept runs a
+            full ingest as a new corpus image; decline deletes the staged files only.
           </p>
         </div>
         <button
@@ -1663,15 +1663,23 @@ function PendingAdditionsPage() {
                 </div>
                 <div className="flex flex-1 flex-col gap-1 p-3 text-xs">
                   <p className="text-navy-500">
-                    Source:{" "}
-                    <a
-                      className="font-medium text-brand-700 hover:underline"
-                      href={`/api/images/${item.source_image_id}`}
-                      target="_blank"
-                      rel="noreferrer"
-                    >
-                      {item.source_image_id}
-                    </a>
+                    {item.source_image_id ? (
+                      <>
+                        Source:{" "}
+                        <a
+                          className="font-medium text-brand-700 hover:underline"
+                          href={`/api/images/${item.source_image_id}`}
+                          target="_blank"
+                          rel="noreferrer"
+                        >
+                          {item.source_image_id}
+                        </a>
+                      </>
+                    ) : (
+                      <span className="font-medium text-navy-700">
+                        Created from prompt
+                      </span>
+                    )}
                   </p>
                   {item.created_at && (
                     <p className="text-navy-500">Submitted: {item.created_at}</p>

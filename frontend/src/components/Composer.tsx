@@ -46,10 +46,12 @@ interface ComposerProps {
   minMatchPercent: number;
   similarityAxis: SimilarityAxis;
   loading: boolean;
+  createMode: boolean;
   onChange: (value: string) => void;
   onTopKChange: (value: number) => void;
   onMinMatchPercentChange: (value: number) => void;
   onSimilarityAxisChange: (value: SimilarityAxis) => void;
+  onCreateModeChange: (value: boolean) => void;
   onSend: () => void;
   onSimilarImageSearch: (file: File) => void;
 }
@@ -78,16 +80,37 @@ function CameraIcon() {
   );
 }
 
+function SparkIcon() {
+  return (
+    <svg
+      className="h-3.5 w-3.5"
+      fill="none"
+      viewBox="0 0 24 24"
+      stroke="currentColor"
+      strokeWidth={2}
+      aria-hidden
+    >
+      <path
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        d="M12 3l1.6 4.4L18 9l-4.4 1.6L12 15l-1.6-4.4L6 9l4.4-1.6L12 3z"
+      />
+    </svg>
+  );
+}
+
 export function Composer({
   value,
   topK,
   minMatchPercent,
   similarityAxis,
   loading,
+  createMode,
   onChange,
   onTopKChange,
   onMinMatchPercentChange,
   onSimilarityAxisChange,
+  onCreateModeChange,
   onSend,
   onSimilarImageSearch,
 }: ComposerProps) {
@@ -121,20 +144,26 @@ export function Composer({
           onKeyDown={handleKeyDown}
           rows={2}
           disabled={loading}
-          placeholder='e.g. "dashboard screenshots from Q3_Review.pptx"'
+          placeholder={
+            createMode
+              ? "Describe the image to create"
+              : 'e.g. "dashboard screenshots from Q3_Review.pptx"'
+          }
           className="flex-1 resize-none rounded-xl border border-navy-200 px-3 py-2 text-sm text-navy-900 shadow-inner focus:border-brand-500 focus:outline-none focus:ring-2 focus:ring-brand-100 disabled:opacity-60"
         />
         <div className="flex shrink-0 items-end gap-2 self-end">
-          <button
-            type="button"
-            onClick={() => imageInputRef.current?.click()}
-            disabled={loading}
-            title="Image to Image Search"
-            aria-label="Image to Image Search"
-            className="rounded-xl border border-navy-200 bg-white p-2.5 text-navy-700 shadow-sm transition hover:border-brand-400 hover:bg-brand-50 hover:text-brand-700 disabled:opacity-50"
-          >
-            <CameraIcon />
-          </button>
+          {!createMode && (
+            <button
+              type="button"
+              onClick={() => imageInputRef.current?.click()}
+              disabled={loading}
+              title="Image to Image Search"
+              aria-label="Image to Image Search"
+              className="rounded-xl border border-navy-200 bg-white p-2.5 text-navy-700 shadow-sm transition hover:border-brand-400 hover:bg-brand-50 hover:text-brand-700 disabled:opacity-50"
+            >
+              <CameraIcon />
+            </button>
+          )}
           <Link
             to="/deck"
             title="Add Slide Deck"
@@ -149,7 +178,7 @@ export function Composer({
             disabled={loading || !value.trim()}
             className="rounded-xl bg-brand-500 px-5 py-2.5 text-sm font-semibold text-white shadow-sm transition hover:bg-brand-400 disabled:cursor-not-allowed disabled:opacity-50"
           >
-            {loading ? "…" : "Send"}
+            {loading ? "…" : createMode ? "Create" : "Send"}
           </button>
         </div>
       </div>
@@ -167,6 +196,31 @@ export function Composer({
           e.target.value = "";
         }}
       />
+      <div className="mt-2 flex flex-wrap items-center gap-2">
+        <button
+          type="button"
+          data-testid="create-image-mode"
+          aria-pressed={createMode}
+          disabled={loading}
+          title="Create an image from this prompt instead of searching the corpus"
+          onClick={() => onCreateModeChange(!createMode)}
+          className={`inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-xs font-semibold transition disabled:opacity-50 ${
+            createMode
+              ? "bg-brand-500 text-white shadow-sm"
+              : "border border-navy-200 bg-white text-navy-700 hover:border-brand-400 hover:bg-brand-50"
+          }`}
+        >
+          <SparkIcon />
+          Create image
+        </button>
+        {createMode && (
+          <span className="text-[11px] text-navy-500">
+            This prompt creates an image instead of searching the corpus
+          </span>
+        )}
+      </div>
+      {!createMode && (
+      <>
       <div className="mt-2">
         <label className="flex items-center gap-2 text-xs text-navy-600">
           <span>Max results</span>
@@ -245,6 +299,8 @@ export function Composer({
           </div>
         </div>
       </details>
+      </>
+      )}
     </div>
   );
 }

@@ -30,7 +30,7 @@ from imagecb.models.secrets import (
     reset_gemini_secret_cache,
 )
 from imagecb.models.providers import get_genai_client, reset_provider_clients
-from imagecb.models.image_edit import ImageEditError, _provider_error, edit_image
+from imagecb.models.image_edit import ImageEditError, _provider_error, edit_image, generate_image
 from imagecb.pending_edits import (
     accept_pending_edit,
     create_pending_edit,
@@ -241,6 +241,48 @@ def test_edit_image_extracts_inline_image(monkeypatch, as_base64):
 
     result = edit_image(_png_bytes(), "make it warmer")
     assert Image.open(io.BytesIO(result)).getpixel((0, 0)) == (90, 80, 70)
+
+
+def test_generate_image_extracts_inline_image(monkeypatch):
+    output = _png_bytes(color=(12, 34, 56))
+    captured: dict = {}
+
+    def _generate_content(**kwargs):
+        captured.update(kwargs)
+        return SimpleNamespace(
+            candidates=[
+                SimpleNamespace(
+                    content=SimpleNamespace(
+                        parts=[
+                            SimpleNamespace(
+                                inline_data=SimpleNamespace(data=output),
+                                text=None,
+                            )
+                        ]
+                    ),
+                    finish_reason="STOP",
+                )
+            ],
+            parts=None,
+            prompt_feedback=None,
+        )
+
+    fake_client = SimpleNamespace(
+        models=SimpleNamespace(generate_content=_generate_content)
+    )
+    config = SimpleNamespace(backend="vertex_express")
+    monkeypatch.setattr(
+        "imagecb.models.image_edit.get_gemini_vertex_config", lambda: config
+    )
+    monkeypatch.setattr(
+        "imagecb.models.image_edit.get_genai_client", lambda: fake_client
+    )
+
+    result = generate_image("a blue chart on a white background")
+    assert Image.open(io.BytesIO(result)).getpixel((0, 0)) == (12, 34, 56)
+    parts = captured["contents"][0].parts
+    assert len(parts) == 1
+    assert getattr(parts[0], "inline_data", None) is None
 
 
 def test_edit_image_reports_text_only_response(monkeypatch):
@@ -601,6 +643,128 @@ def test_pending_accept_sets_parent_and_clears_staging(tmp_path):
         assert rec.parent_image_id == "parent-img"
         assert list_pending_edits() == []
         assert not blob_store.exists(staged)
+
+
+def test_pending_accept_created_image_skips_parent(tmp_path):
+    settings = replace(
+        SETTINGS,
+        blob_storage_backend="local",
+        data_dir=tmp_path / "data",
+        image_cache_dir=tmp_path / "data" / "images",
+        uploads_dir=tmp_path / "data" / "uploads",
+        sqlite_path=tmp_path / "data" / "test.db",
+        s3_prefix="imagecb",
+        admin_api_key="admin",
+    )
+    settings.ensure_dirs()
+
+    new_id = "ingested-from-create"
+    seen_names: list[str] = []
+
+    def fake_ingest(paths, **_kwargs):
+        seen_names.append(paths[0].name)
+        data = paths[0].read_bytes()
+        img = Image.open(io.BytesIO(data)).convert("RGB")
+        buf = io.BytesIO()
+        img.save(buf, format="PNG")
+        content_hash = hashlib.sha256(buf.getvalue()).hexdigest()
+        with session_scope() as s:
+            s.add(
+                ImageRecord(
+                    image_id=new_id,
+                    content_hash=content_hash,
+                    image_path=str(tmp_path / "data" / "images" / f"{new_id}.png"),
+                    source_file=str(paths[0]),
+                    source_type="image",
+                    created_at=datetime.utcnow(),
+                )
+            )
+        (tmp_path / "data" / "images").mkdir(parents=True, exist_ok=True)
+        (tmp_path / "data" / "images" / f"{new_id}.png").write_bytes(data)
+        return {"images_added": 1}
+
+    patches = _patch_settings(settings)
+    with patches[0], patches[1], patches[2], patches[3], patches[4], patch(
+        "imagecb.ingest.ingest_paths", side_effect=fake_ingest
+    ):
+        _open_tmp_db(settings)
+
+        pending = create_pending_edit(
+            source_image_id="",
+            image_bytes=_png_bytes(color=(4, 5, 6)),
+            last_prompt="a red bar chart",
+        )
+        result = accept_pending_edit(pending["pending_id"])
+        assert result["new_image_id"] == new_id
+        assert result["source_image_id"] == ""
+        rec = metadata_db.get_record(new_id)
+        assert rec is not None
+        assert rec.parent_image_id is None
+        assert seen_names[0].startswith("nano-banana-created-")
+
+
+def test_create_image_session_then_submit(tmp_path):
+    settings = replace(
+        SETTINGS,
+        blob_storage_backend="local",
+        data_dir=tmp_path / "data",
+        image_cache_dir=tmp_path / "data" / "images",
+        uploads_dir=tmp_path / "data" / "uploads",
+        sqlite_path=tmp_path / "data" / "test.db",
+        s3_prefix="imagecb",
+        admin_api_key="test-admin-secret",
+        gemini_api_key="fake-gemini-key",
+        llm_rate_limit_per_minute=0,
+    )
+    settings.ensure_dirs()
+    created_png = _png_bytes(color=(20, 30, 40))
+    refined_png = _png_bytes(color=(50, 60, 70))
+
+    patches = _patch_settings(settings)
+    with patches[0], patches[1], patches[2], patches[3], patches[4], patch(
+        "imagecb.api.auth.SETTINGS", settings
+    ), patch("imagecb.api.rate_limit.SETTINGS", settings), patch(
+        "imagecb.models.secrets.SETTINGS", settings
+    ), patch(
+        "imagecb.api.edit_routes.nano_banana_status",
+        return_value={"available": True},
+    ), patch(
+        "imagecb.models.image_edit.generate_image",
+        return_value=created_png,
+    ), patch(
+        "imagecb.models.image_edit.edit_image",
+        return_value=refined_png,
+    ):
+        _open_tmp_db(settings)
+        client = TestClient(create_app())
+        created = client.post(
+            "/api/edit/sessions/create",
+            json={"prompt": "a blue dashboard"},
+        )
+        assert created.status_code == 200, created.text
+        body = created.json()
+        session_id = body["session_id"]
+        assert body["source_image_id"] == ""
+        assert body["turn_count"] == 1
+        assert body["turns"][0]["prompt"] == "a blue dashboard"
+
+        turn_img = client.get(body["turns"][0]["image_url"])
+        assert turn_img.status_code == 200
+        assert turn_img.content == created_png
+
+        refined = client.post(
+            f"/api/edit/sessions/{session_id}/turn",
+            json={"prompt": "make the bars taller"},
+        )
+        assert refined.status_code == 200, refined.text
+        assert refined.json()["turn_count"] == 2
+
+        submitted = client.post(f"/api/edit/sessions/{session_id}/submit")
+        assert submitted.status_code == 200, submitted.text
+        pending = submitted.json()["pending"]
+        assert pending["source_image_id"] == ""
+        assert pending["last_prompt"] == "make the bars taller"
+        assert list_pending_edits()[0]["source_image_id"] == ""
 
 
 def test_edit_session_turn_submit_and_admin_decline(tmp_path):
