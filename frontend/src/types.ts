@@ -115,6 +115,7 @@ export interface ConversationTurn {
   kind?: PromptMode;
   createdImageUrl?: string | null;
   createSessionId?: string | null;
+  createTurnIndex?: number | null;
   createSubmitted?: boolean;
 }
 

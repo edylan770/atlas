@@ -44,4 +44,27 @@ describe("ChatMessageList create turns", () => {
     fireEvent.click(screen.getByTestId("create-add-to-database"));
     expect(onAddCreated).toHaveBeenCalledWith(createTurn);
   });
+
+  it("lets the user edit a create prompt", () => {
+    const onEditResubmit = vi.fn();
+    render(
+      <ChatMessageList
+        turns={[createTurn]}
+        selectedTurnId="turn-1"
+        loading={false}
+        onSelectTurn={() => {}}
+        onFollowUpClick={() => {}}
+        onEditResubmit={onEditResubmit}
+        onAddCreated={() => {}}
+        onDownloadCreated={() => {}}
+      />,
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "Edit prompt" }));
+    fireEvent.change(screen.getByRole("textbox"), {
+      target: { value: "a green dashboard" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Save" }));
+    expect(onEditResubmit).toHaveBeenCalledWith("turn-1", "a green dashboard");
+  });
 });

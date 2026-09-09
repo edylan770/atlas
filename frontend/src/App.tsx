@@ -4,6 +4,7 @@ import {
   fetchStatus,
   fetchSuggestions,
   postEditTurn,
+  reviseEditTurn,
   searchSimilarByImage,
   searchSimilarByImageId,
   sendChatStream,
@@ -586,7 +587,13 @@ export default function App() {
     );
   };
 
-  const runCreate = async (text: string) => {
+  const runCreate = async (
+    text: string,
+    options?: {
+      fresh?: boolean;
+      revise?: { sessionId: string; baseTurnIndex: number } | null;
+    },
+  ) => {
     let convId = activeConversationId;
     let conv = activeConversation;
     if (!conv || !convId) {
@@ -609,10 +616,14 @@ export default function App() {
     const lastCreate = [...conv.turns]
       .reverse()
       .find((t) => t.kind === "create");
-    const sessionToRefine =
-      conv.createSessionId && lastCreate && !lastCreate.createSubmitted
-        ? conv.createSessionId
-        : null;
+    const revising = options?.revise ?? null;
+    const sessionToRefine = options?.fresh
+      ? null
+      : revising
+        ? revising.sessionId
+        : conv.createSessionId && lastCreate && !lastCreate.createSubmitted
+          ? conv.createSessionId
+          : null;
 
     const pendingTurn: ConversationTurn = {
       id: turnId,
@@ -639,11 +650,29 @@ export default function App() {
     setSelectedTurnId(turnId);
 
     try {
-      const session = sessionToRefine
-        ? await postEditTurn(sessionToRefine, text)
-        : await createImageSession(text);
+      let session;
+      let refined = Boolean(sessionToRefine);
+      if (revising) {
+        try {
+          session = await reviseEditTurn(
+            revising.sessionId,
+            text,
+            revising.baseTurnIndex,
+          );
+        } catch (err: unknown) {
+          const message = err instanceof Error ? err.message : String(err);
+          if (!/not found/i.test(message)) throw err;
+          refined = false;
+          session = await createImageSession(text);
+        }
+      } else {
+        session = sessionToRefine
+          ? await postEditTurn(sessionToRefine, text)
+          : await createImageSession(text);
+      }
       const imageUrl =
         session.turns[session.turns.length - 1]?.image_url ?? session.image_url;
+      const createTurnIndex = Math.max(0, session.turns.length - 1);
       updateConversations((prev) =>
         prev.map((c) => {
           if (c.id !== convId) return c;
@@ -655,11 +684,12 @@ export default function App() {
               t.id === turnId
                 ? {
                     ...t,
-                    assistantContent: sessionToRefine
+                    assistantContent: refined
                       ? "Refined the previous image."
                       : "Created an image from your prompt.",
                     createdImageUrl: imageUrl,
                     createSessionId: session.session_id,
+                    createTurnIndex,
                     createSubmitted: false,
                   }
                 : t,
@@ -761,8 +791,40 @@ export default function App() {
     const index = activeConversation.turns.findIndex((t) => t.id === turnId);
     if (index < 0) return;
 
+    const editing = activeConversation.turns[index]!;
     const kept = activeConversation.turns.slice(0, index);
     const editingFirst = index === 0;
+
+    if (editing.kind === "create") {
+      const previousCreate = [...kept]
+        .reverse()
+        .find((t) => t.kind === "create" && t.createdImageUrl);
+      const revise =
+        previousCreate?.createSessionId &&
+        !previousCreate.createSubmitted &&
+        typeof previousCreate.createTurnIndex === "number" &&
+        previousCreate.createSessionId === activeConversation.createSessionId
+          ? {
+              sessionId: previousCreate.createSessionId,
+              baseTurnIndex: previousCreate.createTurnIndex,
+            }
+          : null;
+
+      updateConversations((prev) =>
+        prev.map((c) => {
+          if (c.id !== activeConversationId) return c;
+          return {
+            ...c,
+            turns: kept,
+            createSessionId: null,
+            updatedAt: Date.now(),
+            title: editingFirst ? titleFromMessage(trimmed) : c.title,
+          };
+        }),
+      );
+      void runCreate(trimmed, revise ? { revise } : { fresh: true });
+      return;
+    }
 
     updateConversations((prev) =>
       prev.map((c) => {

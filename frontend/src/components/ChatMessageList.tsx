@@ -152,7 +152,6 @@ export function ChatMessageList({
               </div>
             ) : (
               <div className="group relative flex max-w-[88%] items-start justify-end gap-1.5 self-end">
-                {!isCreate && (
                 <button
                   type="button"
                   onClick={(e) => {
@@ -160,13 +159,12 @@ export function ChatMessageList({
                     startEdit(turn);
                   }}
                   disabled={loading}
-                  title="Edit query"
-                  aria-label="Edit query"
+                  title={isCreate ? "Edit prompt" : "Edit query"}
+                  aria-label={isCreate ? "Edit prompt" : "Edit query"}
                   className="mt-1 shrink-0 rounded p-1 text-navy-400 opacity-0 transition hover:bg-navy-100 hover:text-navy-700 group-hover:opacity-100 focus-visible:opacity-100 disabled:pointer-events-none disabled:opacity-0"
                 >
                   <PencilIcon />
                 </button>
-                )}
                 <button
                   type="button"
                   onClick={() => onSelectTurn(turn.id)}

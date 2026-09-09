@@ -38,6 +38,11 @@ class CreateImageRequest(BaseModel):
     prompt: str = Field(..., min_length=1, max_length=4000)
 
 
+class ReviseTurnRequest(BaseModel):
+    prompt: str = Field(..., min_length=1, max_length=4000)
+    base_turn_index: int = Field(..., ge=0)
+
+
 def _require_nano_banana() -> None:
     status = nano_banana_status()
     if not status["available"]:
@@ -242,6 +247,44 @@ def edit_turn(
     session.turns.append(
         EditTurn(prompt=session.last_prompt, result_image_png=result)
     )
+    return _session_payload(session_id, session)
+
+
+@router.post("/sessions/{session_id}/revise")
+def revise_turn(
+    session_id: str,
+    body: ReviseTurnRequest,
+    _rl: None = Depends(check_llm_rate_limit),
+):
+    """Replace later turns by editing the image from ``base_turn_index``."""
+    _require_nano_banana()
+    session = get_edit_session(session_id)
+    if session is None:
+        raise HTTPException(status_code=404, detail="edit session not found")
+    if session.submitted:
+        raise HTTPException(status_code=409, detail="edit session already submitted")
+    if body.base_turn_index >= len(session.turns):
+        raise HTTPException(status_code=404, detail="edit turn not found")
+
+    from imagecb.api.edit_sessions import EditTurn
+    from imagecb.models.image_edit import edit_image
+
+    base = session.turns[body.base_turn_index]
+    session.turns = session.turns[: body.base_turn_index + 1]
+    session.working_image_png = bytes(base.result_image_png)
+    prompt = body.prompt.strip()
+    try:
+        result = edit_image(session.working_image_png, prompt)
+    except Exception as exc:  # noqa: BLE001
+        raise _apply_image_error(
+            exc,
+            session_id=session_id,
+            source_image_id=session.source_image_id,
+        ) from exc
+
+    session.working_image_png = result
+    session.last_prompt = prompt
+    session.turns.append(EditTurn(prompt=prompt, result_image_png=result))
     return _session_payload(session_id, session)
 
 

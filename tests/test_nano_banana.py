@@ -767,6 +767,76 @@ def test_create_image_session_then_submit(tmp_path):
         assert list_pending_edits()[0]["source_image_id"] == ""
 
 
+def test_revise_create_session_rewinds_to_base_image(tmp_path):
+    settings = replace(
+        SETTINGS,
+        blob_storage_backend="local",
+        data_dir=tmp_path / "data",
+        image_cache_dir=tmp_path / "data" / "images",
+        uploads_dir=tmp_path / "data" / "uploads",
+        sqlite_path=tmp_path / "data" / "test.db",
+        s3_prefix="imagecb",
+        gemini_api_key="fake-gemini-key",
+        llm_rate_limit_per_minute=0,
+    )
+    settings.ensure_dirs()
+    created_png = _png_bytes(color=(20, 30, 40))
+    refined_png = _png_bytes(color=(50, 60, 70))
+    revised_png = _png_bytes(color=(80, 90, 100))
+    edit_calls: list[tuple[bytes, str]] = []
+
+    def fake_edit(image_bytes, prompt):
+        edit_calls.append((image_bytes, prompt))
+        if prompt == "wider margins":
+            return revised_png
+        return refined_png
+
+    patches = _patch_settings(settings)
+    with patches[0], patches[1], patches[2], patches[3], patches[4], patch(
+        "imagecb.api.rate_limit.SETTINGS", settings
+    ), patch(
+        "imagecb.api.edit_routes.nano_banana_status",
+        return_value={"available": True},
+    ), patch(
+        "imagecb.models.image_edit.generate_image",
+        return_value=created_png,
+    ), patch(
+        "imagecb.models.image_edit.edit_image",
+        side_effect=fake_edit,
+    ):
+        client = TestClient(create_app())
+        created = client.post(
+            "/api/edit/sessions/create",
+            json={"prompt": "a blue dashboard"},
+        )
+        assert created.status_code == 200, created.text
+        session_id = created.json()["session_id"]
+
+        refined = client.post(
+            f"/api/edit/sessions/{session_id}/turn",
+            json={"prompt": "make the bars taller"},
+        )
+        assert refined.status_code == 200, refined.text
+
+        revised = client.post(
+            f"/api/edit/sessions/{session_id}/revise",
+            json={"prompt": "wider margins", "base_turn_index": 0},
+        )
+        assert revised.status_code == 200, revised.text
+        payload = revised.json()
+        assert payload["turn_count"] == 2
+        assert [turn["prompt"] for turn in payload["turns"]] == [
+            "a blue dashboard",
+            "wider margins",
+        ]
+        assert edit_calls[-1] == (created_png, "wider margins")
+
+        working = client.get(f"/api/edit/sessions/{session_id}/image")
+        assert working.status_code == 200
+        assert working.content == revised_png
+        assert working.content != refined_png
+
+
 def test_edit_session_turn_submit_and_admin_decline(tmp_path):
     settings = replace(
         SETTINGS,

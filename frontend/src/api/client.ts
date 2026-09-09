@@ -849,6 +849,22 @@ export async function createEditSession(
   });
 }
 
+export async function reviseEditTurn(
+  sessionId: string,
+  prompt: string,
+  baseTurnIndex: number,
+): Promise<EditSessionState> {
+  return request<EditSessionState>(
+    `/api/edit/sessions/${encodeURIComponent(sessionId)}/revise`,
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ prompt, base_turn_index: baseTurnIndex }),
+    },
+    120_000,
+  );
+}
+
 export async function postEditTurn(
   sessionId: string,
   prompt: string,
