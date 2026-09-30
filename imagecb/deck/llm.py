@@ -10,6 +10,7 @@ from typing import Dict, List, Optional, Sequence
 from imagecb.config import SETTINGS
 from imagecb.models.providers import get_anthropic_client, get_openai_client
 from imagecb.models.llm import _coerce_json
+from imagecb.models.prompt_guard import DATA_GUARD_INSTRUCTION, fence
 
 logger = logging.getLogger(__name__)
 
@@ -51,13 +52,19 @@ class SlideLLMOutput:
 def _batch_user_payload(slides: Sequence[dict]) -> str:
     payload = {"slides": list(slides)}
     return (
-        "Translate each slide below into the JSON format described.\n\n"
-        + json.dumps(payload, ensure_ascii=False)
+        DATA_GUARD_INSTRUCTION
+        + "\n\nTranslate each slide below into the JSON format described.\n\n"
+        + fence("slides", json.dumps(payload, ensure_ascii=False))
     )
 
 
 def _force_user_payload(slide: dict) -> str:
-    return FORCE_SLIDE_USER_PREFIX + json.dumps({"slides": [slide]}, ensure_ascii=False)
+    return (
+        DATA_GUARD_INSTRUCTION
+        + "\n\n"
+        + FORCE_SLIDE_USER_PREFIX
+        + fence("slides", json.dumps({"slides": [slide]}, ensure_ascii=False))
+    )
 
 
 def _coerce_slides_json(raw: str, expected_indices: Sequence[int]) -> List[SlideLLMOutput]:

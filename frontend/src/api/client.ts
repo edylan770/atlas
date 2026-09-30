@@ -6,6 +6,7 @@ import type {
   CorpusCatalogResponse,
   IngestJob,
   ParsedQuery,
+  PendingEditItem,
   ResultSort,
   SimilarResponse,
   StatusResponse,
@@ -41,6 +42,7 @@ async function request<T>(
   init?: RequestInit,
   timeoutMs?: number,
 ): Promise<T> {
+  const external = init?.signal ?? undefined;
   const controller = timeoutMs ? new AbortController() : null;
   let timedOut = false;
   const timer = controller
@@ -49,10 +51,15 @@ async function request<T>(
         controller.abort();
       }, timeoutMs)
     : null;
+  const forwardAbort = () => controller?.abort();
+  if (controller && external) {
+    if (external.aborted) controller.abort();
+    else external.addEventListener("abort", forwardAbort, { once: true });
+  }
   try {
     const requestInit = withUserHeaders({
       ...init,
-      signal: init?.signal ?? controller?.signal,
+      signal: controller?.signal ?? external,
     });
     const res = await fetch(`${API_BASE}${path}`, requestInit);
     if (!res.ok) {
@@ -78,6 +85,7 @@ async function request<T>(
     throw error;
   } finally {
     if (timer !== null) globalThis.clearTimeout(timer);
+    external?.removeEventListener("abort", forwardAbort);
   }
 }
 
@@ -137,6 +145,7 @@ export async function sendChatStream(
   minMatchPercent: number,
   callbacks: ChatStreamCallbacks,
   sort?: ResultSort,
+  signal?: AbortSignal,
 ): Promise<void> {
   const res = await fetch(`${API_BASE}/api/chat/stream`, withUserHeaders({
     method: "POST",
@@ -148,6 +157,7 @@ export async function sendChatStream(
       min_match_percent: minMatchPercent,
       sort,
     }),
+    signal,
   }));
 
   if (!res.ok) {
@@ -205,7 +215,10 @@ export async function sendChatStream(
     if (done) break;
     buffer += decoder.decode(value, { stream: true });
     buffer = parseSseBuffer(buffer, handleEvent);
-    if (streamError) break;
+    if (streamError) {
+      void reader.cancel().catch(() => undefined);
+      break;
+    }
   }
   if (!streamError) {
     buffer += decoder.decode();
@@ -225,7 +238,7 @@ export interface IngestFlags {
 }
 
 
-export async function createEmptyIngestJob(
+async function createEmptyIngestJob(
   flags: IngestFlags,
   options: { signal?: AbortSignal } = {},
 ): Promise<IngestJob> {
@@ -342,7 +355,7 @@ function uploadIngestJobBatch(
 }
 
 
-export async function startIngestJob(
+async function startIngestJob(
   jobId: string,
   options: { signal?: AbortSignal } = {},
 ): Promise<IngestJob> {
@@ -363,14 +376,6 @@ export async function fetchIngestJob(jobId: string): Promise<IngestJob> {
   return request<IngestJob>(`/api/ingest/jobs/${encodeURIComponent(jobId)}`, {
     headers: { "X-Admin-Api-Key": key },
   });
-}
-
-export interface BatchedIngestProgress {
-  batchIndex: number;
-  batchCount: number;
-  filesDone: number;
-  filesTotal: number;
-  lastMessage?: string;
 }
 
 export interface IngestJobUploadProgress {
@@ -825,8 +830,13 @@ export async function fetchEditStatus(): Promise<EditStatusResponse> {
   return request<EditStatusResponse>("/api/edit/status");
 }
 
+interface RequestOptions {
+  signal?: AbortSignal;
+}
+
 export async function createImageSession(
   prompt: string,
+  options: RequestOptions = {},
 ): Promise<EditSessionState> {
   return request<EditSessionState>(
     "/api/edit/sessions/create",
@@ -834,6 +844,7 @@ export async function createImageSession(
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ prompt }),
+      signal: options.signal,
     },
     120_000,
   );
@@ -841,11 +852,13 @@ export async function createImageSession(
 
 export async function createEditSession(
   imageId: string,
+  options: RequestOptions = {},
 ): Promise<EditSessionState> {
   return request<EditSessionState>("/api/edit/sessions", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ image_id: imageId }),
+    signal: options.signal,
   });
 }
 
@@ -853,6 +866,7 @@ export async function reviseEditTurn(
   sessionId: string,
   prompt: string,
   baseTurnIndex: number,
+  options: RequestOptions = {},
 ): Promise<EditSessionState> {
   return request<EditSessionState>(
     `/api/edit/sessions/${encodeURIComponent(sessionId)}/revise`,
@@ -860,6 +874,7 @@ export async function reviseEditTurn(
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ prompt, base_turn_index: baseTurnIndex }),
+      signal: options.signal,
     },
     120_000,
   );
@@ -868,6 +883,7 @@ export async function reviseEditTurn(
 export async function postEditTurn(
   sessionId: string,
   prompt: string,
+  options: RequestOptions = {},
 ): Promise<EditSessionState> {
   return request<EditSessionState>(
     `/api/edit/sessions/${encodeURIComponent(sessionId)}/turn`,
@@ -875,9 +891,22 @@ export async function postEditTurn(
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ prompt }),
+      signal: options.signal,
     },
     120_000,
   );
+}
+
+/** Best-effort release of an abandoned edit session's server memory. */
+export async function discardEditSession(sessionId: string): Promise<void> {
+  try {
+    await fetch(
+      `${API_BASE}/api/edit/sessions/${encodeURIComponent(sessionId)}`,
+      withUserHeaders({ method: "DELETE", keepalive: true }),
+    );
+  } catch {
+    /* session expires server-side via TTL anyway */
+  }
 }
 
 export async function submitEditSession(
@@ -886,16 +915,4 @@ export async function submitEditSession(
   return request(`/api/edit/sessions/${encodeURIComponent(sessionId)}/submit`, {
     method: "POST",
   });
-}
-
-export interface PendingEditItem {
-  pending_id: string;
-  source_image_id: string;
-  staged_ref?: string;
-  thumb_ref?: string | null;
-  last_prompt?: string | null;
-  status: string;
-  created_at?: string | null;
-  image_url: string;
-  thumb_url: string;
 }

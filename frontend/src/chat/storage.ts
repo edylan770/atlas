@@ -8,7 +8,7 @@ export interface StoredState {
   activeConversationId: string | null;
 }
 
-export function newConversationId(): string {
+function newConversationId(): string {
   return crypto.randomUUID();
 }
 
@@ -53,16 +53,62 @@ export function loadStoredState(): StoredState {
   }
 }
 
+function isQuotaError(error: unknown): boolean {
+  return (
+    error instanceof DOMException &&
+    (error.name === "QuotaExceededError" ||
+      error.name === "NS_ERROR_DOM_QUOTA_REACHED" ||
+      error.code === 22)
+  );
+}
+
+/** Drop result payloads (re-fetchable) from all but the most recent conversations. */
+function withoutOldResults(
+  conversations: Conversation[],
+  keepRecent: number,
+): Conversation[] {
+  const recent = new Set(
+    [...conversations]
+      .sort((a, b) => b.updatedAt - a.updatedAt)
+      .slice(0, keepRecent)
+      .map((c) => c.id),
+  );
+  return conversations.map((c) =>
+    recent.has(c.id)
+      ? c
+      : { ...c, turns: c.turns.map((t) => ({ ...t, results: [] })) },
+  );
+}
+
 export function saveStoredState(state: StoredState): void {
+  const attempts = [
+    () => state.conversations,
+    () => withoutOldResults(state.conversations, 10),
+    () => withoutOldResults(state.conversations, 1),
+    () => withoutOldResults(state.conversations, 0),
+  ];
+  for (let i = 0; i < attempts.length; i++) {
+    try {
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(attempts[i]!()));
+      if (i > 0) {
+        console.warn("Chat history near storage quota; trimmed saved results.");
+      }
+      break;
+    } catch (error) {
+      if (!isQuotaError(error) || i === attempts.length - 1) {
+        console.warn("Could not save chat history to localStorage.", error);
+        break;
+      }
+    }
+  }
   try {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(state.conversations));
     if (state.activeConversationId) {
       localStorage.setItem(ACTIVE_KEY, state.activeConversationId);
     } else {
       localStorage.removeItem(ACTIVE_KEY);
     }
   } catch {
-    /* quota or private mode */
+    /* private mode */
   }
 }
 

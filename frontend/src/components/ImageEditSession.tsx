@@ -2,13 +2,14 @@ import { useCallback, useEffect, useRef, useState } from "react";
 
 import {
   createEditSession,
+  discardEditSession,
   fetchEditStatus,
   postEditTurn,
   submitEditSession,
   type EditSessionState,
   type EditStatusResponse,
 } from "../api/client";
-import { downloadCardImage } from "../imageDownload";
+import { downloadCardImage, downloadImageUrl } from "../imageDownload";
 import type { ResultCard as ResultCardType } from "../types";
 
 interface ImageEditSessionProps {
@@ -16,20 +17,6 @@ interface ImageEditSessionProps {
   onClose: () => void;
   /** Return to the lightbox preview without fully dismissing. */
   onBack?: () => void;
-}
-
-async function downloadPng(url: string, filename: string): Promise<void> {
-  const res = await fetch(url, { cache: "no-store" });
-  if (!res.ok) throw new Error("Download failed");
-  const blob = await res.blob();
-  const objectUrl = URL.createObjectURL(blob);
-  const a = document.createElement("a");
-  a.href = objectUrl;
-  a.download = filename;
-  document.body.appendChild(a);
-  a.click();
-  a.remove();
-  URL.revokeObjectURL(objectUrl);
 }
 
 function DownloadIcon({ className = "h-4 w-4" }: { className?: string }) {
@@ -70,6 +57,9 @@ export function ImageEditSession({ card, onClose, onBack }: ImageEditSessionProp
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const closeRef = useRef<HTMLButtonElement>(null);
   const chatEndRef = useRef<HTMLDivElement>(null);
+  // Unsubmitted server session to release on close; cleared after submit.
+  const liveSessionIdRef = useRef<string | null>(null);
+  const turnAbortRef = useRef<AbortController | null>(null);
 
   const displayName =
     card.image_name || card.provenance.source_name || "Image";
@@ -80,6 +70,7 @@ export function ImageEditSession({ card, onClose, onBack }: ImageEditSessionProp
 
   useEffect(() => {
     let cancelled = false;
+    const controller = new AbortController();
     setBusy(true);
     setBootError(null);
     setSession(null);
@@ -94,8 +85,15 @@ export function ImageEditSession({ card, onClose, onBack }: ImageEditSessionProp
         if (!status.available) {
           throw new Error(status.error || "Gemini configuration is unavailable");
         }
-        const nextSession = await createEditSession(card.image_id);
-        if (!cancelled) setSession(nextSession);
+        const nextSession = await createEditSession(card.image_id, {
+          signal: controller.signal,
+        });
+        if (cancelled) {
+          void discardEditSession(nextSession.session_id);
+          return;
+        }
+        liveSessionIdRef.current = nextSession.session_id;
+        setSession(nextSession);
       } catch (err: unknown) {
         if (!cancelled) {
           setBootError(err instanceof Error ? err.message : String(err));
@@ -106,6 +104,11 @@ export function ImageEditSession({ card, onClose, onBack }: ImageEditSessionProp
     })();
     return () => {
       cancelled = true;
+      controller.abort();
+      turnAbortRef.current?.abort();
+      const liveId = liveSessionIdRef.current;
+      liveSessionIdRef.current = null;
+      if (liveId) void discardEditSession(liveId);
     };
   }, [card.image_id]);
 
@@ -139,16 +142,22 @@ export function ImageEditSession({ card, onClose, onBack }: ImageEditSessionProp
     if (!text) return;
     setBusy(true);
     setActionError(null);
+    const controller = new AbortController();
+    turnAbortRef.current = controller;
     try {
-      const next = await postEditTurn(session.session_id, text);
+      const next = await postEditTurn(session.session_id, text, {
+        signal: controller.signal,
+      });
       setSession(next);
       setFailedTurnImages(new Set());
       setPrompt("");
       inputRef.current?.focus();
     } catch (err: unknown) {
+      if (controller.signal.aborted) return;
       setActionError(err instanceof Error ? err.message : String(err));
     } finally {
-      setBusy(false);
+      if (turnAbortRef.current === controller) turnAbortRef.current = null;
+      if (!controller.signal.aborted) setBusy(false);
     }
   }, [session, busy, submitOk, editingUnavailable, prompt]);
 
@@ -156,7 +165,7 @@ export function ImageEditSession({ card, onClose, onBack }: ImageEditSessionProp
     setActionError(null);
     try {
       if (session?.original_image_url) {
-        await downloadPng(
+        await downloadImageUrl(
           session.original_image_url,
           `original-${session.source_image_id}.png`,
         );
@@ -172,7 +181,7 @@ export function ImageEditSession({ card, onClose, onBack }: ImageEditSessionProp
     if (!session) return;
     setActionError(null);
     try {
-      await downloadPng(
+      await downloadImageUrl(
         imageUrl,
         `edit-${session.source_image_id}-turn-${turnIndex + 1}.png`,
       );
@@ -191,6 +200,7 @@ export function ImageEditSession({ card, onClose, onBack }: ImageEditSessionProp
     setActionError(null);
     try {
       await submitEditSession(session.session_id);
+      liveSessionIdRef.current = null;
       setSubmitOk(true);
     } catch (err: unknown) {
       setActionError(err instanceof Error ? err.message : String(err));

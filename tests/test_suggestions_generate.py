@@ -4,8 +4,6 @@ from __future__ import annotations
 
 from unittest.mock import MagicMock, patch
 
-import pytest
-
 from imagecb.suggestions import generate as gen_mod
 from imagecb.suggestions.corpus_summary import CorpusContext, SourceFileStat
 from imagecb.suggestions.generate import (
@@ -16,13 +14,6 @@ from imagecb.suggestions.generate import (
     generate_suggestions,
     _coerce_suggestions_json,
 )
-
-
-@pytest.fixture(autouse=True)
-def clear_cache():
-    gen_mod._cache.clear()
-    yield
-    gen_mod._cache.clear()
 
 
 def _ctx(**kwargs) -> CorpusContext:

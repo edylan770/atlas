@@ -81,13 +81,19 @@ def _visual_hits(
     *,
     dense_k: int,
     exclude_image_id: Optional[str],
+    restrict_to: Optional[Sequence[str]] = None,
 ) -> List[tuple[str, float]]:
-    active_ids = metadata_db.get_active_image_ids()
+    allowed_ids = metadata_db.get_active_image_ids()
+    if restrict_to is not None:
+        restrict_set = set(restrict_to)
+        allowed_ids = [i for i in allowed_ids if i in restrict_set]
+    if not allowed_ids:
+        return []
     try:
         hits = vector_store.query(
             query_emb,
             top_k=dense_k,
-            allowed_ids=active_ids if active_ids else None,
+            allowed_ids=allowed_ids,
         )
     except Exception as exc:  # noqa: BLE001
         logger.warning("Similar search failed: %s", exc)
@@ -184,7 +190,12 @@ def search_similar(
 
     spec = query_spec_from_image_query(facets, axis, top_k=top_k, raw_text=raw_text)
 
-    visual_hits = _visual_hits(query_emb, dense_k=dense_k, exclude_image_id=exclude_image_id)
+    visual_hits = _visual_hits(
+        query_emb,
+        dense_k=dense_k,
+        exclude_image_id=exclude_image_id,
+        restrict_to=restrict_to,
+    )
     text_ranked: List[RankedResult] = []
     if facets.is_usable():
         text_ranked = run_text_similar_leg(

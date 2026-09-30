@@ -468,8 +468,6 @@ python scripts/sync_frontend_dist.py
 
 CI fails if `frontend_dist` drifts from `frontend/`. Optional: `npm run dev` → http://localhost:5173 (API proxy to `:8080`).
 
-**Legacy Gradio** (deprecated): `python -m imagecb.cli serve` → http://127.0.0.1:7860.
-
 ## Features
 
 ### Chat (`/`)
@@ -480,7 +478,7 @@ CI fails if `frontend_dist` drifts from `frontend/`. Optional: `npm run dev` →
 | Startup | Brief loading screen; `GET /api/status` for indexed count in header/footer |
 | Conversations | Multi-chat sidebar; titles and turns in browser `localStorage`; each chat has a server `session_id` |
 | Sidebar search | Client-side search over titles and turn text; jump to a matching turn |
-| New / delete chat | Creates or removes local conversation state (server session is not deleted; `POST /api/session/reset` exists but the React UI does not call it) |
+| New / delete chat | Creates or removes local conversation state (server sessions expire via `SESSION_TTL_SEC` / `SESSION_MAX_COUNT`) |
 | Empty state | Starter suggestion chips from `POST /api/suggestions` |
 | Streaming search | `POST /api/chat/stream` (SSE: metadata with results/`parsed_query`, then tokens, then done). Sync `POST /api/chat` also exists |
 | Turn selection | Clicking a prior turn restores that turn’s cached results in the results panel and telemetry `search_event_id` |
@@ -542,8 +540,6 @@ Gate with `ADMIN_API_KEY` (entered in the browser after unlock; kept in sessionS
 | `/admin/pending` | Nano Banana pending additions: preview, Accept (full ingest as new image with `parent_image_id`), Decline (delete staged blobs only) |
 | `/admin/audit` | Admin action audit log |
 
-`GET /api/admin/analytics/funnel` exists for per–search-event funnel detail but has **no Admin UI page** yet.
-
 **Per-image ops:** regenerate caption re-runs the VLM and reindexes; reindex re-embeds/reindexes without a full VLM caption pass when possible.
 
 ### Pipeline Lab (`/lab`)
@@ -557,12 +553,12 @@ Experimental UI to compare ranking variants for one query (`GET /api/lab/variant
 | `POST /api/chat/stream` | Primary chat path (React) |
 | `POST /api/chat` | Same search, sync JSON reply |
 | `POST /api/similar` | Similar by `image_id` or uploaded image |
-| `POST /api/session/reset` | Clear in-memory session (not used by React UI) |
 | `POST /api/suggestions` | Empty-state starter chips |
 | `GET /api/corpus/catalog` | Browse recent corpus rows |
 | `POST /api/telemetry/interaction` | view / download / similar |
 | `GET /api/images/{id}` / `GET /api/sources/{id}` | Display PNG / original source |
 | `POST /api/edit/sessions` / `/turn` / `/submit` | Nano Banana 2 iterative edit; submit stages a pending addition |
+| `DELETE /api/edit/sessions/{id}` | Discard an edit session (called when the edit view closes without submitting) |
 | `GET /api/admin/pending-edits` + accept/decline | Admin review of staged edits |
 | `POST /api/deck/suggest` / `POST /api/deck/force` | Deck pipeline |
 | `POST /api/ingest*` / `/api/ingest/jobs*` | Admin-keyed ingest |
@@ -654,7 +650,6 @@ python -m imagecb.cli <command>
 |---------|---------|
 | `ingest` | Index a file or directory |
 | `serve-web` | FastAPI + React UI (default `127.0.0.1:8080`) |
-| `serve` | Legacy Gradio UI (`:7860`) |
 | `status` | Index health summary |
 | `reconcile-index` | Purge orphan vectors; rebuild BM25 if stale |
 | `repair-index` / `repair-captions` / `rescan-captions` | Repair and quality tools |
@@ -714,14 +709,14 @@ Full list: [`.env.example`](.env.example). Highlights below. **Path** column: wh
 | `INGEST_TIMING_LOG` / `QUERY_TIMING_LOG` / `QUERY_TIMING_PERSIST` | Ops | Timing reports (default `true`) |
 | `ENABLE_CONVERSATIONAL_LLM` | Chat replies | LLM vs template assistant text (default `true`) |
 | `ENABLE_FOLLOW_UP_SUGGESTIONS` / `FOLLOW_UP_SUGGESTIONS_LIMIT` | Chat UI | Follow-up chips (default on, limit `3`) |
-| `SUGGESTIONS_LIMIT` / `SUGGESTIONS_CACHE_TTL_SEC` | Empty state | Starter chips |
+| `SUGGESTIONS_LIMIT` | Empty state | Starter chips (generated fresh per request) |
+| `EDIT_SESSION_TTL_SEC` / `EDIT_SESSION_MAX_COUNT` / `EDIT_SESSION_MAX_TURNS` | Nano Banana edit | Idle expiry (default `1800`s), max live sessions (`100`), max turns per session (`20`) |
 | `RESULT_DEDUPLICATE_ENABLED` / `RESULT_DEDUPLICATE_SIMILARITY_THRESHOLD` | Chat / similar | Near-dupe collapse (default on, cosine `0.98`) |
 | `WEAK_RESULT_SCORE_THRESHOLD` | Admin analytics | Soft floor for “weak” results (default `0.25`) |
 | `DUPLICATE_SIMILARITY_THRESHOLD` | Admin corpus | Near-duplicate cluster detection (default `0.95`) |
 | `HUBNESS_CORRECTION_ENABLED` / `HUBNESS_KNN` / `HUBNESS_PENALTY_WEIGHT` | **Rerank / visual-only paths** | CSLS hubness; rebuilt at ingest; **not applied to chat fusion ranking** |
 | `ASSET_TYPE_RERANK_BOOST` | **Rerank paths** | Boost matching asset types inside `rerank()` (deck / similar text leg); **not chat fusion** |
 | `SHORT_QUERY_MAX_TOKENS` / `SHORT_QUERY_RERANK_TOP_N` / `SHORT_QUERY_RETRIEVAL_TOP_K` | **Rerank / retrieval helpers** | Wider pools for short queries when rerank path runs |
-| `VISUAL_FALLBACK_*` / `VISUAL_SHORT_QUERY_*` | Config only for chat | Present in `.env.example`; **production `ChatSession.ask` does not apply them** (lab/experiments territory) |
 | `DECK_CACHE_DIR` / `DECK_LLM_BATCH_SIZE` / `DECK_MAX_SLIDES` / `DECK_MAX_UPLOAD_BYTES` / `DECK_CACHE_ENABLED` | Deck | Limits and cache |
 
 ## Project layout
@@ -729,13 +724,13 @@ Full list: [`.env.example`](.env.example). Highlights below. **Path** column: wh
 ```
 imagecb/           Python package (API, ingest, retrieval, admin, deck, models, storage)
 frontend/          React / Vite source
-imagecb/web/       Pre-built frontend_dist + fallback static UI
+imagecb/web/       Pre-built frontend_dist (served by serve-web)
 eval/              Golden-set evaluation
 scripts/           sync_frontend_dist.py, smoke helpers
 corpus/            Optional seed/test files (Docker /corpus mount)
 data/              Runtime state (gitignored locally)
 tests/             Pytest suite
-.github/workflows/ CI (pytest, frontend_dist drift check)
+.github/workflows/ CI (pytest, frontend tests, frontend_dist drift check)
 ```
 
 ## Notes / limitations

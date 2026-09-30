@@ -538,3 +538,27 @@ def test_search_similar_upload_vlm_failure_uses_visual_only(
     mock_text_leg.assert_not_called()
     captioner.query_image.assert_called_once()
     assert [r.image_id for r in outcome.results] == ["img-2"]
+
+
+@patch("imagecb.retrieval.similar.vector_store.query")
+@patch("imagecb.retrieval.similar.metadata_db.get_active_image_ids")
+def test_visual_hits_applies_restrict_to(mock_active, mock_query):
+    from imagecb.retrieval.similar import _visual_hits
+
+    mock_active.return_value = ["img-1", "img-2", "img-3"]
+    mock_query.return_value = [("img-2", 0.9)]
+    hits = _visual_hits(
+        np.zeros(4), dense_k=5, exclude_image_id=None, restrict_to=["img-2", "gone"]
+    )
+    assert hits == [("img-2", 0.9)]
+    assert mock_query.call_args.kwargs["allowed_ids"] == ["img-2"]
+
+
+@patch("imagecb.retrieval.similar.vector_store.query")
+@patch("imagecb.retrieval.similar.metadata_db.get_active_image_ids")
+def test_visual_hits_empty_active_corpus_returns_nothing(mock_active, mock_query):
+    from imagecb.retrieval.similar import _visual_hits
+
+    mock_active.return_value = []
+    assert _visual_hits(np.zeros(4), dense_k=5, exclude_image_id=None) == []
+    mock_query.assert_not_called()

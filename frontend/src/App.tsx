@@ -71,6 +71,34 @@ export default function App() {
   const [addingCreatedId, setAddingCreatedId] = useState<string | null>(null);
 
   const saveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // Read by async callbacks (streams, image creation) that outlive the render
+  // they were created in; the state value in their closure goes stale.
+  const activeIdRef = useRef<string | null>(null);
+  const streamRef = useRef<{ controller: AbortController; convId: string } | null>(
+    null,
+  );
+  const createAbortRef = useRef<AbortController | null>(null);
+
+  const setActiveId = useCallback((id: string | null) => {
+    activeIdRef.current = id;
+    setActiveConversationId(id);
+  }, []);
+
+  /** Abort the in-flight chat stream unless it belongs to ``keepConvId``. */
+  const cancelStream = useCallback((keepConvId: string | null) => {
+    const stream = streamRef.current;
+    if (stream && stream.convId !== keepConvId) {
+      stream.controller.abort();
+    }
+  }, []);
+
+  useEffect(
+    () => () => {
+      streamRef.current?.controller.abort();
+      createAbortRef.current?.abort();
+    },
+    [],
+  );
 
   const activeConversation = useMemo(
     () => conversations.find((c) => c.id === activeConversationId) ?? null,
@@ -119,7 +147,7 @@ export default function App() {
   const updateConversations = useCallback(
     (
       updater: (prev: Conversation[]) => Conversation[],
-      activeId: string | null = activeConversationId,
+      activeId: string | null = activeIdRef.current,
     ) => {
       setConversations((prev) => {
         const next = updater(prev);
@@ -127,7 +155,7 @@ export default function App() {
         return next;
       });
     },
-    [activeConversationId, persistSoon],
+    [persistSoon],
   );
 
   useEffect(() => {
@@ -144,12 +172,13 @@ export default function App() {
     }
 
     setConversations(list);
-    setActiveConversationId(activeId);
+    setActiveId(activeId);
     const active = list.find((c) => c.id === activeId);
     const turn = active ? lastTurn(active.turns) : null;
     applyTurnToPanel(turn, setResults);
+    setSearchEventId(turn?.searchEventId ?? null);
     if (turn) setSelectedTurnId(turn.id);
-  }, []);
+  }, [setActiveId]);
 
   const refreshStatus = useCallback(async () => {
     try {
@@ -220,7 +249,8 @@ export default function App() {
 
   const selectConversation = useCallback(
     (id: string, turnId?: string | null) => {
-      setActiveConversationId(id);
+      cancelStream(id);
+      setActiveId(id);
       persistSoon(conversations, id);
       const c = conversations.find((x) => x.id === id);
       let turn = c ? lastTurn(c.turns) : null;
@@ -229,28 +259,34 @@ export default function App() {
         if (matched) turn = matched;
       }
       setSelectedTurnId(turn?.id ?? null);
+      setSearchEventId(turn?.searchEventId ?? null);
       applyTurnToPanel(turn, setResults);
       setError(null);
     },
-    [conversations, persistSoon],
+    [conversations, persistSoon, cancelStream, setActiveId],
   );
 
   const handleNewChat = useCallback(() => {
     const c = createConversation();
+    cancelStream(c.id);
     setConversations((prev) => {
       const next = [c, ...prev];
       persistSoon(next, c.id);
       return next;
     });
-    setActiveConversationId(c.id);
+    setActiveId(c.id);
     setSelectedTurnId(null);
+    setSearchEventId(null);
     setResults([]);
     setError(null);
     setInput("");
-  }, [persistSoon]);
+  }, [persistSoon, cancelStream, setActiveId]);
 
   const handleDeleteChat = useCallback(
     (id: string) => {
+      if (streamRef.current?.convId === id || activeConversationId === id) {
+        cancelStream(null);
+      }
       setConversations((prev) => {
         const next = prev.filter((c) => c.id !== id);
         let newActive = activeConversationId;
@@ -259,15 +295,17 @@ export default function App() {
             const c = createConversation();
             next.push(c);
             newActive = c.id;
-            setActiveConversationId(c.id);
+            setActiveId(c.id);
             setSelectedTurnId(null);
+            setSearchEventId(null);
             setResults([]);
           } else {
             newActive = next.sort((a, b) => b.updatedAt - a.updatedAt)[0]!.id;
-            setActiveConversationId(newActive);
+            setActiveId(newActive);
             const active = next.find((c) => c.id === newActive)!;
             const turn = lastTurn(active.turns);
             setSelectedTurnId(turn?.id ?? null);
+            setSearchEventId(turn?.searchEventId ?? null);
             applyTurnToPanel(turn, setResults);
           }
         }
@@ -275,7 +313,7 @@ export default function App() {
         return next;
       });
     },
-    [activeConversationId, persistSoon],
+    [activeConversationId, persistSoon, cancelStream, setActiveId],
   );
 
   const handleSelectTurn = useCallback(
@@ -307,7 +345,7 @@ export default function App() {
         persistSoon(next, c.id);
         return next;
       });
-      setActiveConversationId(c.id);
+      setActiveId(c.id);
     }
 
     setError(null);
@@ -337,7 +375,36 @@ export default function App() {
     );
     setSelectedTurnId(turnId);
 
+    cancelStream(null);
+    const controller = new AbortController();
+    streamRef.current = { controller, convId };
+
     let streamedContent = "";
+    // Tokens arrive far faster than frames; write at most once per frame.
+    let tokenFrame: number | null = null;
+    const cancelTokenFrame = () => {
+      if (tokenFrame !== null) {
+        cancelAnimationFrame(tokenFrame);
+        tokenFrame = null;
+      }
+    };
+    const writeStreamed = () => {
+      tokenFrame = null;
+      const content = streamedContent;
+      updateConversations((prev) =>
+        prev.map((c) => {
+          if (c.id !== convId) return c;
+          return {
+            ...c,
+            updatedAt: Date.now(),
+            turns: c.turns.map((t) =>
+              t.id === turnId ? { ...t, assistantContent: content } : t,
+            ),
+          };
+        }),
+      );
+    };
+    let failure = null as string | null;
 
     try {
       await sendChatStream(
@@ -347,6 +414,7 @@ export default function App() {
         effectiveMinMatchPercent,
         {
         onMetadata: (meta) => {
+          if (controller.signal.aborted) return;
           setSearchEventId(meta.search_event_id ?? null);
           updateConversations((prev) =>
             prev.map((c) => {
@@ -371,22 +439,15 @@ export default function App() {
           setResults(meta.results);
         },
         onToken: (chunk) => {
+          if (controller.signal.aborted) return;
           streamedContent += chunk;
-          const content = streamedContent;
-          updateConversations((prev) =>
-            prev.map((c) => {
-              if (c.id !== convId) return c;
-              return {
-                ...c,
-                updatedAt: Date.now(),
-                turns: c.turns.map((t) =>
-                  t.id === turnId ? { ...t, assistantContent: content } : t,
-                ),
-              };
-            }),
-          );
+          if (tokenFrame === null) {
+            tokenFrame = requestAnimationFrame(writeStreamed);
+          }
         },
         onDone: (assistantMessage, followUpSuggestions) => {
+          if (controller.signal.aborted) return;
+          cancelTokenFrame();
           updateConversations((prev) =>
             prev.map((c) => {
               if (c.id !== convId) return c;
@@ -408,12 +469,32 @@ export default function App() {
           setSelectedTurnId(turnId);
         },
         onError: (detail) => {
-          throw new Error(detail);
+          failure = detail;
         },
       },
         searchSortBy,
+        controller.signal,
       );
+      if (failure !== null) throw new Error(failure);
     } catch (e) {
+      cancelTokenFrame();
+      if (controller.signal.aborted) {
+        const partial = streamedContent;
+        updateConversations((prev) =>
+          prev.map((c) => {
+            if (c.id !== convId) return c;
+            return {
+              ...c,
+              turns: c.turns.map((t) =>
+                t.id === turnId
+                  ? { ...t, assistantContent: partial || "_Search cancelled._" }
+                  : t,
+              ),
+            };
+          }),
+        );
+        return;
+      }
       const raw = e instanceof Error ? e.message : String(e);
       const trimmed = raw.trim();
       const generic =
@@ -447,7 +528,12 @@ export default function App() {
       );
       setSelectedTurnId(turnId);
     } finally {
-      setLoading(false);
+      cancelTokenFrame();
+      // A newer stream may already own the loading state.
+      if (!streamRef.current || streamRef.current.controller === controller) {
+        streamRef.current = null;
+        setLoading(false);
+      }
     }
   };
 
@@ -466,7 +552,7 @@ export default function App() {
         persistSoon(next, c.id);
         return next;
       });
-      setActiveConversationId(c.id);
+      setActiveId(c.id);
     }
 
     setError(null);
@@ -606,7 +692,7 @@ export default function App() {
         persistSoon(next, c.id);
         return next;
       });
-      setActiveConversationId(c.id);
+      setActiveId(c.id);
     }
 
     setError(null);
@@ -649,6 +735,11 @@ export default function App() {
     );
     setSelectedTurnId(turnId);
 
+    createAbortRef.current?.abort();
+    const controller = new AbortController();
+    createAbortRef.current = controller;
+    const opts = { signal: controller.signal };
+
     try {
       let session;
       let refined = Boolean(sessionToRefine);
@@ -658,17 +749,18 @@ export default function App() {
             revising.sessionId,
             text,
             revising.baseTurnIndex,
+            opts,
           );
         } catch (err: unknown) {
           const message = err instanceof Error ? err.message : String(err);
           if (!/not found/i.test(message)) throw err;
           refined = false;
-          session = await createImageSession(text);
+          session = await createImageSession(text, opts);
         }
       } else {
         session = sessionToRefine
-          ? await postEditTurn(sessionToRefine, text)
-          : await createImageSession(text);
+          ? await postEditTurn(sessionToRefine, text, opts)
+          : await createImageSession(text, opts);
       }
       const imageUrl =
         session.turns[session.turns.length - 1]?.image_url ?? session.image_url;
@@ -699,6 +791,7 @@ export default function App() {
       );
       setSelectedTurnId(turnId);
     } catch (e) {
+      if (controller.signal.aborted) return;
       const msg = e instanceof Error ? e.message : String(e);
       setError(msg);
       updateConversations((prev) =>
@@ -716,7 +809,10 @@ export default function App() {
         }),
       );
     } finally {
-      setLoading(false);
+      if (createAbortRef.current === controller) {
+        createAbortRef.current = null;
+        setLoading(false);
+      }
     }
   };
 
@@ -867,7 +963,10 @@ export default function App() {
 
       {error && (
         <div className="shrink-0 px-6 py-2">
-          <div className="rounded-lg bg-red-50 px-4 py-2 text-sm text-red-700 ring-1 ring-red-100">
+          <div
+            role="alert"
+            className="rounded-lg bg-red-50 px-4 py-2 text-sm text-red-700 ring-1 ring-red-100"
+          >
             {error}
           </div>
         </div>

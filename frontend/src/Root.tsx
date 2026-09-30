@@ -1,16 +1,20 @@
+import { lazy, Suspense } from "react";
 import { BrowserRouter, Route, Routes } from "react-router-dom";
 import App from "./App";
-import AdminApp from "./admin/AdminApp";
-import DeckSuggestPage from "./pages/DeckSuggestPage";
+
+const AdminApp = lazy(() => import("./admin/AdminApp"));
+const DeckSuggestPage = lazy(() => import("./pages/DeckSuggestPage"));
 
 export default function Root() {
   return (
     <BrowserRouter>
-      <Routes>
-        <Route path="/" element={<App />} />
-        <Route path="/deck" element={<DeckSuggestPage />} />
-        <Route path="/admin/*" element={<AdminApp />} />
-      </Routes>
+      <Suspense fallback={null}>
+        <Routes>
+          <Route path="/" element={<App />} />
+          <Route path="/deck" element={<DeckSuggestPage />} />
+          <Route path="/admin/*" element={<AdminApp />} />
+        </Routes>
+      </Suspense>
     </BrowserRouter>
   );
 }

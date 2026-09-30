@@ -67,4 +67,23 @@ describe("ChatMessageList create turns", () => {
     fireEvent.click(screen.getByRole("button", { name: "Save" }));
     expect(onEditResubmit).toHaveBeenCalledWith("turn-1", "a green dashboard");
   });
+
+  it("selects the turn from the reply without rendering it as a button", () => {
+    const onSelectTurn = vi.fn();
+    render(
+      <ChatMessageList
+        turns={[createTurn]}
+        selectedTurnId={null}
+        loading={false}
+        onSelectTurn={onSelectTurn}
+        onFollowUpClick={() => {}}
+        onEditResubmit={() => {}}
+      />,
+    );
+
+    const reply = screen.getByTestId("assistant-reply");
+    expect(reply.closest("button")).toBeNull();
+    fireEvent.click(reply);
+    expect(onSelectTurn).toHaveBeenCalledWith("turn-1");
+  });
 });

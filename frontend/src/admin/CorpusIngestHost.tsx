@@ -10,7 +10,14 @@ import {
 } from "../api/client";
 import { cancelIngestJob } from "../api/adminClient";
 import { CorpusDrawer } from "../components/CorpusDrawer";
-import { formatIngestPhase, heartbeatAgeSeconds, isMissingIngestJobError } from "../ingestStatus";
+import {
+  formatIngestPhase,
+  heartbeatAgeSeconds,
+  INGEST_POLL_MAX_FAILURES,
+  ingestPollBackoffMs,
+  isIngestAuthError,
+  isMissingIngestJobError,
+} from "../ingestStatus";
 import { defaultCatalogSort } from "../sortResults";
 import type { CatalogItem, ResultSort } from "../types";
 
@@ -119,11 +126,13 @@ export function CorpusIngestHost({ open, onOpenChange }: CorpusIngestHostProps) 
     if (!activeIngestJobId) return;
     let stopped = false;
     let timer: ReturnType<typeof setTimeout> | null = null;
+    let consecutiveFailures = 0;
 
     const poll = async () => {
       try {
         const job = await fetchIngestJob(activeIngestJobId);
         if (stopped) return;
+        consecutiveFailures = 0;
         const active = ["staging", "queued", "running", "cancel_requested"].includes(
           job.status,
         );
@@ -175,11 +184,27 @@ export function CorpusIngestHost({ open, onOpenChange }: CorpusIngestHostProps) 
           clearActiveIngest();
           return;
         }
+        consecutiveFailures += 1;
+        if (
+          isIngestAuthError(e) ||
+          consecutiveFailures >= INGEST_POLL_MAX_FAILURES
+        ) {
+          setIngestMessage(
+            `Stopped tracking ingest job ${activeIngestJobId}: ` +
+              `${e instanceof Error ? e.message : String(e)}. ` +
+              "Check Admin → Ingestions for its status.",
+          );
+          clearActiveIngest();
+          return;
+        }
         setIngestMessage(e instanceof Error ? e.message : String(e));
         setIngestProgress((prev) =>
           prev ?? { filesDone: 0, filesTotal: 1, batchLabel: "Stuck — job unreachable" },
         );
-        timer = window.setTimeout(() => void poll(), 3000);
+        timer = window.setTimeout(
+          () => void poll(),
+          ingestPollBackoffMs(consecutiveFailures),
+        );
       }
     };
 

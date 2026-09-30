@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import uuid
 from datetime import datetime
-from typing import Dict, List, Literal, Optional, Sequence
+from typing import Dict, Literal, Optional, Sequence
 
 from imagecb.config import SETTINGS
 from imagecb.retrieval.query_parser import QuerySpec
@@ -119,16 +119,6 @@ def attach_search_timings(
         row["timing_log"] = timing_log
     s3_store.put_search_event(row)
     s3_store.invalidate_quality_cache()
-
-
-def get_served_image_ids(search_event_id: str) -> List[str]:
-    row = s3_store.get_search_event(search_event_id)
-    if row is None:
-        return []
-    loaded = row.get("served_image_ids") or []
-    if isinstance(loaded, list):
-        return [str(x) for x in loaded]
-    return []
 
 
 def record_interaction(

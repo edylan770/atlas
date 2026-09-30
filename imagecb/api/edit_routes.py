@@ -4,18 +4,22 @@ from __future__ import annotations
 
 import io
 import logging
-from typing import Optional
+from contextlib import contextmanager
+from typing import Iterator, Optional
 
 from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 
 from imagecb.api.edit_sessions import (
+    EditSession,
+    EditTurn,
     create_edit_session,
     delete_edit_session,
     get_edit_session,
 )
 from imagecb.api.rate_limit import check_llm_rate_limit
+from imagecb.config import SETTINGS
 from imagecb.models.secrets import nano_banana_status
 from imagecb.paths import image_fallbacks
 from imagecb.pending_edits import create_pending_edit
@@ -155,7 +159,6 @@ def create_image_session(
 ):
     """Create a new image from a text prompt (no corpus source)."""
     _require_nano_banana()
-    from imagecb.api.edit_sessions import EditTurn
     from imagecb.models.image_edit import generate_image
 
     prompt = body.prompt.strip()
@@ -216,6 +219,34 @@ def get_session_turn_image(session_id: str, turn_index: int):
     )
 
 
+@contextmanager
+def _locked_session(session_id: str) -> Iterator[EditSession]:
+    """Yield an unsubmitted session while holding its lock (409 if busy)."""
+    session = get_edit_session(session_id)
+    if session is None:
+        raise HTTPException(status_code=404, detail="edit session not found")
+    if not session.lock.acquire(blocking=False):
+        raise HTTPException(
+            status_code=409,
+            detail="another edit is already running for this session",
+        )
+    try:
+        if session.submitted:
+            raise HTTPException(status_code=409, detail="edit session already submitted")
+        yield session
+    finally:
+        session.lock.release()
+
+
+def _check_turn_cap(turn_count_after: int) -> None:
+    cap = SETTINGS.edit_session_max_turns
+    if cap > 0 and turn_count_after > cap:
+        raise HTTPException(
+            status_code=409,
+            detail=f"edit session reached the {cap}-turn limit; start a new edit",
+        )
+
+
 @router.post("/sessions/{session_id}/turn")
 def edit_turn(
     session_id: str,
@@ -223,31 +254,26 @@ def edit_turn(
     _rl: None = Depends(check_llm_rate_limit),
 ):
     _require_nano_banana()
-    session = get_edit_session(session_id)
-    if session is None:
-        raise HTTPException(status_code=404, detail="edit session not found")
-    if session.submitted:
-        raise HTTPException(status_code=409, detail="edit session already submitted")
+    with _locked_session(session_id) as session:
+        _check_turn_cap(len(session.turns) + 1)
 
-    from imagecb.models.image_edit import edit_image
+        from imagecb.models.image_edit import edit_image
 
-    try:
-        result = edit_image(session.working_image_png, body.prompt)
-    except Exception as exc:  # noqa: BLE001
-        raise _apply_image_error(
-            exc,
-            session_id=session_id,
-            source_image_id=session.source_image_id,
-        ) from exc
+        try:
+            result = edit_image(session.working_image_png, body.prompt)
+        except Exception as exc:  # noqa: BLE001
+            raise _apply_image_error(
+                exc,
+                session_id=session_id,
+                source_image_id=session.source_image_id,
+            ) from exc
 
-    session.working_image_png = result
-    session.last_prompt = body.prompt.strip()
-    from imagecb.api.edit_sessions import EditTurn
-
-    session.turns.append(
-        EditTurn(prompt=session.last_prompt, result_image_png=result)
-    )
-    return _session_payload(session_id, session)
+        session.working_image_png = result
+        session.last_prompt = body.prompt.strip()
+        session.turns.append(
+            EditTurn(prompt=session.last_prompt, result_image_png=result)
+        )
+        return _session_payload(session_id, session)
 
 
 @router.post("/sessions/{session_id}/revise")
@@ -258,34 +284,30 @@ def revise_turn(
 ):
     """Replace later turns by editing the image from ``base_turn_index``."""
     _require_nano_banana()
-    session = get_edit_session(session_id)
-    if session is None:
-        raise HTTPException(status_code=404, detail="edit session not found")
-    if session.submitted:
-        raise HTTPException(status_code=409, detail="edit session already submitted")
-    if body.base_turn_index >= len(session.turns):
-        raise HTTPException(status_code=404, detail="edit turn not found")
+    with _locked_session(session_id) as session:
+        if body.base_turn_index >= len(session.turns):
+            raise HTTPException(status_code=404, detail="edit turn not found")
+        _check_turn_cap(body.base_turn_index + 2)
 
-    from imagecb.api.edit_sessions import EditTurn
-    from imagecb.models.image_edit import edit_image
+        from imagecb.models.image_edit import edit_image
 
-    base = session.turns[body.base_turn_index]
-    session.turns = session.turns[: body.base_turn_index + 1]
-    session.working_image_png = bytes(base.result_image_png)
-    prompt = body.prompt.strip()
-    try:
-        result = edit_image(session.working_image_png, prompt)
-    except Exception as exc:  # noqa: BLE001
-        raise _apply_image_error(
-            exc,
-            session_id=session_id,
-            source_image_id=session.source_image_id,
-        ) from exc
+        base = session.turns[body.base_turn_index]
+        session.turns = session.turns[: body.base_turn_index + 1]
+        session.working_image_png = base.result_image_png
+        prompt = body.prompt.strip()
+        try:
+            result = edit_image(session.working_image_png, prompt)
+        except Exception as exc:  # noqa: BLE001
+            raise _apply_image_error(
+                exc,
+                session_id=session_id,
+                source_image_id=session.source_image_id,
+            ) from exc
 
-    session.working_image_png = result
-    session.last_prompt = prompt
-    session.turns.append(EditTurn(prompt=prompt, result_image_png=result))
-    return _session_payload(session_id, session)
+        session.working_image_png = result
+        session.last_prompt = prompt
+        session.turns.append(EditTurn(prompt=prompt, result_image_png=result))
+        return _session_payload(session_id, session)
 
 
 @router.post("/sessions/{session_id}/submit")
@@ -293,25 +315,28 @@ def submit_session(
     session_id: str,
     _rl: None = Depends(check_llm_rate_limit),
 ):
-    session = get_edit_session(session_id)
-    if session is None:
-        raise HTTPException(status_code=404, detail="edit session not found")
-    if session.submitted:
-        raise HTTPException(status_code=409, detail="edit session already submitted")
-    if not session.turns:
-        raise HTTPException(
-            status_code=400,
-            detail="edit the image at least once before adding to the database",
-        )
+    with _locked_session(session_id) as session:
+        if not session.turns:
+            raise HTTPException(
+                status_code=400,
+                detail="edit the image at least once before adding to the database",
+            )
 
-    pending = create_pending_edit(
-        source_image_id=(session.source_image_id or "").strip(),
-        image_bytes=session.working_image_png,
-        last_prompt=session.last_prompt,
-    )
-    session.submitted = True
+        pending = create_pending_edit(
+            source_image_id=(session.source_image_id or "").strip(),
+            image_bytes=session.working_image_png,
+            last_prompt=session.last_prompt,
+        )
+        session.submitted = True
     delete_edit_session(session_id)
     return {"ok": True, "pending": pending}
+
+
+@router.delete("/sessions/{session_id}")
+def discard_session(session_id: str):
+    """Free an abandoned edit session's image bytes (idempotent)."""
+    delete_edit_session(session_id)
+    return {"ok": True}
 
 
 @router.get("/pending/{pending_id}/image")

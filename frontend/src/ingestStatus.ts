@@ -35,3 +35,18 @@ export function isMissingIngestJobError(error: unknown): boolean {
   const msg = error instanceof Error ? error.message : String(error);
   return /not found|404/i.test(msg);
 }
+
+/** Polling can never succeed without a valid admin key; retrying won't help. */
+export function isIngestAuthError(error: unknown): boolean {
+  const msg = error instanceof Error ? error.message : String(error);
+  return /admin api key required|invalid admin api key|admin api is not configured/i.test(
+    msg,
+  );
+}
+
+export const INGEST_POLL_MAX_FAILURES = 20;
+
+/** Retry delay for the Nth consecutive poll failure (3s doubling, capped at 30s). */
+export function ingestPollBackoffMs(consecutiveFailures: number): number {
+  return Math.min(30_000, 3000 * 2 ** Math.max(0, consecutiveFailures - 1));
+}

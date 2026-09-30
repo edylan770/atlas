@@ -70,15 +70,6 @@ export interface ParsedQuery {
   interpretation_notes?: string[];
 }
 
-export interface ChatResponse {
-  session_id: string;
-  assistant_message: string;
-  results: ResultCard[];
-  parsed_query?: ParsedQuery | null;
-  search_event_id?: string | null;
-  follow_up_suggestions?: string[];
-}
-
 export interface SimilarResponse {
   session_id: string | null;
   assistant_message: string;
@@ -145,13 +136,6 @@ export interface SuggestionsResponse {
   cached: boolean;
 }
 
-export interface IngestResponse {
-  message: string;
-  indexed_count: number;
-  chroma_vectors: number;
-  stats: Record<string, number>;
-}
-
 export type IngestJobStatus =
   | "staging"
   | "queued"
@@ -206,6 +190,18 @@ export interface DeckSuggestResponse {
   slides: SlideSuggestion[];
   deck_cached: boolean;
   llm_batches: number;
+}
+
+export interface PendingEditItem {
+  pending_id: string;
+  source_image_id: string;
+  staged_ref?: string;
+  thumb_ref?: string | null;
+  last_prompt?: string | null;
+  status: string;
+  created_at?: string | null;
+  image_url: string;
+  thumb_url: string;
 }
 
 export interface DeckForceResponse {

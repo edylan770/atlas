@@ -15,7 +15,7 @@ from fastapi import HTTPException
 from fastapi.testclient import TestClient
 from PIL import Image
 
-from imagecb.api.edit_sessions import clear_edit_sessions
+from imagecb.api.edit_sessions import EditSession, EditTurn, clear_edit_sessions
 from imagecb.api.edit_routes import EditTurnRequest, edit_turn
 from imagecb.api import rate_limit
 from imagecb.api.server import create_app
@@ -32,6 +32,7 @@ from imagecb.models.secrets import (
 from imagecb.models.providers import get_genai_client, reset_provider_clients
 from imagecb.models.image_edit import ImageEditError, _provider_error, edit_image, generate_image
 from imagecb.pending_edits import (
+    PendingEditIngestError,
     accept_pending_edit,
     create_pending_edit,
     decline_pending_edit,
@@ -464,10 +465,10 @@ def _corpus_client(tmp_path, *, settings_overrides=None, edit_image_return=None)
 
 
 def test_edit_turn_returns_actionable_provider_error(monkeypatch):
-    session = SimpleNamespace(
-        working_image_png=_png_bytes(),
+    session = EditSession(
         source_image_id="source-1",
-        submitted=False,
+        original_image_png=_png_bytes(),
+        working_image_png=_png_bytes(),
     )
     monkeypatch.setattr(
         "imagecb.api.edit_routes.nano_banana_status",
@@ -488,6 +489,104 @@ def test_edit_turn_returns_actionable_provider_error(monkeypatch):
         edit_turn("session-1", EditTurnRequest(prompt="make it blue"))
     assert caught.value.status_code == 502
     assert "[authentication_failed]" in str(caught.value.detail)
+
+
+def _session_with_turn() -> EditSession:
+    png = _png_bytes()
+    session = EditSession(
+        source_image_id="source-1",
+        original_image_png=png,
+        working_image_png=png,
+    )
+    session.turns.append(EditTurn(prompt="first", result_image_png=png))
+    return session
+
+
+def test_edit_turn_rejects_concurrent_request_on_same_session(monkeypatch):
+    session = _session_with_turn()
+    monkeypatch.setattr(
+        "imagecb.api.edit_routes.nano_banana_status", lambda: {"available": True}
+    )
+    monkeypatch.setattr(
+        "imagecb.api.edit_routes.get_edit_session", lambda _sid: session
+    )
+    calls = []
+    monkeypatch.setattr(
+        "imagecb.models.image_edit.edit_image",
+        lambda *_a, **_k: calls.append(1) or _png_bytes(),
+    )
+
+    assert session.lock.acquire(blocking=False)
+    try:
+        with pytest.raises(HTTPException) as caught:
+            edit_turn("session-1", EditTurnRequest(prompt="again"))
+    finally:
+        session.lock.release()
+    assert caught.value.status_code == 409
+    assert calls == []
+    assert len(session.turns) == 1
+
+
+def test_edit_turn_enforces_turn_cap(monkeypatch):
+    session = _session_with_turn()
+    monkeypatch.setattr(
+        "imagecb.api.edit_routes.nano_banana_status", lambda: {"available": True}
+    )
+    monkeypatch.setattr(
+        "imagecb.api.edit_routes.get_edit_session", lambda _sid: session
+    )
+    monkeypatch.setattr(
+        "imagecb.api.edit_routes.SETTINGS",
+        replace(SETTINGS, edit_session_max_turns=1),
+    )
+    with pytest.raises(HTTPException) as caught:
+        edit_turn("session-1", EditTurnRequest(prompt="one too many"))
+    assert caught.value.status_code == 409
+    assert "limit" in str(caught.value.detail)
+    assert not session.lock.locked()
+
+
+def test_submit_stages_exactly_one_pending(monkeypatch):
+    from imagecb.api.edit_routes import submit_session
+
+    session = _session_with_turn()
+    monkeypatch.setattr(
+        "imagecb.api.edit_routes.get_edit_session", lambda _sid: session
+    )
+    staged = []
+    monkeypatch.setattr(
+        "imagecb.api.edit_routes.create_pending_edit",
+        lambda **kwargs: staged.append(kwargs) or {"pending_id": "p1"},
+    )
+    monkeypatch.setattr("imagecb.api.edit_routes.delete_edit_session", lambda _sid: None)
+
+    # An in-flight submit holds the lock: a concurrent one must not stage.
+    assert session.lock.acquire(blocking=False)
+    try:
+        with pytest.raises(HTTPException) as busy:
+            submit_session("session-1")
+    finally:
+        session.lock.release()
+    assert busy.value.status_code == 409
+
+    assert submit_session("session-1")["pending"] == {"pending_id": "p1"}
+    with pytest.raises(HTTPException) as again:
+        submit_session("session-1")
+    assert again.value.status_code == 409
+    assert len(staged) == 1
+
+
+def test_discard_session_frees_it():
+    from imagecb.api.edit_routes import discard_session
+    from imagecb.api.edit_sessions import create_edit_session, get_edit_session
+
+    session_id, _ = create_edit_session(
+        source_image_id="source-1", working_image_png=_png_bytes()
+    )
+    assert get_edit_session(session_id) is not None
+    assert discard_session(session_id) == {"ok": True}
+    assert get_edit_session(session_id) is None
+    assert discard_session(session_id) == {"ok": True}
 
 
 def test_without_blank_aws_credential_env_strips_empty_values(monkeypatch):
@@ -552,7 +651,8 @@ def test_nano_banana_status_reports_sm_error(monkeypatch):
     status = nano_banana_status(force_refresh=True)
     assert status["available"] is False
     assert status["source"] == "secrets_manager"
-    assert status["secret_name"] == "gemini"
+    assert "secret_name" not in status
+    assert "secret_region" not in status
     assert "AccessDenied" in (status["error"] or "")
 
 
@@ -701,6 +801,37 @@ def test_pending_accept_created_image_skips_parent(tmp_path):
         assert rec is not None
         assert rec.parent_image_id is None
         assert seen_names[0].startswith("nano-banana-created-")
+
+
+def test_pending_accept_keeps_pending_when_ingest_adds_nothing(tmp_path):
+    settings = replace(
+        SETTINGS,
+        blob_storage_backend="local",
+        data_dir=tmp_path / "data",
+        image_cache_dir=tmp_path / "data" / "images",
+        uploads_dir=tmp_path / "data" / "uploads",
+        sqlite_path=tmp_path / "data" / "test.db",
+        s3_prefix="imagecb",
+        admin_api_key="admin",
+    )
+    settings.ensure_dirs()
+
+    patches = _patch_settings(settings)
+    with patches[0], patches[1], patches[2], patches[3], patches[4], patch(
+        "imagecb.ingest.ingest_paths", return_value={"images_added": 0, "errors": 1}
+    ):
+        _open_tmp_db(settings)
+
+        pending = create_pending_edit(
+            source_image_id="parent-img",
+            image_bytes=_png_bytes(color=(7, 8, 9)),
+            last_prompt="edit me",
+        )
+        with pytest.raises(PendingEditIngestError):
+            accept_pending_edit(pending["pending_id"])
+        remaining = list_pending_edits()
+        assert [p["pending_id"] for p in remaining] == [pending["pending_id"]]
+        assert blob_store.exists(pending["staged_ref"])
 
 
 def test_create_image_session_then_submit(tmp_path):
@@ -1021,9 +1152,10 @@ def test_edit_api_missing_session_submitted_and_empty_submit(tmp_path):
 
 
 def test_edit_turn_returns_409_when_session_already_submitted(monkeypatch):
-    session = SimpleNamespace(
-        working_image_png=_png_bytes(),
+    session = EditSession(
         source_image_id="source-1",
+        original_image_png=_png_bytes(),
+        working_image_png=_png_bytes(),
         submitted=True,
     )
     monkeypatch.setattr(
@@ -1073,7 +1205,7 @@ def test_edit_session_ttl_eviction_returns_404(tmp_path, monkeypatch):
     from imagecb.api import edit_sessions as edit_sessions_mod
 
     settings, image_id, _png, stack = _corpus_client(
-        tmp_path, settings_overrides={"session_ttl_sec": 1}
+        tmp_path, settings_overrides={"edit_session_ttl_sec": 1}
     )
     clock = {"now": 1000.0}
 

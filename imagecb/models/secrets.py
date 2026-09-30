@@ -235,20 +235,6 @@ def get_gemini_vertex_config(*, force_refresh: bool = False) -> GeminiConfig:
         return _cached_config
 
 
-def get_gemini_api_key(*, force_refresh: bool = False) -> str:
-    """Return the Gemini API key (env first, else Secrets Manager). Cached."""
-    return get_gemini_vertex_config(force_refresh=force_refresh).api_key
-
-
-def is_nano_banana_available() -> bool:
-    """True when Gemini config resolves (does not call Gemini)."""
-    try:
-        get_gemini_vertex_config()
-        return True
-    except Exception:
-        return False
-
-
 def _status_base() -> dict:
     return {
         "available": False,
@@ -257,8 +243,6 @@ def _status_base() -> dict:
         "project_id": None,
         "location": SETTINGS.gemini_vertex_location,
         "source": None,
-        "secret_name": SETTINGS.gemini_secret_name,
-        "secret_region": SETTINGS.gemini_secret_region,
         "error": None,
     }
 

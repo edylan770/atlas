@@ -211,9 +211,6 @@ class Settings:
         default_factory=lambda: (_env("ENABLE_CONVERSATIONAL_LLM", "true") or "true").lower()
         in ("1", "true", "yes", "on")
     )
-    suggestions_cache_ttl_sec: int = field(
-        default_factory=lambda: int(_env("SUGGESTIONS_CACHE_TTL_SEC", "300") or "300")
-    )
     suggestions_limit: int = field(
         default_factory=lambda: int(_env("SUGGESTIONS_LIMIT", "4") or "4")
     )
@@ -258,6 +255,17 @@ class Settings:
     )
     session_max_count: int = field(
         default_factory=lambda: int(_env("SESSION_MAX_COUNT", "1000") or "1000")
+    )
+    # Nano Banana edit sessions hold full PNG bytes per turn, so they get a
+    # much tighter store than text-only chat sessions.
+    edit_session_ttl_sec: int = field(
+        default_factory=lambda: int(_env("EDIT_SESSION_TTL_SEC", "1800") or "1800")
+    )
+    edit_session_max_count: int = field(
+        default_factory=lambda: int(_env("EDIT_SESSION_MAX_COUNT", "100") or "100")
+    )
+    edit_session_max_turns: int = field(
+        default_factory=lambda: int(_env("EDIT_SESSION_MAX_TURNS", "20") or "20")
     )
     # Ingest performance
     ingest_workers: int = field(

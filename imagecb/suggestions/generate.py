@@ -6,7 +6,7 @@ import json
 import random
 import re
 from dataclasses import dataclass
-from typing import List, Optional, Sequence, Tuple
+from typing import List, Optional, Sequence
 
 from imagecb.config import SETTINGS
 from imagecb.models.providers import get_anthropic_client, get_openai_client
@@ -64,10 +64,6 @@ _FILENAME_FILTER_RE = re.compile(
     re.IGNORECASE,
 )
 _FILENAME_EXT_RE = re.compile(r"\.(?:pptx?|pdf|docx?|xlsx?|png|jpe?g|gif|webp|bmp|tiff?)\b", re.IGNORECASE)
-
-# Retained for tests that clear it; result caching is disabled so each new-chat
-# fetch can get fresh LLM suggestions.
-_cache: dict[str, Tuple[float, List[str]]] = {}
 
 
 @dataclass(frozen=True)

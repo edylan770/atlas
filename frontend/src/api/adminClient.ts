@@ -1,4 +1,4 @@
-import type { IngestJob, ResultSort } from "../types";
+import type { IngestJob, PendingEditItem, ResultSort } from "../types";
 
 const ADMIN_KEY_STORAGE = "imagecb.adminApiKey";
 
@@ -263,12 +263,6 @@ export function fetchSearchQuality(
   );
 }
 
-export function fetchFunnel(searchEventId: string): Promise<unknown> {
-  return adminRequest(
-    `/api/admin/analytics/funnel?search_event_id=${encodeURIComponent(searchEventId)}`,
-  );
-}
-
 export function fetchAudit(limit = 100, offset = 0): Promise<{ entries: unknown[] }> {
   return adminRequest(`/api/admin/audit?limit=${limit}&offset=${offset}`);
 }
@@ -476,18 +470,6 @@ export function cancelIngestJob(jobId: string): Promise<IngestJob> {
     `/api/ingest/jobs/${encodeURIComponent(jobId)}/cancel`,
     { method: "POST" },
   );
-}
-
-export interface PendingEditItem {
-  pending_id: string;
-  source_image_id: string;
-  staged_ref?: string;
-  thumb_ref?: string | null;
-  last_prompt?: string | null;
-  status: string;
-  created_at?: string | null;
-  image_url: string;
-  thumb_url: string;
 }
 
 export function fetchPendingEdits(

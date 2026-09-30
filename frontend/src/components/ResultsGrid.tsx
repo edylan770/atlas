@@ -9,7 +9,6 @@ import { ResultCard } from "./ResultCard";
 interface ResultsGridProps {
   results: ResultCardType[];
   loading?: boolean;
-  pending?: boolean;
   onFindSimilar?: (imageId: string, imageName: string) => void;
   searchEventId?: string | null;
   sessionId?: string | null;
@@ -22,7 +21,6 @@ interface ResultsGridProps {
 export function ResultsGrid({
   results,
   loading = false,
-  pending = false,
   onFindSimilar,
   searchEventId,
   sessionId,
@@ -33,24 +31,6 @@ export function ResultsGrid({
 }: ResultsGridProps) {
   const [previewIndex, setPreviewIndex] = useState<number | null>(null);
   const [editCard, setEditCard] = useState<ResultCardType | null>(null);
-
-  if (results.length === 0 && pending) {
-    // Skeleton grid while a search is in flight.
-    return (
-      <div
-        className="grid min-h-0 flex-1 auto-rows-min grid-cols-2 gap-3 overflow-y-auto p-3"
-        data-testid="results-skeleton"
-        aria-label="Loading results"
-      >
-        {Array.from({ length: 6 }).map((_, i) => (
-          <div
-            key={i}
-            className="h-56 animate-pulse rounded-lg bg-navy-100 ring-1 ring-navy-200 sm:h-60"
-          />
-        ))}
-      </div>
-    );
-  }
 
   if (results.length === 0) {
     return (

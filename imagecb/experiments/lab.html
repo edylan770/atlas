@@ -330,6 +330,8 @@
         });
       }
 
+      let activeRun = null;
+
       async function run() {
         const key = syncAuthGate();
         if (!key) {
@@ -342,6 +344,10 @@
           queryInput.focus();
           return;
         }
+        // A still-open previous stream would write into the new run's columns.
+        if (activeRun) activeRun.abort();
+        const controller = new AbortController();
+        activeRun = controller;
         runBtn.disabled = true;
         runBtn.textContent = "Running…";
         board.innerHTML = "";
@@ -356,6 +362,7 @@
               "X-Admin-Api-Key": key,
             },
             body: JSON.stringify({ query, top_k: Number(topk.value) }),
+            signal: controller.signal,
           });
           if (!res.ok || !res.body) {
             const detail = await readErrorDetail(res);
@@ -382,10 +389,14 @@
             }
           }
         } catch (err) {
+          if (controller.signal.aborted) return;
           parsed.innerHTML = `<span class="err">${escapeHtml(err.message)}</span>`;
         } finally {
-          runBtn.textContent = "Compare";
-          syncAuthGate();
+          if (activeRun === controller) {
+            activeRun = null;
+            runBtn.textContent = "Compare";
+            syncAuthGate();
+          }
         }
       }
 

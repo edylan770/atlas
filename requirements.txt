@@ -8,6 +8,8 @@ Pillow>=10.2.0
 
 # AWS Bedrock (embeddings, VLM, LLM, reranking)
 boto3>=1.35.0
+
+# Alternate VLM/LLM providers and Gemini (Nano Banana image edit)
 openai>=1.30.0
 anthropic>=0.34.0
 google-genai>=1.0.0

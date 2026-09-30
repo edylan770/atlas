@@ -59,3 +59,27 @@ def test_apply_asset_type_boost_reorders(_mock_rate):
     ]
     boosted = apply_asset_type_boost(spec, ranked)
     assert boosted[0].image_id == "shot"
+
+
+@patch("imagecb.retrieval.asset_type_boost._corpus_asset_type_unclassified_rate", return_value=0.0)
+def test_apply_asset_type_boost_queries_corpus_rate_once(mock_rate):
+    spec = QuerySpec(semantic_query="screenshot", raw_text="screenshot")
+    ranked = [
+        _ranked(f"img-{i}", 0.9 - i * 0.01, "screenshot" if i % 3 == 0 else "photo")
+        for i in range(30)
+    ]
+    boosted = apply_asset_type_boost(spec, ranked)
+    assert mock_rate.call_count == 1
+    expected = sorted(
+        ranked,
+        key=lambda r: r.score * asset_type_rerank_multiplier(spec, r.record.asset_type),
+        reverse=True,
+    )
+    assert [r.image_id for r in boosted] == [r.image_id for r in expected]
+
+
+@patch("imagecb.retrieval.asset_type_boost._corpus_asset_type_unclassified_rate", return_value=0.9)
+def test_apply_asset_type_boost_noop_when_corpus_unclassified(_mock_rate):
+    spec = QuerySpec(semantic_query="screenshot", raw_text="screenshot")
+    ranked = [_ranked("photo", 0.92, "photo"), _ranked("shot", 0.88, "screenshot")]
+    assert apply_asset_type_boost(spec, ranked) is ranked

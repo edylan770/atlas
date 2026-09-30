@@ -22,6 +22,10 @@ from imagecb.storage.metadata_db import PendingEdit, get_engine, session_scope
 logger = logging.getLogger(__name__)
 
 
+class PendingEditIngestError(RuntimeError):
+    """Accept ran ingest but no corpus record exists for the staged image."""
+
+
 def ensure_pending_edits_schema() -> None:
     engine = get_engine()
     PendingEdit.__table__.create(engine, checkfirst=True)
@@ -173,14 +177,17 @@ def accept_pending_edit(pending_id: str) -> dict[str, Any]:
         stats = ingest_paths([path], auto_repair=True)
 
     record = metadata_db.get_record_by_hash(content_hash)
-    new_image_id: Optional[str] = None
-    if record is not None:
-        new_image_id = record.image_id
-        if source_image_id:
-            with session_scope() as s:
-                rec = s.get(metadata_db.ImageRecord, new_image_id)
-                if rec is not None:
-                    rec.parent_image_id = source_image_id
+    if record is None:
+        # Keep the pending row and staged blob so the admin can retry.
+        raise PendingEditIngestError(
+            f"ingest produced no corpus record for pending edit {pending_id}: {stats}"
+        )
+    new_image_id: Optional[str] = record.image_id
+    if source_image_id:
+        with session_scope() as s:
+            rec = s.get(metadata_db.ImageRecord, new_image_id)
+            if rec is not None:
+                rec.parent_image_id = source_image_id
 
     # Remove pending row + staged blobs (corpus blobs remain).
     with session_scope() as s:

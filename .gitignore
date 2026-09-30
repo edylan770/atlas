@@ -48,3 +48,9 @@ semantic-image-search.git/
 
 # Local production limit-break probes (not for the repo)
 scripts/limit_break_chat.py
+
+# Architecture diagram drafts (not for the repo)
+docs/architecture/
+
+# Local audit improvement backlog (not for the repo)
+AUDIT_IMPROVEMENTS.json

@@ -64,19 +64,16 @@ def apply_asset_type_boost(
     """Re-sort ranked results after applying a soft asset-type multiplier."""
     if not ranked:
         return ranked
-
-    multiplier = None
-    for item in ranked:
-        mult = asset_type_rerank_multiplier(spec, item.record.asset_type)
-        if mult != 1.0:
-            multiplier = mult
-            break
-    if multiplier is None or multiplier == 1.0:
+    boost = SETTINGS.asset_type_rerank_boost
+    if boost == 1.0 or _corpus_asset_type_unclassified_rate() >= 0.5:
+        return ranked
+    target_types = infer_asset_types_from_short_query(spec)
+    if not target_types:
         return ranked
 
-    boosted = sorted(
-        ranked,
-        key=lambda r: r.score * asset_type_rerank_multiplier(spec, r.record.asset_type),
-        reverse=True,
-    )
-    return boosted
+    def _mult(item) -> float:
+        return boost if normalize_asset_type(item.record.asset_type) in target_types else 1.0
+
+    if not any(_mult(item) != 1.0 for item in ranked):
+        return ranked
+    return sorted(ranked, key=lambda r: r.score * _mult(r), reverse=True)

@@ -713,3 +713,49 @@ Chroma client (I8) and boto3 client/semaphore (R7 tail) need locked lazy init.
   active via weight_sum probes). No evidence to drop a lane yet; keep BOTH as
   default, re-run this ablation at production corpus scale (knobs + eval
   scripts ready: ab_eval.py, ab_eval_lanes.py in the session workspace).
+
+---
+
+## 16. Sept 2026 audit status
+
+No ranking math, fusion weights, models, or deploy topology changed. Every
+backend fix has a regression test. Forward-looking ideas are tracked in the
+gitignored `AUDIT_IMPROVEMENTS.json`.
+
+### Fixed
+- **Pending-edit accept (P0)**: `accept_pending_edit` deleted the pending row
+  and staged blob even when ingest produced no corpus record, so the edit was
+  lost. It now raises `PendingEditIngestError` (500) and keeps the row so the
+  admin can retry.
+- **Nano Banana edit sessions**: own TTL / count cap / per-session turn cap
+  (`EDIT_SESSION_TTL_SEC`, `EDIT_SESSION_MAX_COUNT`, `EDIT_SESSION_MAX_TURNS`);
+  per-session lock (concurrent turn → 409); submit is atomic (one pending row
+  per session); new `DELETE /api/edit/sessions/{id}` called by the UI on close.
+  `/api/edit/status` no longer exposes the Secrets Manager name/region.
+- **R3** similar-search visual lane honours `restrict_to`.
+- **R5** `apply_asset_type_boost` reads corpus rates once per call.
+- **R6** deck slide payloads fenced with `DATA_GUARD_INSTRUCTION`.
+- **F1** `searchEventId` follows conversation switch / new / delete.
+- **F2** chat stream, create-image and edit turns are abortable; streamed
+  tokens are batched per animation frame.
+- **F3** localStorage quota errors drop old result payloads instead of
+  silently losing the save.
+- **F4** ingest polling backs off and stops on auth errors / repeated failure.
+- **F5** assistant reply is no longer rendered inside a `<button>`.
+- **F6** Admin and Deck pages are lazy-loaded.
+- **F7** lab.html aborts the previous compare run.
+- **Dead code**: suggestions cache + `SUGGESTIONS_CACHE_TTL_SEC`, unused
+  telemetry/secrets/edit-session helpers, unused frontend types/exports
+  (`fetchFunnel`, `ChatResponse`, `IngestResponse`, `CorpusSortable`,
+  `ResultsGrid` `pending` prop), duplicate download helper.
+- **Hygiene**: README stale references (Gradio, session reset, funnel,
+  VISUAL_*), CI runs frontend unit tests, `.dockerignore` trims dev trees,
+  `.env.example` `S3_READ_TIMEOUT` default corrected.
+
+### Still open
+- A1 chat rerank, A2 BM25 decision, A3 hubness, P6/P7 admin scale, T3/C1
+  orchestration dedupe, D1 deck SSE, D2 presigned/CDN images.
+- `tests/test_model_fallbacks.py` keeps two skipped placeholders for runtime
+  lane settings (`imagecb.storage.app_settings`, not implemented).
+- Local `tests/test_similar_api.py` failures seen during this audit are
+  environmental (expired S3 telemetry token in local `.env`), not code bugs.

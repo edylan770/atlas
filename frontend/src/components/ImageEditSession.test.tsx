@@ -8,6 +8,7 @@ import { ImageEditSession } from "./ImageEditSession";
 const apiMocks = vi.hoisted(() => ({
   fetchEditStatus: vi.fn(),
   createEditSession: vi.fn(),
+  discardEditSession: vi.fn(),
   postEditTurn: vi.fn(),
   submitEditSession: vi.fn(),
 }));
@@ -52,12 +53,13 @@ beforeEach(() => {
 afterEach(cleanup);
 
 async function renderReady() {
-  render(<ImageEditSession card={card} onClose={() => {}} />);
+  const view = render(<ImageEditSession card={card} onClose={() => {}} />);
   await waitFor(() =>
     expect((screen.getByTestId("edit-prompt") as HTMLTextAreaElement).disabled).toBe(
       false,
     ),
   );
+  return view;
 }
 
 describe("ImageEditSession", () => {
@@ -209,5 +211,28 @@ describe("ImageEditSession", () => {
     fireEvent.error(screen.getByAltText("Original Test image"));
 
     expect(await screen.findByTestId("edit-original-image-error")).toBeTruthy();
+  });
+
+  it("releases an unsubmitted server session when closed", async () => {
+    const view = await renderReady();
+    view.unmount();
+    expect(apiMocks.discardEditSession).toHaveBeenCalledWith("session-1");
+  });
+
+  it("does not discard a session after it was submitted", async () => {
+    apiMocks.postEditTurn.mockResolvedValue({
+      ...emptySession,
+      turn_count: 1,
+      turns: [{ prompt: "p", image_url: "/api/edit/sessions/session-1/turns/0/image" }],
+    });
+    apiMocks.submitEditSession.mockResolvedValue({ ok: true, pending: {} });
+    const view = await renderReady();
+    fireEvent.change(screen.getByTestId("edit-prompt"), { target: { value: "p" } });
+    fireEvent.click(screen.getByTestId("edit-send"));
+    await screen.findByAltText("Edit 1 of Test image");
+    fireEvent.click(screen.getByTestId("edit-submit"));
+    await screen.findByText(/Submitted for admin review/i);
+    view.unmount();
+    expect(apiMocks.discardEditSession).not.toHaveBeenCalled();
   });
 });

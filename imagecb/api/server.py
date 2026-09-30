@@ -103,8 +103,8 @@ async def _lifespan(_app: FastAPI):
             status.get("project_id"),
             status.get("location"),
             status.get("source"),
-            status.get("secret_name"),
-            status.get("secret_region"),
+            SETTINGS.gemini_secret_name,
+            SETTINGS.gemini_secret_region,
             status.get("error"),
         )
     except Exception:  # noqa: BLE001

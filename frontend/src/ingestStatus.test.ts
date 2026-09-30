@@ -3,6 +3,8 @@ import { describe, expect, it } from "vitest";
 import {
   formatIngestPhase,
   heartbeatAgeSeconds,
+  ingestPollBackoffMs,
+  isIngestAuthError,
   isMissingIngestJobError,
   isStaleIngestJob,
 } from "./ingestStatus";
@@ -53,5 +55,17 @@ describe("ingest status diagnostics", () => {
     expect(isMissingIngestJobError(new Error("ingest job not found"))).toBe(true);
     expect(isMissingIngestJobError(new Error("Not Found"))).toBe(true);
     expect(isMissingIngestJobError(new Error("network timeout"))).toBe(false);
+  });
+
+  it("detects auth errors that make polling pointless", () => {
+    expect(isIngestAuthError(new Error("Admin API key required"))).toBe(true);
+    expect(isIngestAuthError(new Error("Invalid admin API key"))).toBe(true);
+    expect(isIngestAuthError(new Error("Failed to fetch"))).toBe(false);
+  });
+
+  it("backs off poll retries up to a cap", () => {
+    expect(ingestPollBackoffMs(1)).toBe(3000);
+    expect(ingestPollBackoffMs(2)).toBe(6000);
+    expect(ingestPollBackoffMs(10)).toBe(30_000);
   });
 });

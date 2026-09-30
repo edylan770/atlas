@@ -37,15 +37,13 @@ import {
   type IndexBackupInfo,
   type IngestDiagnostics,
   type IngestPreflight,
-  type PendingEditItem,
   type SearchQualityItem,
   type SearchQualityLists,
 } from "../api/adminClient";
 import { SortSelect } from "../components/SortSelect";
 import { heartbeatAgeSeconds, isStaleIngestJob } from "../ingestStatus";
 import { defaultCatalogSort } from "../sortResults";
-import type { ResultSort } from "../types";
-import type { IngestJob } from "../types";
+import type { IngestJob, PendingEditItem, ResultSort } from "../types";
 import { AdminLayout } from "./AdminShell";
 
 function queryTooltip(row: SearchQualityItem): string {

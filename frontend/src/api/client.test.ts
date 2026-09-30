@@ -302,4 +302,36 @@ describe("postEditTurn", () => {
       vi.useRealTimers();
     }
   });
+
+  it("forwards a caller abort while keeping the timeout", async () => {
+    vi.useFakeTimers();
+    try {
+      vi.stubGlobal(
+        "fetch",
+        vi.fn(
+          (_url: string, init?: RequestInit) =>
+            new Promise((_resolve, reject) => {
+              init?.signal?.addEventListener("abort", () =>
+                reject(new DOMException("aborted", "AbortError")),
+              );
+            }),
+        ),
+      );
+
+      const caller = new AbortController();
+      const cancelled = postEditTurn("session-1", "blue", { signal: caller.signal });
+      const cancelledRejection = expect(cancelled).rejects.toThrow("aborted");
+      caller.abort();
+      await cancelledRejection;
+
+      const timed = postEditTurn("session-1", "blue", {
+        signal: new AbortController().signal,
+      });
+      const timedRejection = expect(timed).rejects.toThrow("timed out after 2 minutes");
+      await vi.advanceTimersByTimeAsync(120_000);
+      await timedRejection;
+    } finally {
+      vi.useRealTimers();
+    }
+  });
 });

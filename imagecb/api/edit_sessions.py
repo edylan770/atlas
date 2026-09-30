@@ -28,6 +28,9 @@ class EditSession:
     last_prompt: Optional[str] = None
     turns: List[EditTurn] = field(default_factory=list)
     submitted: bool = False
+    # Serializes turn / revise / submit so concurrent requests can't interleave
+    # history mutations or stage the same session twice.
+    lock: Lock = field(default_factory=Lock, repr=False, compare=False)
 
 
 @dataclass
@@ -41,12 +44,12 @@ _sessions: Dict[str, _Entry] = {}
 
 def _evict_locked() -> None:
     now = time.monotonic()
-    ttl = SETTINGS.session_ttl_sec
+    ttl = SETTINGS.edit_session_ttl_sec
     if ttl > 0:
         expired = [sid for sid, e in _sessions.items() if now - e.last_used > ttl]
         for sid in expired:
             del _sessions[sid]
-    cap = SETTINGS.session_max_count
+    cap = SETTINGS.edit_session_max_count
     if cap > 0 and len(_sessions) > cap:
         by_age = sorted(_sessions.items(), key=lambda kv: kv[1].last_used)
         for sid, _ in by_age[: len(_sessions) - cap]:
@@ -61,12 +64,12 @@ def create_edit_session(
     session_id = str(uuid.uuid4())
     session = EditSession(
         source_image_id=source_image_id,
-        original_image_png=bytes(working_image_png),
+        original_image_png=working_image_png,
         working_image_png=working_image_png,
     )
     with _lock:
-        _evict_locked()
         _sessions[session_id] = _Entry(session=session)
+        _evict_locked()
     return session_id, session
 
 
@@ -82,11 +85,6 @@ def get_edit_session(session_id: str) -> EditSession | None:
 def delete_edit_session(session_id: str) -> None:
     with _lock:
         _sessions.pop(session_id, None)
-
-
-def edit_session_count() -> int:
-    with _lock:
-        return len(_sessions)
 
 
 def clear_edit_sessions() -> None:

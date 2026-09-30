@@ -179,9 +179,15 @@ export function ChatMessageList({
               </div>
             )}
 
-            <button
-              type="button"
-              onClick={() => onSelectTurn(turn.id)}
+            {/* Keyboard selection goes through the user bubble button above;
+                this stays a plain block so the reply is selectable text. */}
+            <div
+              data-testid="assistant-reply"
+              aria-live={isLatest && loading ? "polite" : undefined}
+              onClick={() => {
+                if (window.getSelection()?.toString()) return;
+                onSelectTurn(turn.id);
+              }}
               className={`max-w-[88%] rounded-2xl px-4 py-2.5 text-left text-sm leading-relaxed shadow-sm transition ${
                 selected
                   ? "mr-auto bg-white text-navy-800 ring-2 ring-brand-400"
@@ -191,7 +197,7 @@ export function ChatMessageList({
               <div className="prose-chat">
                 <ReactMarkdown>{turn.assistantContent}</ReactMarkdown>
               </div>
-            </button>
+            </div>
             {isCreate && turn.createdImageUrl && (
               <div className="mr-auto max-w-[88%] space-y-2">
                 <img

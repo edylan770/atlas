@@ -54,15 +54,6 @@ export function sortResultCards(results: ResultCard[], sort: ResultSort): Result
   return withRanks(copy);
 }
 
-
-export interface CorpusSortable {
-  image_id: string;
-  image_name?: string | null;
-  source_file?: string;
-  created_at?: string | null;
-}
-
-
 export function defaultSearchSort(): ResultSort {
   return "relevance";
 }
