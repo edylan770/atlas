@@ -378,6 +378,12 @@ class Settings:
     weak_result_score_threshold: float = field(
         default_factory=lambda: float(_env("WEAK_RESULT_SCORE_THRESHOLD", "0.25") or "0.25")
     )
+    # Cosine floor for merging near-duplicate gap queries into one theme.
+    content_gap_similarity_threshold: float = field(
+        default_factory=lambda: float(
+            _env("CONTENT_GAP_SIMILARITY_THRESHOLD", "0.82") or "0.82"
+        )
+    )
     # Search/interaction analytics live on the blob backend (S3 or DATA_DIR),
     # not SQLite — survives index restore / empty EC2 volumes.
     telemetry_backend: str = field(

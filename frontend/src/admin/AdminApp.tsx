@@ -20,6 +20,7 @@ import {
   fetchDuplicateClusters,
   fetchOrphans,
   fetchSearchQuality,
+  fetchContentGaps,
   regenerateCaption,
   reindexImage,
   repairCaptions,
@@ -32,6 +33,8 @@ import {
   declinePendingEdit,
   type AnalyticsSummary,
   type CaptionQualityFilter,
+  type ContentGapsReport,
+  type ContentGapTheme,
   type CorpusHealth,
   type CorpusImage,
   type IndexBackupInfo,
@@ -277,7 +280,16 @@ function QualityPage() {
   return (
     <div className="space-y-8">
       <div className="flex flex-wrap items-end justify-between gap-3">
-        <h2 className="text-lg font-semibold text-navy-900">Search quality</h2>
+        <div>
+          <h2 className="text-lg font-semibold text-navy-900">Search quality</h2>
+          <p className="mt-1 text-xs text-navy-500">
+            Raw event tables. For themed demand, see{" "}
+            <Link to="/admin/gaps" className="font-medium text-brand-700 hover:underline">
+              Content gaps
+            </Link>
+            .
+          </p>
+        </div>
         <div className="flex gap-1 rounded-lg bg-navy-100 p-1" role="group" aria-label="Time window">
           {([7, 30, 90] as const).map((n) => (
             <button
@@ -299,6 +311,151 @@ function QualityPage() {
       <QualityTable title="Zero results" items={data.zero_result} />
       <QualityTable title="Weak results" items={data.weak_result} />
       <QualityTable title="No interaction" items={data.no_interaction} />
+    </div>
+  );
+}
+
+function GapThemeCard({ theme }: { theme: ContentGapTheme }) {
+  return (
+    <details className="rounded-lg bg-white p-4 ring-1 ring-navy-200 open:ring-brand-300">
+      <summary className="cursor-pointer list-none">
+        <div className="flex flex-wrap items-start justify-between gap-2">
+          <div className="min-w-0 flex-1">
+            <h3 className="text-sm font-semibold text-navy-900">{theme.theme_label}</h3>
+            <p className="mt-1 text-xs text-navy-600">{theme.summary}</p>
+          </div>
+          <div className="flex shrink-0 flex-wrap gap-1.5 text-[10px] font-medium uppercase tracking-wide">
+            <span className="rounded bg-navy-100 px-2 py-0.5 text-navy-800">
+              {theme.search_count} searches
+            </span>
+            {theme.zero_count > 0 && (
+              <span className="rounded bg-red-100 px-2 py-0.5 text-red-800">
+                {theme.zero_count} zero
+              </span>
+            )}
+            {theme.weak_count > 0 && (
+              <span className="rounded bg-amber-100 px-2 py-0.5 text-amber-900">
+                {theme.weak_count} weak
+              </span>
+            )}
+          </div>
+        </div>
+      </summary>
+      <div className="mt-3 border-t border-navy-100 pt-3 text-xs text-navy-600">
+        <p>
+          {theme.unique_users} unique user
+          {theme.unique_users === 1 ? "" : "s"}
+          {theme.last_seen_at ? ` · last seen ${theme.last_seen_at}` : ""}
+        </p>
+        {theme.example_queries.length > 0 && (
+          <ul className="mt-2 list-disc space-y-1 pl-5 text-navy-800">
+            {theme.example_queries.map((q) => (
+              <li key={q}>{q}</li>
+            ))}
+          </ul>
+        )}
+      </div>
+    </details>
+  );
+}
+
+function ContentGapsPage() {
+  const [data, setData] = useState<ContentGapsReport | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [days, setDays] = useState<7 | 30 | 90>(90);
+
+  useEffect(() => {
+    setData(null);
+    fetchContentGaps(days)
+      .then(setData)
+      .catch((e) => setError(e instanceof Error ? e.message : String(e)));
+  }, [days]);
+
+  if (error) return <p className="text-red-600">{error}</p>;
+  if (!data) return <p className="text-navy-500">Loading…</p>;
+
+  return (
+    <div className="space-y-6">
+      <div className="flex flex-wrap items-end justify-between gap-3">
+        <div>
+          <h2 className="text-lg font-semibold text-navy-900">Content gaps</h2>
+          <p className="mt-1 text-xs text-navy-500">
+            Zero- and weak-result chat searches grouped into themes—what to add to the
+            library. Last {days} days · {data.gap_event_count} gap event
+            {data.gap_event_count === 1 ? "" : "s"} · clustering: {data.clustering_mode}
+          </p>
+        </div>
+        <div className="flex gap-1 rounded-lg bg-navy-100 p-1" role="group" aria-label="Time window">
+          {([7, 30, 90] as const).map((n) => (
+            <button
+              key={n}
+              type="button"
+              onClick={() => setDays(n)}
+              className={
+                days === n
+                  ? "rounded-md bg-white px-3 py-1 text-xs font-medium text-navy-900 shadow-sm"
+                  : "rounded-md px-3 py-1 text-xs font-medium text-navy-600 hover:text-navy-900"
+              }
+            >
+              {n}d
+            </button>
+          ))}
+        </div>
+      </div>
+
+      {data.themes.length === 0 && data.one_offs.length === 0 ? (
+        <p className="rounded-lg bg-white p-6 text-sm text-navy-500 ring-1 ring-navy-200">
+          No zero- or weak-result chat searches in this window.
+        </p>
+      ) : (
+        <>
+          <section className="space-y-3">
+            <h3 className="text-xs font-semibold uppercase tracking-wide text-navy-500">
+              Themes ({data.themes.length})
+            </h3>
+            {data.themes.length === 0 ? (
+              <p className="text-sm text-navy-500">
+                No repeated themes yet (need at least two related gap searches).
+              </p>
+            ) : (
+              <div className="space-y-2">
+                {data.themes.map((theme) => (
+                  <GapThemeCard
+                    key={`${theme.theme_label}-${theme.search_count}-${theme.last_seen_at}`}
+                    theme={theme}
+                  />
+                ))}
+              </div>
+            )}
+          </section>
+
+          {data.one_offs.length > 0 && (
+            <section className="space-y-3">
+              <h3 className="text-xs font-semibold uppercase tracking-wide text-navy-500">
+                One-off searches ({data.one_offs.length})
+              </h3>
+              <div className="space-y-2">
+                {data.one_offs.map((theme) => (
+                  <GapThemeCard
+                    key={`oneoff-${theme.theme_label}-${theme.last_seen_at}`}
+                    theme={theme}
+                  />
+                ))}
+              </div>
+            </section>
+          )}
+        </>
+      )}
+
+      <p className="text-xs text-navy-500">
+        Weak threshold (raw score): {data.weak_score_threshold}
+        {" · "}
+        Theme similarity: {data.similarity_threshold}
+        {" · "}
+        <Link to="/admin/quality" className="font-medium text-brand-700 hover:underline">
+          View raw search quality tables
+        </Link>
+      </p>
     </div>
   );
 }
@@ -1721,6 +1878,7 @@ export default function AdminApp() {
       <Routes>
         <Route path="/" element={<DashboardPage />} />
         <Route path="/quality" element={<QualityPage />} />
+        <Route path="/gaps" element={<ContentGapsPage />} />
         <Route path="/corpus" element={<CorpusPage />} />
         <Route path="/ingestions" element={<IngestionsPage />} />
         <Route path="/pending" element={<PendingAdditionsPage />} />

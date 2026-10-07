@@ -119,6 +119,9 @@ function AdminHeader({ onOpenCorpus }: { onOpenCorpus: () => void }) {
             <NavLink to="/admin/quality" className={navLinkClass}>
               Search quality
             </NavLink>
+            <NavLink to="/admin/gaps" className={navLinkClass}>
+              Content gaps
+            </NavLink>
             <NavLink to="/admin/corpus" className={navLinkClass}>
               Corpus
             </NavLink>

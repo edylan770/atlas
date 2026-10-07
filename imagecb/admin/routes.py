@@ -8,7 +8,7 @@ from typing import List, Literal, Optional
 from fastapi import APIRouter, Depends, HTTPException, Query, Response
 from pydantic import BaseModel, Field
 
-from imagecb.admin import analytics, audit, curation, duplicates
+from imagecb.admin import analytics, audit, content_gaps, curation, duplicates
 from imagecb.api.auth import require_admin
 
 logger = logging.getLogger(__name__)
@@ -59,6 +59,22 @@ def admin_search_quality(
         since=resolved_since,
         limit=limit,
         weak_score_threshold=weak_score_threshold,
+    )
+
+
+@router.get("/analytics/content-gaps")
+def admin_content_gaps(
+    since: Optional[str] = Query(None),
+    days: int = Query(90, ge=1, le=365),
+    weak_score_threshold: Optional[float] = Query(None),
+    similarity_threshold: Optional[float] = Query(None),
+    _: str = Depends(require_admin),
+):
+    return content_gaps.content_gaps_report(
+        since=since,
+        days=days,
+        weak_score_threshold=weak_score_threshold,
+        similarity_threshold=similarity_threshold,
     )
 
 

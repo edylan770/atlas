@@ -535,6 +535,7 @@ Gate with `ADMIN_API_KEY` (entered in the browser after unlock; kept in sessionS
 |-------|----------|
 | `/admin` | Configurable window (7/30/90 days, default 90): searches, zero/weak/no-interaction rates, interactions; caption health (failed/weak) |
 | `/admin/quality` | Tables of zero-result, weak-result, and no-interaction searches (same window) with stage timing columns |
+| `/admin/gaps` | Content gaps: zero/weak chat searches clustered into themes (Titan text embeddings; exact-string fallback) so admins know what to add to the library |
 | `/admin/corpus` | Index health; reconcile; full repair; purge unrecoverable; S3 backup/restore; corpus grid (quality filter, sort); bulk repair failed/weak captions; per-image regenerate caption, reindex, soft-delete; orphans; soft-deleted restore; near-duplicate clusters |
 | `/admin/ingestions` | Active/recent jobs; cancel; runtime diagnostics (`APP_BUILD_ID` mismatch warning); ingest preflight; deep link `?job=` |
 | `/admin/pending` | Nano Banana pending additions: preview, Accept (full ingest as new image with `parent_image_id`), Decline (delete staged blobs only) |
@@ -713,6 +714,7 @@ Full list: [`.env.example`](.env.example). Highlights below. **Path** column: wh
 | `EDIT_SESSION_TTL_SEC` / `EDIT_SESSION_MAX_COUNT` / `EDIT_SESSION_MAX_TURNS` | Nano Banana edit | Idle expiry (default `1800`s), max live sessions (`100`), max turns per session (`20`) |
 | `RESULT_DEDUPLICATE_ENABLED` / `RESULT_DEDUPLICATE_SIMILARITY_THRESHOLD` | Chat / similar | Near-dupe collapse (default on, cosine `0.98`) |
 | `WEAK_RESULT_SCORE_THRESHOLD` | Admin analytics | Soft floor for “weak” results (default `0.25`) |
+| `CONTENT_GAP_SIMILARITY_THRESHOLD` | Admin content gaps | Cosine floor for merging near-duplicate gap queries into themes (default `0.82`) |
 | `DUPLICATE_SIMILARITY_THRESHOLD` | Admin corpus | Near-duplicate cluster detection (default `0.95`) |
 | `HUBNESS_CORRECTION_ENABLED` / `HUBNESS_KNN` / `HUBNESS_PENALTY_WEIGHT` | **Rerank / visual-only paths** | CSLS hubness; rebuilt at ingest; **not applied to chat fusion ranking** |
 | `ASSET_TYPE_RERANK_BOOST` | **Rerank paths** | Boost matching asset types inside `rerank()` (deck / similar text leg); **not chat fusion** |

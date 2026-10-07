@@ -92,6 +92,28 @@ export interface SearchQualityItem {
   category: string;
 }
 
+export interface ContentGapTheme {
+  theme_label: string;
+  search_count: number;
+  zero_count: number;
+  weak_count: number;
+  unique_users: number;
+  example_queries: string[];
+  last_seen_at: string | null;
+  summary: string;
+}
+
+export interface ContentGapsReport {
+  since: string;
+  window_days: number;
+  weak_score_threshold: number;
+  similarity_threshold: number;
+  clustering_mode: string;
+  gap_event_count: number;
+  themes: ContentGapTheme[];
+  one_offs: ContentGapTheme[];
+}
+
 export type CaptionQualityFilter = "all" | "ok" | "weak" | "failed";
 
 export interface CorpusImage {
@@ -261,6 +283,10 @@ export function fetchSearchQuality(
   return adminRequest(
     `/api/admin/analytics/search-quality?limit=${limit}&days=${days}`,
   );
+}
+
+export function fetchContentGaps(days = 90): Promise<ContentGapsReport> {
+  return adminRequest(`/api/admin/analytics/content-gaps?days=${days}`);
 }
 
 export function fetchAudit(limit = 100, offset = 0): Promise<{ entries: unknown[] }> {

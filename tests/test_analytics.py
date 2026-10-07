@@ -5,10 +5,10 @@ from __future__ import annotations
 import uuid
 from dataclasses import replace
 from datetime import datetime
-
+import numpy as np
 import pytest
 
-from imagecb.admin import analytics
+from imagecb.admin import analytics, content_gaps
 from imagecb.config import SETTINGS
 from imagecb.telemetry import s3_store
 
@@ -21,12 +21,14 @@ def telemetry_dir(tmp_path, monkeypatch):
         data_dir=tmp_path,
         s3_prefix="imagecb",
         weak_result_score_threshold=0.25,
+        content_gap_similarity_threshold=0.82,
         telemetry_retention_days=90,
         telemetry_default_window_days=90,
     )
     monkeypatch.setattr(s3_store, "SETTINGS", settings)
     monkeypatch.setattr("imagecb.storage.blob_store.SETTINGS", settings)
     monkeypatch.setattr("imagecb.admin.analytics.SETTINGS", settings)
+    monkeypatch.setattr("imagecb.admin.content_gaps.SETTINGS", settings)
     monkeypatch.setattr("imagecb.telemetry.recorder.SETTINGS", settings)
     s3_store.invalidate_quality_cache()
     yield tmp_path
@@ -40,6 +42,7 @@ def _add_search(
     query_text: str = "test",
     parsed_semantic_query: str | None = None,
     search_kind: str = "chat",
+    user_id: str = "u",
     total_ms: float | None = None,
     ask_ms: float | None = None,
     reply_ms: float | None = None,
@@ -57,7 +60,7 @@ def _add_search(
         "id": eid,
         "created_at": created.isoformat(),
         "query_text": query_text,
-        "user_id": "u",
+        "user_id": user_id,
         "session_id": None,
         "search_kind": search_kind,
         "served_image_ids": served,
@@ -248,3 +251,137 @@ def test_analytics_summary_ignores_corrupted_rollups(telemetry_dir):
     assert summary["total_searches"] == 2
     assert summary["zero_result_count"] == 1
     assert summary["searches_with_results"] == 1
+
+
+def test_normalize_gap_query():
+    assert content_gaps.normalize_gap_query("  Org-Chart!  ") == "org chart"
+    assert content_gaps.normalize_gap_query("ORG   CHART") == "org chart"
+
+
+def test_content_gaps_exact_merge_without_embeddings(telemetry_dir, monkeypatch):
+    """When embedding fails, identical normalized queries still form a theme."""
+    monkeypatch.setattr(
+        content_gaps,
+        "_embed_unique_labels",
+        lambda labels: None,
+    )
+    _add_search(
+        result_count=0,
+        top_score=None,
+        served=[],
+        query_text="org chart",
+    )
+    _add_search(
+        result_count=0,
+        top_score=None,
+        served=[],
+        query_text="Org Chart!",
+        user_id="u2",
+    )
+    _add_search(
+        result_count=1,
+        top_score=0.1,
+        served=["a"],
+        query_text="unrelated logo",
+    )
+
+    report = content_gaps.content_gaps_report(days=90)
+    assert report["clustering_mode"] == "exact"
+    assert report["gap_event_count"] == 3
+    labels = {t["theme_label"].lower() for t in report["themes"]}
+    assert any("org chart" in lab for lab in labels)
+    org = next(t for t in report["themes"] if "org chart" in t["theme_label"].lower())
+    assert org["search_count"] == 2
+    assert org["zero_count"] == 2
+    assert org["unique_users"] == 2
+    assert report["one_offs"]
+    assert any("logo" in t["theme_label"].lower() for t in report["one_offs"])
+
+
+def test_content_gaps_embedding_clusters_related_queries(telemetry_dir, monkeypatch):
+    """Near-duplicate queries merge when embedder returns similar vectors."""
+    # Map display strings to controllable unit vectors.
+    vecs = {
+        "org chart": np.array([1.0, 0.0, 0.0], dtype=np.float32),
+        "organizational chart": np.array([0.95, 0.3122, 0.0], dtype=np.float32),
+        "company org chart": np.array([0.98, 0.199, 0.0], dtype=np.float32),
+        "beach sunset": np.array([0.0, 0.0, 1.0], dtype=np.float32),
+    }
+
+    def fake_embed(labels):
+        return np.stack([vecs[label] for label in labels], axis=0)
+
+    monkeypatch.setattr(content_gaps, "_embed_unique_labels", fake_embed)
+
+    _add_search(result_count=0, top_score=None, served=[], query_text="org chart")
+    _add_search(
+        result_count=0,
+        top_score=None,
+        served=[],
+        query_text="organizational chart",
+        user_id="u2",
+    )
+    _add_search(
+        result_count=2,
+        top_score=0.1,
+        served=["a", "b"],
+        query_text="company org chart",
+        user_id="u3",
+    )
+    _add_search(
+        result_count=0,
+        top_score=None,
+        served=[],
+        query_text="beach sunset",
+        user_id="u4",
+    )
+    _add_search(
+        result_count=0,
+        top_score=None,
+        served=[],
+        query_text="beach sunset",
+        user_id="u5",
+    )
+    # Similar searches are ignored
+    _add_search(
+        result_count=0,
+        top_score=None,
+        served=[],
+        query_text="org chart",
+        search_kind="similar",
+    )
+    # Strong results are ignored
+    _add_search(result_count=1, top_score=0.9, served=["c"], query_text="org chart")
+
+    report = content_gaps.content_gaps_report(days=90, similarity_threshold=0.85)
+    assert report["clustering_mode"] == "embedding"
+    assert report["gap_event_count"] == 5  # 3 org + 2 beach; not similar/strong
+
+    org = next(
+        t
+        for t in report["themes"]
+        if any("org" in q.lower() for q in t["example_queries"])
+    )
+    assert org["search_count"] == 3
+    assert org["zero_count"] == 2
+    assert org["weak_count"] == 1
+    assert org["unique_users"] == 3
+    assert "no strong matches" in org["summary"].lower()
+
+    beach = next(t for t in report["themes"] if "beach" in t["theme_label"].lower())
+    assert beach["search_count"] == 2
+
+
+def test_content_gaps_skips_similar_only(telemetry_dir, monkeypatch):
+    monkeypatch.setattr(content_gaps, "_embed_unique_labels", lambda labels: None)
+    _add_search(
+        result_count=0,
+        top_score=None,
+        served=[],
+        query_text="org chart",
+        search_kind="similar",
+    )
+    report = content_gaps.content_gaps_report(days=90)
+    assert report["gap_event_count"] == 0
+    assert report["themes"] == []
+    assert report["one_offs"] == []
